@@ -60,10 +60,8 @@ end
 
 f = NonlinearFunction((u, p) -> problem(u, p...))
 A = ones(size(grossy))
-#A[2] = 1.1
 
 B = ones(71)
-names(io)[39]
 B[39] = 1.204
 ϵ = 0.5;
 θ = 0.001;
