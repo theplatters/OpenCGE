@@ -32,8 +32,7 @@ consumption_share = (I - diagm(1 .- factor_share) * Ω)' * grossy
 consumption_share = consumption_share / sum(consumption_share)
 domar_weights = (inv(I - diagm(1 .- factor_share) * Ω)' * consumption_share)
 labor = domar_weights .* factor_share
-
-consumption ./ grossy
+consumption_share_gross_output = consumption ./ grossy
 
 function problem(X, A, β, Ω, factor_share, ε, θ, σ, labor, B, consumption_share_gross_output)
 
@@ -43,16 +42,11 @@ function problem(X, A, β, Ω, factor_share, ε, θ, σ, labor, B, consumption_s
 
     Out = @MVector zeros(eltype(X), 2 * N)
 
-    #Preference Shifter
-    β = (B .* β) #/ sum(B .* β)
-    #λ = (inv(I - diagm(1 .- α) * Ω)' * β)
-    #L = λ .* α
+    β = (B .* β) 
     
     
     labor = inv(I - diagm(1 .- factor_share) * Ω) *  (consumption_share_gross_output .* ((B .* labor) - labor)) + labor
 
-    #labor = B .* y .* α
-    #labor = 1.2 * labor
     q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
     w = p .* (A .^ ((ε - 1) / ε)) .* (factor_share .^ (1 / ε)) .* (y .^ (1 / ε)) .* labor .^ (-1 / ε)
     C = w' * labor
@@ -63,10 +57,6 @@ function problem(X, A, β, Ω, factor_share, ε, θ, σ, labor, B, consumption_s
     return Out
 end
 
-labor = inv(I - diagm(1 .- factor_share) * Ω) *  (consumption_share_gross_output .* ((B .* labor) - labor)) + labor
-sum(labor)
-
-consumption_share_gross_output = consumption ./ grossy
 
 f = NonlinearFunction((u, p) -> problem(u, p...))
 A = ones(size(grossy))
