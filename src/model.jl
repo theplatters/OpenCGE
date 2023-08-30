@@ -21,7 +21,7 @@ struct Shocks
   demand_shock::Vector{Float64}
 end
 
-struct CESData
+mutable struct CESData
   io::DataFrames.DataFrame
   Ω::Matrix{Float64}
   consumption_share::Vector{Float64}
