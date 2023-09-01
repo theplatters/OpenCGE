@@ -22,7 +22,7 @@ io = coalesce.(io, 0)
 Ω = Ω ./ sum(Ω, dims=2)
 
 grossy = io[1:71, "Gesamte Verwendung von Gütern"]
-consumption = io[:,"Letzte Verwendung von Gütern zusammen"][1:71]
+consumption = io[:, "Letzte Verwendung von Gütern zusammen"][1:71]
 value_added = Vector(io[findfirst(==("Bruttowertschöpfung"), io.Sektoren), 1:72])[2:end]
 
 
@@ -42,12 +42,12 @@ function problem(X, data::CESData)
 
     Out = @MVector zeros(eltype(X), 2 * N)
 
-   
 
 
-    β = (B .* β) 
 
-    labor =min.(1.1 * labor,inv(I - diagm(1 .- factor_share) * Ω) *  (consumption_share_gross_output .* ((B .* labor) - labor)) + labor)
+    β = (B .* β)
+
+    labor = min.(1.1 * labor, inv(I - diagm(1 .- factor_share) * Ω) * (consumption_share_gross_output .* ((B .* labor) - labor)) + labor)
 
     q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
     w = p .* (A .^ ((ε - 1) / ε)) .* (factor_share .^ (1 / ε)) .* (y .^ (1 / ε)) .* labor .^ (-1 / ε)
@@ -70,7 +70,7 @@ B[39] = 1.204
 θ = 0.001;
 σ = 0.9;
 x = Complex.([ones(71)..., domar_weights...])
-GDP = []    
+GDP = []
 
 p = [A, consumption_share, Ω, factor_share, ϵ, θ, σ, labor, B, consumption_share_gross_output]
 
@@ -103,3 +103,23 @@ q = q ./ p
 include("model.jl")
 
 data = CESModel.read_data("I-O_DE2019_formatiert.csv")
+
+A = ones(71)
+A[12] = 0.7
+B = ones(71)
+B[39] = 1.204
+shocks = CESModel.Shocks(A, B)
+
+elasticities = CESModel.Elasticities(0.0001, 0.5, 0.9)
+
+labor_realloc(data) = data.labor_share
+
+
+p_no_realloc, q_no_realloc = CESModel.solve_ces_model(data, shocks, elasticities, labor_reallocation = labor_realloc)
+p,q = CESModel.solve_ces_model(data,shocks,elasticities)
+
+CESModel.real_gdp(p, q, data)
+CESModel.nominal_gdp(p, q, data)
+
+CESModel.real_gdp(p_no_realloc, q_no_realloc, data)
+CESModel.nominal_gdp(p_no_realloc, q_no_realloc, data)

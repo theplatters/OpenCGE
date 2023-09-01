@@ -4,7 +4,7 @@ import NonlinearSolve
 import CSV
 import DataFrames
 import LineSearches
-import SciMLNLSolve 
+import SciMLNLSolve
 using LinearAlgebra
 
 export Elasticities, Shocks, CESData, solve_ces_model, read_data
@@ -71,24 +71,26 @@ function read_data(filename::String)
 
   Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go = generateData(io)
 
-  return CESData(io, Ω, consumption_share, factor_share, λ, labor_share,consumption_share_go, Shocks(ones(71),ones(71)), Elasticities(0.0001,0.5,0.9))
+  return CESData(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, Shocks(ones(71), ones(71)), Elasticities(0.0001, 0.5, 0.9))
+end
+
+function full_demand_labor_allocation(data::CESData)
+  inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((data.shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 
 
+function problem(X, data::CESData, labor_reallocation)
 
-function problem(X, data::CESData)
-
-  N = length(factor_share)
+  N = length(data.factor_share)
   p = @view X[1:N]
   y = @view X[N+1:end]
 
-  A = data.shoks.supply_shock
-  B = data.shoks.demand_shock
+  A = data.shocks.supply_shock
+  B = data.shocks.demand_shock
   β = data.consumption_share
-  consumption_share_gross_output = data.consumption_share_gross_output
   Ω = data.Ω
   factor_share = data.factor_share
-  labor = data.labor
+  labor = labor_reallocation(data)
 
   ϵ = data.elasticities.ϵ
   θ = data.elasticities.θ
@@ -98,50 +100,51 @@ function problem(X, data::CESData)
 
   β = (B .* β)
 
-
-  labor = min.(1.1 * labor,
-    inv(I - diagm(1 .- factor_share) * Ω) * (consumption_share_gross_output .* ((B .* labor) - labor)) + labor)
-
   q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
-  w = p .* (A .^ ((ε - 1) / ε)) .* (factor_share .^ (1 / ε)) .* (y .^ (1 / ε)) .* labor .^ (-1 / ε)
+  w = p .* (A .^ ((ϵ - 1) /  ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
   C = w' * labor
 
-  Out[1:N] = p - (A .^ (ε - 1) .* (factor_share .* w .^ (1 - ε) + (1 .- factor_share) .* q .^ (1 - ε))) .^ (1 / (1 - ε))
-  Out[N+1:end] = y - p .^ (-θ) .* (Ω' * (p .^ ε .* A .^ (ε - 1) .* q .^ (θ - ε) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* β
+  Out[1:N] = p - (A .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+  Out[N+1:end] = y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* A .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* β
 
   return Out
 end
 
-function solve_ces_model(data, shocks, elasticities)
+function solve_ces_model(data::CESData, shocks, elasticities; labor_reallocation=full_demand_labor_allocation)
   set_elasticities!(data, elasticities)
   set_shocks!(data, shocks)
-  f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p...))
+  f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p, labor_reallocation))
 
-  ProbN = NonlinearSolve.NonlinearProblem(f, x, data)
 
-  x = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method=:newton, linesearch=LineSearches.BackTracking()), reltol=1e-8, abstol=1e-8).u
+  x0 = Complex.([ones(71)..., data.λ...])
 
+  ProbN = NonlinearSolve.NonlinearProblem(f, x0, data)
+
+  x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method=:newton, linesearch=LineSearches.BackTracking()), reltol=1e-8, abstol=1e-8).u
+  x = real.(x_imag)
   p = @view x[1:71]
   q = @view x[72:end]
   return p, q
 end
 
-function nominal_gdp(p,q,data)
-  A = data.shoks.supply_shock
+function nominal_gdp(p, q, data)
+  A = data.shocks.supply_shock
   factor_share = data.factor_share
-  labor = data.labor
+  labor_share = data.labor_share
 
+  ϵ = data.elasticities.ϵ
 
-  (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ))' * labor
+  (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
-function real_gdp(p,q,data)
-  A = data.shoks.supply_shock
+function real_gdp(p, q, data)
+  A = data.shocks.supply_shock
   factor_share = data.factor_share
-  labor = data.labor
+  labor_share = data.labor_share
+  ϵ = data.elasticities.ϵ
 
   q = q ./ p
-  (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ))' * labor
+  (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
 
