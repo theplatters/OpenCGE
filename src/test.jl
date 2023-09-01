@@ -34,7 +34,7 @@ domar_weights = (inv(I - diagm(1 .- factor_share) * Ω)' * consumption_share)
 labor = domar_weights .* factor_share
 consumption_share_gross_output = consumption ./ grossy
 
-function problem(X, data::CESData)
+function problem(X, A, β, Ω, factor_share, ε, θ, σ, labor, B, consumption_share_gross_output)
 
     N = length(factor_share)
     p = @view X[1:N]
@@ -64,7 +64,6 @@ f = NonlinearFunction((u, p) -> problem(u, p...))
 A = ones(size(grossy))
 
 B = ones(71)
-B[30:36] .= 1.204
 B[39] = 1.204
 ϵ = 0.5;
 θ = 0.001;
@@ -96,10 +95,29 @@ q = q ./ p
 
 (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ))' * labor
 
+for i in LinRange(1.0, 1.5, 100)
+
+    x0 = x
+    B[] = i
+    p = [A, consumption_share, Ω, factor_share, ϵ, θ, σ, labor, B]
+    ProbN = NonlinearProblem(f, x0, p)
+
+    x = solve(ProbN, NLSolveJL(method=:newton, linesearch=BackTracking()), reltol=1e-8, abstol=1e-8).u
+
+    p = @view x[1:71]
+    println("The price after demand dropped to $i is $(p[20])")
+    q = @view x[72:end]
+
+    append!(GDP, (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ))' * labor)
+end
+
+using Plots
+plot(LinRange(1, 1.5, 100), GDP)
 
 #-------------------------------
 
-
+using JuMP
+using Ipopt
 include("model.jl")
 
 data = CESModel.read_data("I-O_DE2019_formatiert.csv")

@@ -1,36 +1,24 @@
 module CESModel
-
-import NonlinearSolve
+import JuMP
 import CSV
 import DataFrames
 import LineSearches
 import SciMLNLSolve
 using LinearAlgebra
+export solve_ces_model, read_data
 
-export Elasticities, Shocks, CESData, solve_ces_model, read_data
-
-
-struct Elasticities
-  θ::Float64
-  ϵ::Float64
-  σ::Float64
-end
-
-struct Shocks
-  supply_shock::Vector{Float64}
-  demand_shock::Vector{Float64}
-end
-
-mutable struct CESData
+struct CESData
   io::DataFrames.DataFrame
   Ω::Matrix{Float64}
   consumption_share::Vector{Float64}
   factor_share::Vector{Float64}
   λ::Vector{Float64}
   labor_share::Vector{Float64}
-  consumption_share_gross_output::Vector{Float64}
-  shocks::Shocks
-  elasticities::Elasticities
+  A::Vector{Float64}
+  B::Vector{Float64}
+  θ::Float64
+  ϵ::Float64
+  σ::Float64
 end
 
 function generateData(io::DataFrames.DataFrame)
@@ -50,17 +38,9 @@ function generateData(io::DataFrames.DataFrame)
   consumption_share = consumption_share / sum(consumption_share)
   λ = (inv(I - diagm(1 .- factor_share) * Ω)' * consumption_share)
   labor_share = λ .* factor_share
-  consumption_share_gross_output = consumption ./ grossy
-  return Ω, consumption_share, factor_share, λ, labor_share, consumption_share_gross_output
+  return Ω, consumption_share, factor_share, λ, labor_share
 end
 
-function set_elasticities!(data::CESData, elasticities::Elasticities)
-  data.elasticities = elasticities
-end
-
-function set_shocks!(data::CESData, shocks::Shocks)
-  data.shocks = shocks
-end
 
 function read_data(filename::String)
   filedir = joinpath(pwd(), "data/", filename)
@@ -69,7 +49,7 @@ function read_data(filename::String)
   io.Sektoren = replace.(io.Sektoren, r"^\s+" => "")
   io = coalesce.(io, 0)
 
-  Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go = generateData(io)
+  Ω, consumption_share, factor_share, λ, labor_share = generateData(io)
 
   return CESData(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, Shocks(ones(71), ones(71)), Elasticities(0.0001, 0.5, 0.9))
 end
@@ -78,6 +58,8 @@ function full_demand_labor_allocation(data::CESData)
   inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((data.shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 
+function add_model_variables!(model::JuMP.Model, data::CESData)
+  l = length(data.consumption_share)
 
 function problem(X, data::CESData, labor_reallocation)
 
@@ -146,6 +128,7 @@ function real_gdp(p, q, data)
   q = q ./ p
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
+
 
 
 
