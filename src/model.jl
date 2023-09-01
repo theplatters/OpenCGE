@@ -2,7 +2,8 @@ module CESModel
 import JuMP
 import CSV
 import DataFrames
-
+import LineSearches
+import SciMLNLSolve
 using LinearAlgebra
 export solve_ces_model, read_data
 
@@ -50,49 +51,82 @@ function read_data(filename::String)
 
   Ω, consumption_share, factor_share, λ, labor_share = generateData(io)
 
-  return CESData(io, Ω, consumption_share, factor_share, λ, labor_share, ones(71), ones(71), 0.001, 0.5, 0.9)
+  return CESData(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, Shocks(ones(71), ones(71)), Elasticities(0.0001, 0.5, 0.9))
+end
+
+function full_demand_labor_allocation(data::CESData)
+  inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((data.shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 
 function add_model_variables!(model::JuMP.Model, data::CESData)
   l = length(data.consumption_share)
 
-  JuMP.@variable(model, p[i in 1:l] .>= 0, start = 1)
-  JuMP.@variable(model, y[i in 1:l] .>= 0, start = data.λ[i])
+function problem(X, data::CESData, labor_reallocation)
+
+  N = length(data.factor_share)
+  p = @view X[1:N]
+  y = @view X[N+1:end]
+
+  A = data.shocks.supply_shock
+  B = data.shocks.demand_shock
+  β = data.consumption_share
+  Ω = data.Ω
+  factor_share = data.factor_share
+  labor = labor_reallocation(data)
+
+  ϵ = data.elasticities.ϵ
+  θ = data.elasticities.θ
+  σ = data.elasticities.σ
+
+  Out = zeros(eltype(X), 2 * N)
+
+  β = (B .* β)
+
+  q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+  w = p .* (A .^ ((ϵ - 1) /  ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+  C = w' * labor
+
+  Out[1:N] = p - (A .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+  Out[N+1:end] = y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* A .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* β
+
+  return Out
 end
 
-function add_model_contraints!(model::JuMP.Model, data::CESData)
-  p = model[:p]
-  y = model[:y]
-
-  JuMP.@NLexpression(model,β[i = 1:71],data.consumption_share[i] * data.B[i] / sum(data.consumption_share[j] * data.B[j] for j in 1:71))
-  
-  JuMP.@NLexpression(model, q[i=1:71],
-    sum(data.Ω[i, j] * p[j]^(1 - data.θ) for j in 1:71)^(1 / (1 - data.θ)))
-
-  JuMP.@NLexpression(model, w[i=1:71],
-   p[i] * (data.A[i] ^ ((data.ϵ - 1)/data.ϵ)) * (data.factor_share[i] ^ (1 / data.ϵ)) * (y[i] ^ (1/data.ϵ)) * data.labor_share[i] ^ (-1/data.ϵ))
-  JuMP.@NLexpression(model, C, sum(w[j] * data.labor_share[j] for j in 1:71))
-
-  JuMP.@NLconstraint(model, price[i=1:71],
-    p[i] == data.A[i]^-1 * (data.factor_share[i] * w[i]^(1 - data.ϵ) + (1 - data.factor_share[i]) * q[i]^(1 - data.ϵ))^(1 / (1 - data.ϵ)))
-  
-  JuMP.@NLconstraint(model, amount[i=1:71],
-    y[i] == p[i]^(-data.θ) * sum(data.A[j]^(data.ϵ - 1) * data.Ω[i, j] * p[j]^data.ϵ * q[j]^(data.θ - data.ϵ) * (1 - data.factor_share[j]) * y[j] for j in 1:71) - p[i]^(-data.σ) * C * β[i])
+function solve_ces_model(data::CESData, shocks, elasticities; labor_reallocation=full_demand_labor_allocation)
+  set_elasticities!(data, elasticities)
+  set_shocks!(data, shocks)
+  f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p, labor_reallocation))
 
 
+  x0 = Complex.([ones(71)..., data.λ...])
+
+  ProbN = NonlinearSolve.NonlinearProblem(f, x0, data)
+
+  x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method=:newton, linesearch=LineSearches.BackTracking()), reltol=1e-8, abstol=1e-8).u
+  x = real.(x_imag)
+  p = @view x[1:71]
+  q = @view x[72:end]
+  return p, q
 end
 
+function nominal_gdp(p, q, data)
+  A = data.shocks.supply_shock
+  factor_share = data.factor_share
+  labor_share = data.labor_share
 
+  ϵ = data.elasticities.ϵ
 
-function solve_ces_model(data, optimizer)
-  model = JuMP.Model(optimizer)
-  data = read_data("I-O_DE2019_formatiert.csv")
-  add_model_variables!(model, data)
-  add_model_contraints!(model, data)
-  p = model[:p]
-  JuMP.@objective(model,Min, sum(p[i] - 1 for i in 1:71))
-  JuMP.optimize!(model)
-  return model
+  (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
+end
+
+function real_gdp(p, q, data)
+  A = data.shocks.supply_shock
+  factor_share = data.factor_share
+  labor_share = data.labor_share
+  ϵ = data.elasticities.ϵ
+
+  q = q ./ p
+  (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
 
