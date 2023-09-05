@@ -116,8 +116,6 @@ plot(LinRange(1, 1.5, 100), GDP)
 
 #-------------------------------
 
-using JuMP
-using Ipopt
 include("model.jl")
 
 data = CESModel.read_data("I-O_DE2019_formatiert.csv")
