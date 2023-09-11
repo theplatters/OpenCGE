@@ -121,10 +121,15 @@ include("model.jl")
 data = CESModel.read_data("I-O_DE2019_formatiert.csv")
 
 A = ones(71)
-A[12] = 0.7
+A[21] = 0.9
+
 B = ones(71)
-B[39] = 1.204
+#B[39] = 1.204
 shocks = CESModel.Shocks(A, B)
+
+
+CESModel.calculate_investment!(shocks,data,1200,"Erdöl und Erdgas")
+shocks.demand_shock
 
 elasticities = CESModel.Elasticities(0.0001, 0.5, 0.9)
 
@@ -139,3 +144,8 @@ CESModel.nominal_gdp(p, q, data)
 
 CESModel.real_gdp(p_no_realloc, q_no_realloc, data)
 CESModel.nominal_gdp(p_no_realloc, q_no_realloc, data)
+
+data.io.Sektoren[12]
+
+
+                

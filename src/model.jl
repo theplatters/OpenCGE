@@ -7,7 +7,7 @@ import LineSearches
 import SciMLNLSolve
 using LinearAlgebra
 
-export Elasticities, Shocks, CESData, solve_ces_model, read_data
+export Elasticities, Shocks, CESData, solve_ces_model, read_data, calculate_investment!
 
 
 struct Elasticities
@@ -62,6 +62,24 @@ function set_shocks!(data::CESData, shocks::Shocks)
   data.shocks = shocks
 end
 
+function calculate_investment!(shocks::Shocks, data::CESData, investment::Number, sector::Int)
+  consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
+                sum |>
+                x -> getindex(x, 1:71)
+  shocks.demand_shock[sector] = 1 + investment / consumption[sector]
+
+end
+
+function calculate_investment!(shocks::Shocks, data::CESData, investment::Number, sector::String)
+  sector_number = findfirst(==(sector),data.io.Sektoren)
+  consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
+                sum |>
+                x -> getindex(x, 1:71)
+  shocks.demand_shock[sector_number] = 1 +  investment / consumption[sector_number]
+
+end
+
+
 function read_data(filename::String)
   filedir = joinpath(pwd(), "data/", filename)
   io = CSV.read(filedir, DataFrames.DataFrame, delim=";", decimal=',', missingstring=["-", "x"])
@@ -101,7 +119,7 @@ function problem(X, data::CESData, labor_reallocation)
   β = (B .* β)
 
   q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
-  w = p .* (A .^ ((ϵ - 1) /  ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+  w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
   C = w' * labor
 
   Out[1:N] = p - (A .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
@@ -146,7 +164,6 @@ function real_gdp(p, q, data)
   q = q ./ p
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
-
 
 
 
