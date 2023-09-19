@@ -71,11 +71,11 @@ function calculate_investment!(shocks::Shocks, data::CESData, investment::Number
 end
 
 function calculate_investment!(shocks::Shocks, data::CESData, investment::Number, sector::String)
-  sector_number = findfirst(==(sector),data.io.Sektoren)
+  sector_number = findfirst(==(sector), data.io.Sektoren)
   consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
                 sum |>
                 x -> getindex(x, 1:71)
-  shocks.demand_shock[sector_number] = 1 +  investment / consumption[sector_number]
+  shocks.demand_shock[sector_number] = 1 + investment / consumption[sector_number]
 
 end
 
@@ -128,15 +128,19 @@ function problem(X, data::CESData, labor_reallocation)
   return Out
 end
 
-function solve_ces_model(data::CESData, shocks, elasticities; labor_reallocation=full_demand_labor_allocation)
+function solve_ces_model(
+  data::CESData,
+  shocks, elasticities;
+  labor_reallocation=full_demand_labor_allocation,
+  init=Complex.([ones(71)..., data.λ...])
+)
   set_elasticities!(data, elasticities)
   set_shocks!(data, shocks)
   f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p, labor_reallocation))
 
 
-  x0 = Complex.([ones(71)..., data.λ...])
 
-  ProbN = NonlinearSolve.NonlinearProblem(f, x0, data)
+  ProbN = NonlinearSolve.NonlinearProblem(f, init, data)
 
   x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method=:newton, linesearch=LineSearches.BackTracking()), reltol=1e-8, abstol=1e-8).u
   x = real.(x_imag)
