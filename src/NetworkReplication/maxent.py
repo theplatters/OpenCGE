@@ -37,4 +37,3 @@ if __name__ == '__main__':
         for sector2 in io.index:
             print(sector, sector2)
             df.loc[sector, sector2] = dio.loc[sector, sector2].sum().sum()
-    df
