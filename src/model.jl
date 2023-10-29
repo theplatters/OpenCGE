@@ -89,7 +89,7 @@ function generateData(io::DataFrames.DataFrame)
   λ = (inv(I - diagm(1 .- factor_share) * Ω)' * consumption_share)
   labor_share = λ .* factor_share
   consumption_share_gross_output = consumption ./ grossy
-  return Ω, consumption_share, factor_share, λ, labor_share, consumption_share_gross_output,grossy
+  return Ω, consumption_share, factor_share, λ, labor_share, consumption_share_gross_output, grossy
 end
 """
   set_elasticities!(data::CESData, elasticitie::Elasticities)
@@ -227,7 +227,7 @@ function solve_ces_model(
   x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method=:newton, linesearch=LineSearches.BackTracking()), reltol=1e-8, abstol=1e-8).u
   x = real.(x_imag)
   p = @view x[1:length(data.consumption_share)]
-  q = @view x[(length(data.consumption_share) +1):end]
+  q = @view x[(length(data.consumption_share)+1):end]
   return p, q
 end
 
@@ -273,8 +273,36 @@ function real_gdp(p, q, data)
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
-function calculate_gross_increase(q,data)
-  
+"""
+    nominal_increase(q,data)
+
+Returns the increase in output in each sector, in the current price level
+
+# Example
+```julia-repl
+julia> nominal_increase(data.λ,data)
+0
+0
+0
+```
+"""
+function nominal_increase(q, data)
+  return (q - data.λ) * data.grossy
+end
+
+"""
+    gross_increase(p,q,data)
+
+Returns the increase in output in each sector, in the price level before the shock
+
+# Example
+```julia-repl
+julia> gross_incease(ones(76),data.λ,data)
+zeros(76)
+```
+"""
+function gross_incease(p, q, data)
+  return (q ./ p - data.λ) * data.grossy
 end
 
 end
