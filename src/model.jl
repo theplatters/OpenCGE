@@ -287,7 +287,7 @@ julia> nominal_increase(data.λ,data)
 ```
 """
 function nominal_increase(q, data)
-  return (q - data.λ) * data.grossy
+  return (q - data.λ) .* data.grossy
 end
 
 """
@@ -302,7 +302,7 @@ zeros(76)
 ```
 """
 function gross_incease(p, q, data)
-  return (q ./ p - data.λ) * data.grossy
+  return (q ./ p - data.λ) .* data.grossy
 end
 
 end
