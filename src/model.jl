@@ -155,7 +155,7 @@ function read_data(filename::String)
   io = coalesce.(io, 0) #Set NANS to 0
 
   Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy = generateData(io)
-
+  #return a mutable structure element (see above):
   return CESData(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, Shocks(ones(71), ones(71)), Elasticities(0.0001, 0.5, 0.9), grossy)
 end
 
@@ -218,15 +218,19 @@ function solve_ces_model(
 )
   set_elasticities!(data, elasticities)
   set_shocks!(data, shocks)
+  #defines the function:
   f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p, labor_reallocation))
 
 
-
+  #defines the concrete problem to be solved (i.e. with inserted parameter values):
   ProbN = NonlinearSolve.NonlinearProblem(f, init, data)
-
+  #x_imag gives a vector with prices followed by domar weigths:
   x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method=:newton, linesearch=LineSearches.BackTracking()), reltol=1e-8, abstol=1e-8).u
+  #turns complex numbers into real numbers:
   x = real.(x_imag)
+  # take the prices from the x vector:
   p = @view x[1:length(data.consumption_share)]
+  #take the domar weights from the x vector:
   q = @view x[(length(data.consumption_share)+1):end]
   return p, q
 end
@@ -248,7 +252,8 @@ function nominal_gdp(p, q, data)
   labor_share = data.labor_share
 
   ϵ = data.elasticities.ϵ
-
+  #put these values into GDP equation from baquee/farhi (difference from real gdp: we do not divide
+  # q by prices):
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
@@ -268,7 +273,7 @@ function real_gdp(p, q, data)
   factor_share = data.factor_share
   labor_share = data.labor_share
   ϵ = data.elasticities.ϵ
-
+  #put these values into real GDP equation from baquee/farhi:
   q = q ./ p
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
