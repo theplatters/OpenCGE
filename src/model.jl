@@ -274,8 +274,8 @@ function real_gdp(p, q, data)
   labor_share = data.labor_share
   ϵ = data.elasticities.ϵ
   #put these values into real GDP equation from baquee/farhi:
-  q = q ./ p
-  (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
+  #q = q ./ p
+  ((A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
 """
@@ -291,8 +291,8 @@ julia> nominal_increase(data.λ,data)
 0
 ```
 """
-function nominal_increase(q, data)
-  return (q - data.λ) .* data.grossy
+function nominal_increase(p, q, data)
+  return (p .* q - data.λ) .* data.grossy
 end
 
 """
@@ -307,7 +307,7 @@ zeros(76)
 ```
 """
 function gross_incease(p, q, data)
-  return (q ./ p - data.λ) .* data.grossy
+  return (q - data.λ) .* data.grossy
 end
 
 end
