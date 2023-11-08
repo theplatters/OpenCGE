@@ -119,13 +119,16 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::CESData, investment::Number, sector::Int)
-  consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-                sum |>
-                x -> getindex(x, 1:71)
-  shocks.demand_shock[sector] = 1 + investment / consumption[sector]
+function calculate_investment!(shocks::Shocks, data::CESData, investment::Vector{<:Number}, sector::Vector{Int})
 
-  println("Demand shock to sector $(sector): $(shocks.demand_shock[sector])")
+  consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
+                  sum |>
+                  x -> getindex(x, 1:71)
+
+  for i in 1:length(sector)
+    shocks.demand_shock[sector[i]] = 1 + investment[i] / consumption[sector[i]]
+    println("Demand shock to sector $(sector): $(shocks.demand_shock[sector[i]])")
+  end
 
 end
 
@@ -134,14 +137,17 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::CESData, investment::Number, sector::String)
-  sector_number = findfirst(==(sector), data.io.Sektoren)
-  consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-                sum |>
-                x -> getindex(x, 1:71)
-  shocks.demand_shock[sector_number] = 1 + investment / consumption[sector_number]
+function calculate_investment!(shocks::Shocks, data::CESData, investment::Vector{<:Number}, sector::Vector{String})
 
-  println("Demand shock to sector $(sector): $(shocks.demand_shock[sector])")
+  consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
+                  sum |>
+                  x -> getindex(x, 1:71)
+
+  for i in 1:length(sector)
+    sector_number = findfirst(==(sector[i]), data.io.Sektoren)
+    shocks.demand_shock[sector_number] = 1 + investment[i] / consumption[sector_number]
+    println("Demand shock to sector $(sector[i]): $(shocks.demand_shock[sector_number])")
+  end
   
 end
 
