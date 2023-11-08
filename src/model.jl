@@ -125,6 +125,8 @@ function calculate_investment!(shocks::Shocks, data::CESData, investment::Number
                 x -> getindex(x, 1:71)
   shocks.demand_shock[sector] = 1 + investment / consumption[sector]
 
+  println("Demand shock to sector $(sector): $(shocks.demand_shock[sector])")
+
 end
 
 """
@@ -139,6 +141,8 @@ function calculate_investment!(shocks::Shocks, data::CESData, investment::Number
                 x -> getindex(x, 1:71)
   shocks.demand_shock[sector_number] = 1 + investment / consumption[sector_number]
 
+  println("Demand shock to sector $(sector): $(shocks.demand_shock[sector])")
+  
 end
 
 """
