@@ -214,6 +214,7 @@ function problem(X, data::CESData, labor_reallocation)
 
   return Out
 end
+
 """
     solve_ces_model(data::CESData, shocks, elasticities,[labor_reallocation, init])
 The main function of this module, input the relavant model data, shocks and optionally labor_reallocation and
@@ -302,8 +303,14 @@ julia> nominal_increase(data.λ,data)
 ```
 """
 function nominal_increase(p, q, data)
-  return ((p .* q) ./ nominal_gdp(p,q,data) - data.λ) .* data.grossy
+  A = data.shocks.supply_shock
+  factor_share = data.factor_share
+  ϵ = data.elasticities.ϵ
+  labor = data.labor_share 
+  w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+  w .* labor
 end
+
 
 """
     gross_increase(p,q,data)
@@ -317,7 +324,12 @@ zeros(76)
 ```
 """
 function gross_incease(p, q, data)
-  return (q  - data.λ) .* data.grossy
+  A = data.shocks.supply_shock
+  factor_share = data.factor_share
+  ϵ = data.elasticities.ϵ
+  labor = data.labor_share 
+  w = (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+  w .* labor
 end
 
 end
