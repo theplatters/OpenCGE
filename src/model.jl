@@ -30,7 +30,9 @@ struct Elasticities
   σ::Float64
 end
 
-"""
+
+
+""" 
     Shocks
 
 Two vectors, that have to be the same length as the amount of sectors.
@@ -122,8 +124,8 @@ Alters the shock vector, so that the shock in the given sector reflects the inve
 function calculate_investment!(shocks::Shocks, data::CESData, investment::Vector{<:Number}, sector::Vector{Int})
 
   consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-                  sum |>
-                  x -> getindex(x, 1:71)
+                sum |>
+                x -> getindex(x, 1:71)
 
   for i in 1:length(sector)
     shocks.demand_shock[sector[i]] = 1 + investment[i] / consumption[sector[i]]
@@ -140,15 +142,15 @@ Alters the shock vector, so that the shock in the given sector reflects the inve
 function calculate_investment!(shocks::Shocks, data::CESData, investment::Vector{<:Number}, sector::Vector{String})
 
   consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-                  sum |>
-                  x -> getindex(x, 1:71)
+                sum |>
+                x -> getindex(x, 1:71)
 
   for i in 1:length(sector)
     sector_number = findfirst(==(sector[i]), data.io.Sektoren)
     shocks.demand_shock[sector_number] = 1 + investment[i] / consumption[sector_number]
     println("Demand shock to sector $(sector[i]): $(shocks.demand_shock[sector_number])")
   end
-  
+
 end
 
 """
@@ -243,7 +245,9 @@ function solve_ces_model(
   p = @view x[1:length(data.consumption_share)]
   #take the domar weights from the x vector:
   q = @view x[(length(data.consumption_share)+1):end]
-  return p, q
+  df = DataFrames.DataFrame(Dict("prices" => p, "quantities" => q, "value_added" => gross_incease(p, q, data), "value_added_nominal" => nominal_increase(p, q, data), "sectors" => data.io.Sektoren))
+
+  return df
 end
 
 """
@@ -268,8 +272,13 @@ function nominal_gdp(p, q, data)
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
+function nominal_gdp(solution::DataFrames.DataFrame)
+  sum(solution.value_added_nominal)
+end
+
+
 """
-    real_gdp(p,q,data)
+real_gdp(p,q,data)
 
 Returns the GDP adapted to the pre-shock price level
 
@@ -289,6 +298,9 @@ function real_gdp(p, q, data)
   ((A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
+function real_gdp(solution::DataFrames.DataFrame)
+  sum(solution.value_added)
+end
 """
     nominal_increase(q,data)
 
@@ -306,7 +318,7 @@ function nominal_increase(p, q, data)
   A = data.shocks.supply_shock
   factor_share = data.factor_share
   ϵ = data.elasticities.ϵ
-  labor = data.labor_share 
+  labor = data.labor_share
   w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
   w .* labor
 end
@@ -327,7 +339,7 @@ function gross_incease(p, q, data)
   A = data.shocks.supply_shock
   factor_share = data.factor_share
   ϵ = data.elasticities.ϵ
-  labor = data.labor_share 
+  labor = data.labor_share
   w = (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
   w .* labor
 end
