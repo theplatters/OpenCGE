@@ -1,4 +1,4 @@
-module CESModel
+module BeyondHulten
 
 import NonlinearSolve
 import CSV
@@ -241,10 +241,8 @@ function solve_ces_model(
   x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method=:newton, linesearch=LineSearches.BackTracking()), reltol=1e-8, abstol=1e-8).u
   #turns complex numbers into real numbers:
   x = real.(x_imag)
-  # take the prices from the x vector:
-  p = @view x[1:length(data.consumption_share)]
-  #take the domar weights from the x vector:
-  q = @view x[(length(data.consumption_share)+1):end]
+  p = x[1:length(data.consumption_share)]
+  q = x[(length(data.consumption_share)+1):end]
   df = DataFrames.DataFrame(Dict("prices" => p,
     "quantities" => q,
     "value_added_relative" => gross_incease(p, q, data, labor_reallocation),
@@ -278,7 +276,19 @@ function nominal_gdp(p, q, data)
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
-function nominal_gdp(solution::DataFrames.DataFrame; relative = true)
+"""
+    real_gdp(solution::DataFrame;relative)
+
+Returns the nominal GDP relative to the preshockgdp, or in € if relative = true is set
+
+```julia-repl
+julia> nominal_gdp(sol,relative = true)
+  112412.01
+julia> nominal_gdp(sol)
+  1.023
+```
+"""
+function nominal_gdp(solution::DataFrames.DataFrame; relative=true)
   relative ? sum(solution.value_added_nominal_relative) : sum(solution.value_added_nominal_absolute)
 end
 
@@ -304,6 +314,18 @@ function real_gdp(p, q, data, labor_realloc)
   ((A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
+"""
+    real_gdp(solution::DataFrame;relative)
+
+Returns the GDP relative to the preshockgdp, or in € if relative = true is set
+
+```julia-repl
+julia> real_gdp(sol,relative = true)
+  112412.01
+julia> real_gdp(sol)
+```
+"""
+
 function real_gdp(solution::DataFrames.DataFrame; relative=true)
   relative ? sum(solution.value_added_relative) : sum(solution.value_added_absolute)
 end
@@ -320,7 +342,7 @@ julia> nominal_increase(data.λ,data,labor_realloc)
 0
 ```
 """
-function nominal_increase(p, q, data, labor_realloc; relative=false)
+function nominal_increase(p, q, data, labor_realloc; relative=true)
   A = data.shocks.supply_shock
   factor_share = data.factor_share
   ϵ = data.elasticities.ϵ
