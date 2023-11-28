@@ -245,7 +245,13 @@ function solve_ces_model(
   p = @view x[1:length(data.consumption_share)]
   #take the domar weights from the x vector:
   q = @view x[(length(data.consumption_share)+1):end]
-  df = DataFrames.DataFrame(Dict("prices" => p, "quantities" => q, "value_added" => gross_incease(p, q, data), "value_added_nominal" => nominal_increase(p, q, data), "sectors" => data.io.Sektoren))
+  df = DataFrames.DataFrame(Dict("prices" => p,
+    "quantities" => q,
+    "value_added_relative" => gross_incease(p, q, data, labor_reallocation),
+    "value_added_nominal_relative" => nominal_increase(p, q, data, labor_reallocation),
+    "value_added_absolute" => gross_incease(p, q, data, labor_reallocation, relative=false),
+    "value_added_nominal_absolute" => nominal_increase(p, q, data, labor_reallocation, relative=false),
+    "sectors" => data.io.Sektoren[1:71]))
 
   return df
 end
@@ -272,34 +278,34 @@ function nominal_gdp(p, q, data)
   (p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
-function nominal_gdp(solution::DataFrames.DataFrame)
-  sum(solution.value_added_nominal)
+function nominal_gdp(solution::DataFrames.DataFrame; relative = true)
+  relative ? sum(solution.value_added_nominal_relative) : sum(solution.value_added_nominal_absolute)
 end
 
 
 """
-real_gdp(p,q,data)
+real_gdp(p,q,data, labor_realloc)
 
 Returns the GDP adapted to the pre-shock price level
 
 # Example
 ```julia-repl
-julia> real_gdp(ones(76),data.λ,data)
+julia> real_gdp(ones(76),data.λ,data,labor_realloc)
 1
 ```
 """
-function real_gdp(p, q, data)
+function real_gdp(p, q, data, labor_realloc)
   A = data.shocks.supply_shock
   factor_share = data.factor_share
-  labor_share = data.labor_share
+  labor_share = labor_realloc(data.labor_share)
   ϵ = data.elasticities.ϵ
   #put these values into real GDP equation from baquee/farhi:
   #q = q ./ p
   ((A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
 end
 
-function real_gdp(solution::DataFrames.DataFrame)
-  sum(solution.value_added)
+function real_gdp(solution::DataFrames.DataFrame; relative=true)
+  relative ? sum(solution.value_added_relative) : sum(solution.value_added_absolute)
 end
 """
     nominal_increase(q,data)
@@ -308,26 +314,26 @@ Returns the increase in output in each sector, in the current price level
 
 # Example
 ```julia-repl
-julia> nominal_increase(data.λ,data)
+julia> nominal_increase(data.λ,data,labor_realloc)
 0
 0
 0
 ```
 """
-function nominal_increase(p, q, data)
+function nominal_increase(p, q, data, labor_realloc; relative=false)
   A = data.shocks.supply_shock
   factor_share = data.factor_share
   ϵ = data.elasticities.ϵ
-  labor = data.labor_share
+  labor = labor_realloc(data)
   w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
-  w .* labor
+  relative ? w .* labor : Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* w .* labor
 end
 
 
 """
-    gross_increase(p,q,data)
+    gross_increase(p,q,data, labor_realloc; relative)
 
-Returns the increase in output in each sector, in the price level before the shock
+Returns the increase in output in each sector, in the price level before the shock. If relative
 
 # Example
 ```julia-repl
@@ -335,13 +341,15 @@ julia> gross_incease(ones(76),data.λ,data)
 zeros(76)
 ```
 """
-function gross_incease(p, q, data)
+function gross_incease(p, q, data, labor_realloc; relative=true)
   A = data.shocks.supply_shock
   factor_share = data.factor_share
   ϵ = data.elasticities.ϵ
-  labor = data.labor_share
+  labor = labor_realloc(data)
   w = (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
-  w .* labor
+
+  relative ? w .* labor : Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* w .* labor
+
 end
 
 end
