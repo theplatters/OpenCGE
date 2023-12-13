@@ -7,7 +7,7 @@ import LineSearches
 import SciMLNLSolve
 using LinearAlgebra
 
-export Elasticities, Shocks, CESData, solve_ces_model, read_data, calculate_investment!, gross_increase, nominal_increase
+export Elasticities, Shocks, CESData, solve_ces_model, read_data, calculate_investment!, gross_increase, nominal_increase, full_demand_labor_allocation
 
 """
    Elasticities 
