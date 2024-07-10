@@ -14,10 +14,10 @@ julia> Elasticities(0,5,0.3,0.001)
 
 ```
 """
-abstract type Elasticities end
-abstract type Data end
+abstract type AbstractElasticities end
+abstract type AstractData end
 
-struct CESELasticities <: Elasticities
+struct CESELasticities <: AbstractElasticities
 	θ::Float64
 	ϵ::Float64
 	σ::Float64
@@ -45,7 +45,7 @@ end
 	CESData
 Holds all the relevant data of the problem
 """
-mutable struct CESData <: Data
+mutable struct CESData <: AstractData
 	io::DataFrames.DataFrame
 	Ω::Matrix{Float64}
 	consumption_share::Vector{Float64}
@@ -92,7 +92,7 @@ end
 Set's the elasticities for a given dataset
 
 """
-function set_elasticities!(data, elasticities::Elasticities)
+function set_elasticities!(data, elasticities::AbstractElasticities)
 	data.elasticities = elasticities
 end
 
@@ -104,7 +104,7 @@ Set's the shocks for a given dataset
 
 """
 
-function set_shocks!(data::Data, shocks::Shocks)
+function set_shocks!(data::AstractData, shocks::Shocks)
 	data.shocks = shocks
 end
 
@@ -114,7 +114,7 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::Data, investment::Vector{<:Number}, sector::Vector{Int})
+function calculate_investment!(shocks::Shocks, data::AstractData, investment::Vector{<:Number}, sector::Vector{Int})
 
 	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
 				  sum |>
@@ -132,7 +132,7 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::Data, investment::Vector{<:Number}, sector::Vector{String})
+function calculate_investment!(shocks::Shocks, data::AstractData, investment::Vector{<:Number}, sector::Vector{String})
 
 	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
 				  sum |>

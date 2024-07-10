@@ -1,10 +1,10 @@
-struct CBELasticities <: Elasticities
+struct CBELasticities <: AbstractElasticities
 	α::Vector{Float64}
 	β::Vector{Float64}
 end
 
 
-mutable struct CBData <: Data
+mutable struct Data{T} <: AstractData
 	io::DataFrames.DataFrame
 	Ω::Matrix{Float64}
 	consumption_share::Vector{Float64}
@@ -13,11 +13,11 @@ mutable struct CBData <: Data
 	labor_share::Vector{Float64}
 	consumption_share_gross_output::Vector{Float64}
 	shocks::Shocks
-	elasticities::CBELasticities
+	elasticities::T
 	grossy::Vector{Float64}
 end
 
-function generalized_problem(x, data::Data, price!, intermediary_demand, consumption)
+function generalized_problem(x, data::AstractData, costfun, intermediary_demand, consumption)
 	N = length(data.λ)
 	p = max.(0,x[1:N])
 	y = max.(0,x[N+1:end])
@@ -25,12 +25,12 @@ function generalized_problem(x, data::Data, price!, intermediary_demand, consump
 
 	out = zeros(eltype(x), 2 * N)
 
-	price!(view(out, 1:N), p, y, data)
+	out[1:N] .= p .- costfun(p,y,data)
 	out[N+1:end] .= y - intermediary_demand(p, y, data) - consumption(p, y, data)
 	out
 end
 
-function wages(p, y, data)
+function cobb_douglas_wages(p, y, data)
 	(; α, β) = (data.elasticities)
 	(; supply_shock, demand_shock) = data.shocks
 	α .* p .* y .* data.labor_share .^ -1
@@ -40,7 +40,7 @@ function cobb_douglas_intermediary_demand(p, y, data)
 	(; α, β) = (data.elasticities)
 	(; supply_shock, demand_shock) = data.shocks
 
-	w = wages(p, y, data)
+	w = cobb_douglas_wages(p, y, data)
 	r = p .^ data.Ω
 
 	(data.Ω') * (β .* y .* cobb_douglas_costfun(p, y, data)) .* inv.(p)
@@ -50,21 +50,15 @@ end
 function cobb_douglas_costfun(p, y, data)
 	(; α, β) = (data.elasticities)
 	(; supply_shock, demand_shock) = data.shocks
-	w = wages(p, y, data)
+	w = cobb_douglas_wages(p, y, data)
 	r = p .^ data.Ω
 	inv.(supply_shock) .* (w .^ α) .* (prod(r, dims = 2) .^ β)
 end
 
-function cobb_douglas_prices!(out, p, y, data::CBData)
-	out .= (p .- cobb_douglas_costfun(p, y, data))
-	nothing
-end
-
-
 function cobb_douglas_consumption(p, y, data)
 	(; α, β) = data.elasticities
 	(; supply_shock, demand_shock) = data.shocks
-	w = wages(p, y, data)
+	w = cobb_douglas_wages(p, y, data)
 	r = p .^ data.Ω
 	C = w' * data.labor_share
 	C * demand_shock .* p .^ (-0.95) .* data.consumption_share #taking a CES consumption function for now
@@ -79,19 +73,19 @@ function read_data_cb(filename::String)
 
 	Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy = generateData(io)
 	#return a mutable structure element (see above):
-	return CBData(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, Shocks(ones(71), ones(71)), CBELasticities(factor_share, 1 .- factor_share), grossy)
+	return Data{CBELasticities}(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, Shocks(ones(71), ones(71)),CBELasticities(factor_share,1 .- factor_share), grossy)
 end
 
 function solve_cobb_douglas_modell(
-	data::Data,
+	data::AstractData,
 	shocks::Shocks,
-	elasticities::Elasticities,
+	elasticities::AbstractElasticities,
 	init = (vcat(ones(length(data.λ)), data.λ)))
 
 	set_shocks!(data, shocks)
 	set_elasticities!(data, elasticities)
 
-	f = NonlinearSolve.NonlinearFunction((x, u) -> generalized_problem(x, u, cobb_douglas_prices!, cobb_douglas_intermediary_demand, cobb_douglas_consumption))
+	f = NonlinearSolve.NonlinearFunction((x, u) -> generalized_problem(x, u, cobb_douglas_costfun, cobb_douglas_intermediary_demand, cobb_douglas_consumption))
 	prob = NonlinearSolve.NonlinearProblem(f, init, data)
 
 	x = NonlinearSolve.solve(prob)
@@ -101,7 +95,7 @@ function solve_cobb_douglas_modell(
 		Dict("prices" => p,
 			"quantities" => q,
 			"sectors" => data.io.Sektoren[1:71],
-			"value_added" => data.labor_share .* wages(p, q, data)),
+			"value_added" => data.labor_share .* cobb_douglas_wages(p, q, data)),
 	)
 
 	df
