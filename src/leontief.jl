@@ -1,35 +1,29 @@
 include("cobbdouglas.jl")
+"""
+	solve(model::Model{LeontiefElasticies}; init)
 
-function leontief_intermediary_demand(p, y, data)
-	return (diagm(1 .- data.factor_share) * data.Ω)' * y
-end
+solves the leontief model
+"""
+function solve(
+	model::Model{LeontiefElasticies};
+	init = vcat(ones(length(model.data.grossy)), model.data.λ))
+	(; data) = model
 
-function leontief_costfun(p, y, data)
-	return data.Ω * p
-end
 
-function leontief_consumption(p, y, data)
-	return data.shocks.demand_shock .* data.consumption_share
-end
-
-function solve_leontief_modell(data,
-	shocks::Shocks,
-	init = vcat(ones(length(data.grossy)), data.λ))
-
-	set_shocks!(data, shocks)
-
-	f = NonlinearSolve.NonlinearFunction((x, u) -> generalized_problem(x, u, leontief_costfun, leontief_intermediary_demand, leontief_consumption))
-	prob = NonlinearSolve.NonlinearProblem(f, init, data)
-
-	x = NonlinearSolve.solve(prob)
-	p = x[1:length(data.consumption_share)]
-	q = x[(length(data.consumption_share)+1):end]
+	# A = (1 - alpha) Omega^T
+	#Eigentlich müssen wir Omega ja jetzt noch erweitern
+	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (model.shocks.demand_shock .* data.consumption_share) 
+	p = ones(length(data.λ))
 	df = DataFrames.DataFrame(
 		Dict("prices" => p,
 			"quantities" => q,
 			"sectors" => data.io.Sektoren[1:71],
-			"value_added" => data.labor_share .* cobb_douglas_wages(p, q, data)),
-	)
+			"value_added" => model.shocks.demand_shock .* data.consumption_share,
+			"value_added_nominal_absolute" => data.grossy .* model.shocks.demand_shock .* data.consumption_share,
+			"value_added_nominal_relative" => model.shocks.demand_shock .* data.consumption_share,
+			"value_added_absolute" => model.shocks.demand_shock .* data.consumption_share .* data.grossy,
+			"value_added_relative" => model.shocks.demand_shock .* data.consumption_share,
+		))
 
 	df
 

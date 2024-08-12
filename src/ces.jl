@@ -1,91 +1,6 @@
-
-"""
-   Elasticities 
-
-Structure, that stores the 3 elasticities 
-
-θ is the elasticity of production factors
-ϵ is the elasticity between work and intermediates
-σ the substitution elasticitie
-
-# Examples
-```julia-repl
-julia> Elasticities(0,5,0.3,0.001) 
-
-```
-"""
-abstract type AbstractElasticities end
-abstract type AstractData end
-
-struct CESELasticities <: AbstractElasticities
-	θ::Float64
-	ϵ::Float64
-	σ::Float64
-end
+include("interface.jl")
 
 
-
-""" 
-	Shocks
-
-Two vectors, that have to be the same length as the amount of sectors.
-Each entry that differs from one, represents a percentage shock in that sector on demand/supply.
-
-# Example
-```julia-repl
-julia> Shocks(ones(76),ones(76))
-```
-"""
-struct Shocks
-	supply_shock::Vector{Float64}
-	demand_shock::Vector{Float64}
-end
-
-"""
-	CESData
-Holds all the relevant data of the problem
-"""
-mutable struct CESData <: AstractData
-	io::DataFrames.DataFrame
-	Ω::Matrix{Float64}
-	consumption_share::Vector{Float64}
-	factor_share::Vector{Float64}
-	λ::Vector{Float64}
-	labor_share::Vector{Float64}
-	consumption_share_gross_output::Vector{Float64}
-	shocks::Shocks
-	elasticities::CESELasticities
-	grossy::Vector{Float64}
-end
-"""
-	generateData(io::DataFrames.DataFrame)
-
-Helper function that pulls out the key econometric variables used in the model out of the extended io table
-# Example
-```julia-repl
-julia> Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go = generateData(io)
-```
-"""
-function generateData(io::DataFrames.DataFrame)
-	Ω = Matrix(io[1:71, 2:72])
-	Ω = Ω ./ sum(Ω, dims = 2)
-
-	grossy = io[1:71, "Gesamte Verwendung von Gütern"]
-	consumption = eachcol(io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-				  sum |>
-				  x -> getindex(x, 1:71)
-	value_added = Vector(io[findfirst(==("Bruttowertschöpfung"), io.Sektoren), 1:72])[2:end]
-
-
-	factor_share = value_added ./ grossy
-	consumption_share = (I - diagm(1 .- factor_share) * Ω)' * grossy
-	@views consumption_share[consumption_share.<0] .= 0
-	consumption_share = consumption_share / sum(consumption_share)
-	λ = (inv(I - diagm(1 .- factor_share) * Ω)' * consumption_share)
-	labor_share = λ .* factor_share
-	consumption_share_gross_output = consumption ./ grossy
-	return Ω, consumption_share, factor_share, λ, labor_share, consumption_share_gross_output, grossy
-end
 """
   set_elasticities!(data::CESData, elasticitie::Elasticities)
 
@@ -104,7 +19,7 @@ Set's the shocks for a given dataset
 
 """
 
-function set_shocks!(data::AstractData, shocks::Shocks)
+function set_shocks!(data::AbstractData, shocks::Shocks)
 	data.shocks = shocks
 end
 
@@ -114,7 +29,7 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::AstractData, investment::Vector{<:Number}, sector::Vector{Int})
+function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Vector{<:Number}, sector::Vector{Int})
 
 	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
 				  sum |>
@@ -132,7 +47,7 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::AstractData, investment::Vector{<:Number}, sector::Vector{String})
+function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Vector{<:Number}, sector::Vector{String})
 
 	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
 				  sum |>
@@ -146,31 +61,15 @@ function calculate_investment!(shocks::Shocks, data::AstractData, investment::Ve
 
 end
 
-"""
-	read_data(filenem::String)
-
-Given a filename of a IO table located in the /data directory this returns the CESData, where shocks are set to ones
-and elasticities are set to the ones presente in the paper by B&F
-"""
-function read_data(filename::String)
-	filedir = joinpath(pwd(), "data/", filename)
-	io = CSV.read(filedir, DataFrames.DataFrame, delim = ";", decimal = ',', missingstring = ["-", "x"]) #Read in from CSV
-	DataFrames.rename!(io, Symbol(names(io)[1]) => :Sektoren) #Name the indices after the sectors
-	io.Sektoren = replace.(io.Sektoren, r"^\s+" => "") #Remove unneccasary whitespaces
-	io = coalesce.(io, 0) #Set NANS to 0
-
-	Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy = generateData(io)
-	#return a mutable structure element (see above):
-	return CESData(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, Shocks(ones(71), ones(71)), CESELasticities(0.0001, 0.5, 0.9), grossy)
-end
 
 """
 	full_demand_labor_allocation(data::CESData)
 
 Returns the labor vector adjusted, so that labor can be freely reallocated to accomodate for demand shocks
 """
-function full_demand_labor_allocation(data::CESData)
-	inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((data.shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
+function full_demand_labor_allocation(model::Model)
+	(; data, shocks, elasticities) = model
+	inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 
 """
@@ -179,16 +78,17 @@ end
 The objective function as specified in B&F with the added demand shocks, X is the 2*sectors-sized vector,
 data contains the parameters and labor_reallocation is a function that specifies how labor is reallocated accross sectors
 """
-function problem(X, data::CESData, labor_reallocation)
+function problem(X, model::Model{CESElasticities}, labor_reallocation)
 
+	(; data, elasticities, shocks) = model
 	N = length(data.factor_share)
 	p = @view X[1:N]
 	y = @view X[N+1:end]
 
-	(;supply_shock,demand_shock) = data.shocks
-    (;consumption_share,Ω,factor_share) = data
-	(;ϵ,θ,σ) = data.elasticities 
-	labor = labor_reallocation(data)
+	(; supply_shock, demand_shock) = shocks
+	(; consumption_share, Ω, factor_share) = data
+	(; ϵ, θ, σ) = elasticities
+	labor = labor_reallocation(model)
 
 
 	Out = zeros(eltype(X), 2 * N)
@@ -211,20 +111,17 @@ The main function of this module, input the relavant model data, shocks and opti
 starting vectors and get back the simulated adapted prices and quantities
 
 """
-function solve_ces_model(
-	data::CESData,
-	shocks, elasticities;
+function solve(
+	model::Model{CESElasticities};
 	labor_reallocation = full_demand_labor_allocation,
-	init = Complex.([ones(71)..., data.λ...]),
+	init = Complex.([ones(71)..., model.data.λ...]),
 )
-	set_elasticities!(data, elasticities)
-	set_shocks!(data, shocks)
+	(; data) = model
 	#defines the function:
 	f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p, labor_reallocation))
 
-
 	#defines the concrete problem to be solved (i.e. with inserted parameter values):
-	ProbN = NonlinearSolve.NonlinearProblem(f, init, data)
+	ProbN = NonlinearSolve.NonlinearProblem(f, init, model)
 	#x_imag gives a vector with prices followed by domar weigths:
 	x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method = :newton, linesearch = LineSearches.BackTracking()), reltol = 1e-8, abstol = 1e-8).u
 	#turns complex numbers into real numbers:
@@ -234,10 +131,10 @@ function solve_ces_model(
 	df = DataFrames.DataFrame(
 		Dict("prices" => p,
 			"quantities" => q,
-			"value_added_relative" => gross_incease(p, q, data, labor_reallocation),
-			"value_added_nominal_relative" => nominal_increase(p, q, data, labor_reallocation),
-			"value_added_absolute" => gross_incease(p, q, data, labor_reallocation, relative = false),
-			"value_added_nominal_absolute" => nominal_increase(p, q, data, labor_reallocation, relative = false),
+			"value_added_relative" => gross_incease(p, q, model, labor_reallocation),
+			"value_added_nominal_relative" => nominal_increase(p, q, model, labor_reallocation),
+			"value_added_absolute" => gross_incease(p, q, model, labor_reallocation, relative = false),
+			"value_added_nominal_absolute" => nominal_increase(p, q, model, labor_reallocation, relative = false),
 			"sectors" => data.io.Sektoren[1:71]),
 	)
 
@@ -255,12 +152,12 @@ julia> nominal_gdp(ones(76),data.λ,data)
 1.0
 ```
 """
-function nominal_gdp(p, q, data)
-	A = data.shocks.supply_shock
-	factor_share = data.factor_share
-	labor_share = data.labor_share
+function nominal_gdp(p, q, model)
+	(; data, shocks, elasticities) = model
+	A = shocks.supply_shock
+	(;factor_share, labor_share) = data
 
-	ϵ = data.elasticities.ϵ
+	ϵ = elasticities.ϵ
 	#put these values into GDP equation from baquee/farhi (difference from real gdp: we do not divide
 	# q by prices):
 	(p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
@@ -294,11 +191,12 @@ julia> real_gdp(ones(76),data.λ,data,labor_realloc)
 1
 ```
 """
-function real_gdp(p, q, data, labor_realloc)
-	A = data.shocks.supply_shock
-	factor_share = data.factor_share
-	labor_share = labor_realloc(data.labor_share)
-	ϵ = data.elasticities.ϵ
+function real_gdp(p, q, model, labor_realloc)
+	(; data, shocks, elasticities) = model
+	A = shocks.supply_shock
+	(;factor_share, labor_share) = data
+
+	ϵ = elasticities.ϵ
 	#put these values into real GDP equation from baquee/farhi:
 	#q = q ./ p
 	((A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
@@ -332,11 +230,15 @@ julia> nominal_increase(data.λ,data,labor_realloc)
 0
 ```
 """
-function nominal_increase(p, q, data, labor_realloc; relative = true)
-	A = data.shocks.supply_shock
-	factor_share = data.factor_share
-	ϵ = data.elasticities.ϵ
-	labor = labor_realloc(data)
+function nominal_increase(p, q, model, labor_realloc; relative = true)
+	(; data, shocks, elasticities) = model
+	A = shocks.supply_shock
+	(;factor_share, labor_share) = data
+
+	ϵ = elasticities.ϵ
+	#put these values into real GDP equation from baquee/farhi:
+	#q = q ./ p
+	labor = labor_realloc(model)
 	w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 	relative ? w .* labor : Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* w .* labor
 end
@@ -353,11 +255,13 @@ julia> gross_incease(ones(76),data.λ,data)
 zeros(76)
 ```
 """
-function gross_incease(p, q, data, labor_realloc; relative = true)
-	A = data.shocks.supply_shock
-	factor_share = data.factor_share
-	ϵ = data.elasticities.ϵ
-	labor = labor_realloc(data)
+function gross_incease(p, q, model, labor_realloc; relative = true)
+	(; data, shocks, elasticities) = model
+	A = shocks.supply_shock
+	(;factor_share, labor_share) = data
+
+	ϵ = elasticities.ϵ
+	labor = labor_realloc(model)
 	w = (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
 	relative ? w .* labor : Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* w .* labor
