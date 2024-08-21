@@ -12,7 +12,7 @@ function solve(
 
 	# A = (1 - alpha) Omega^T
 	#Eigentlich müssen wir Omega ja jetzt noch erweitern
-	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (model.shocks.demand_shock .* data.consumption_share) 
+	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (model.shocks.demand_shock)
 	p = ones(length(data.λ))
 	df = DataFrames.DataFrame(
 		Dict("prices" => p,
@@ -28,3 +28,29 @@ function solve(
 	df
 
 end
+
+function solve(
+	model::Model{LeontiefElasticiesLabor};
+	init = vcat(ones(length(model.data.grossy)), model.data.λ))
+	(; data) = model
+
+
+	consumption = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78,2:72])
+	wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
+
+	A = vcat( hcat(Matrix(data.io[1:71, 2:72]) ./  (data.grossy'),consumption),
+		hcat(wages', 0))
+
+	q = inv(I - A) * (vcat(model.shocks.demand_shock, 0))
+	p = ones(length(q))
+	df = DataFrames.DataFrame(
+		Dict("prices" => p,
+			"quantities" => q,
+			"sectors" => vcat(data.io.Sektoren[1:71], data.io.Sektoren[78]),
+		))
+
+	df
+
+end
+
+

@@ -1,4 +1,3 @@
-
 using BeyondHulten
 using Plots
 data = Data("I-O_DE2019_formatiert.csv")
@@ -115,4 +114,18 @@ m2 = Model(data, shocks, cd_elasticities)
 sol2 = solve(m2)
 
 real_gdp(sol2)
-nominal_gdp(sol2)
+nominal_gdp(sol2)	
+
+using LinearAlgebra
+
+elastities = LeontiefElasticiesLabor()
+elastities = LeontiefElasticies()
+demand_shock = Vector(impulses[1,3:end-1])
+shocks = Shocks(demand_shock,demand_shock)
+
+model = Model(data,shocks,elastities)
+sol = solve(model)	
+
+using CSV, DataFrames
+
+impulses = CSV.read("data/impulses.csv",DataFrame)

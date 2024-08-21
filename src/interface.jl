@@ -15,6 +15,9 @@ end
 struct LeontiefElasticies <: AbstractElasticities 
 end
 
+struct LeontiefElasticiesLabor <: AbstractElasticities
+end
+
 
 struct Data <: AbstractData
 	io::DataFrames.DataFrame
@@ -41,15 +44,17 @@ julia> Ω, consumption_share, factor_share, λ, labor_share, consumption_share_g
 ```
 """
 function generate_data(io::DataFrames.DataFrame)
-	Ω = Matrix(io[1:71, 2:72])
+	number_sectors = 71
+	Ω = Matrix(coalesce.(io[1:number_sectors, 2:number_sectors +1],0.0))
 	Ω = Ω ./ sum(Ω, dims = 2)
 
-	grossy = io[1:71, "Gesamte Verwendung von Gütern"]
+	grossy = io[1:number_sectors, "Gesamte Verwendung von Gütern"]
 	consumption = eachcol(io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
 				  sum |>
-				  x -> getindex(x, 1:71)
-	value_added = Vector(io[findfirst(==("Bruttowertschöpfung"), io.Sektoren), 1:72])[2:end]
+				  x -> getindex(x, 1:number_sectors)
+	value_added = Vector(io[findfirst(==("Bruttowertschöpfung"), io.Sektoren), 2:number_sectors+1])
 
+	@info Ω
 
 	factor_share = value_added ./ grossy
 	consumption_share = (I - diagm(1 .- factor_share) * Ω)' * grossy
