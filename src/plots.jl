@@ -44,7 +44,7 @@ GDP_no_realloc = CSV.read("data/demand_shock_no_realloc.csv",DataFrame)
 min_shock = 1.0
 max_shock = 1.8
 shock_count = 50
-l = @layout [a b; c d]
+lay = @layout [a b; c d]
 
 p1 = Plots.scatter(title ="GDP")
 p2 = Plots.scatter(title="GDP no realloc")
@@ -60,7 +60,7 @@ end
 
 p1
 
-Plots.plot(p1, p2, p3, p4, layout=l, legend = false, size=(1980, 1080))
+Plots.plot(p1, p2, p3, p4, layout=lay, legend = false, size=(1980, 1080))
 
 Plots.savefig("plots/shocks.html")
 
