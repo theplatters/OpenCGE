@@ -2,7 +2,7 @@ using BeyondHulten
 using Plots
 data = Data("I-O_DE2019_formatiert.csv")
 cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
-ces_elasticities = CESELasticities(0.001, 0.5, 0.9)
+ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
 
 
 demand_shock = ones(71)
