@@ -47,7 +47,7 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Vector{<:Number}, sector::Vector{String})
+function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Vector{<:Number}, sector)
 
 	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
 				  sum |>
