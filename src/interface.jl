@@ -1,6 +1,7 @@
 abstract type AbstractElasticities end
 abstract type AbstractData end
 
+
 struct CESElasticities <: AbstractElasticities
 	θ::Float64
 	ϵ::Float64
@@ -17,6 +18,29 @@ end
 
 struct LeontiefElasticiesLabor <: AbstractElasticities
 end
+
+abstract type ModelType end
+struct CES <: ModelType
+	elasticities::CESElasticities
+	labor_slack::Union{Vector, Function}	
+	labor_reallocation::Bool
+end
+
+CES() = CES(CESElasticities(0.01, 0.5, 0.9), model -> model.data.labor_share, false)
+CES(elasticities::CESElasticities) = CES(elasticities, model -> model.data.labor_share, false)
+CES(elasticities::CESElasticities, labor_slack) = CES(elasticities, labor_slack, false)
+struct Leontief <: ModelType 
+	labor_effect::Bool
+end
+
+Leontief() = Leontief(true)
+
+struct CobbDouglas <: ModelType
+	elasticties::CobbDouglasElasticities	
+end
+
+
+
 
 
 struct Data <: AbstractData
@@ -84,10 +108,10 @@ struct Shocks
 end
 
 
-mutable struct Model{T}
+mutable struct Model{T <: ModelType}
 	data::Data
 	shocks::Shocks
-	elasticities::T
+	options::T
 end
 
 """

@@ -15,14 +15,14 @@ function generalized_problem(x, model, costfun, intermediary_demand, consumption
 end
 
 function cobb_douglas_wages(p, y, model)
-	(; data, elasticities, shocks) = model
-	(; α, β) = (elasticities)
+	(; data, options, shocks) = model
+	(; α, β) = (options.elasticities)
 	α .* p .* y .* data.labor_share .^ -1
 end
 
 function cobb_douglas_intermediary_demand(p, y, model)
-	(; data, elasticities, shocks) = model
-	(; α, β) = (elasticities)
+	(; data, options, shocks) = model
+	(; α, β) = (options.elasticities)
 	(; supply_shock, demand_shock) = shocks
 
 	w = cobb_douglas_wages(p, y, model)
@@ -33,8 +33,8 @@ end
 
 
 function cobb_douglas_costfun(p, y, model)
-	(; data, elasticities, shocks) = model
-	(; α, β) = (elasticities)
+	(; data, options, shocks) = model
+	(; α, β) = (options.elasticities)
 	(; supply_shock, demand_shock) = shocks
 
 	w = cobb_douglas_wages(p, y, model)
@@ -43,8 +43,8 @@ function cobb_douglas_costfun(p, y, model)
 end
 
 function cobb_douglas_consumption(p, y, model)
-	(; data, elasticities, shocks) = model
-	(; α, β) = (elasticities)
+	(; data, options, shocks) = model
+	(; α, β) = (options.elasticities)
 	(; supply_shock, demand_shock) = shocks
 
 	w = cobb_douglas_wages(p, y, model)
@@ -54,7 +54,7 @@ function cobb_douglas_consumption(p, y, model)
 end
 
 function solve(
-	model::Model{CobbDouglasElasticities},
+	model::Model{CobbDouglas};
 	init = (vcat(ones(length(model.data.λ)),model.data.λ)))
 
 	(; data) = model
