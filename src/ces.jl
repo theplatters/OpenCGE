@@ -215,14 +215,20 @@ julia> nominal_increase(data.λ,data,labor_realloc)
 function nominal_increase(p, q, model::Model; relative = true)
 	(; data, shocks, options) = model
 	A = shocks.supply_shock
-	(; factor_share, labomr_share) = data
+	(; factor_share) = data
 
-	ϵ = options.elasticities.ϵ
+	(;ϵ,σ) = options.elasticities
 	#put these values into real GDP equation from baquee/farhi:
 	#q = q ./ p
-	labor = options.labor_slack(model)
+	labor = options.labor_slack(model)	
+	if (options.labor_reallocation)
+		return relative ?
+			   (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1)) :
+			   sum(Vector(data.io[findfirst(==("Letzte Verwendung von Gütern zusammen"), data.io.Sektoren), 2:72])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
+	end
+	
 	w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
-	relative ? w .* labor : Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* w .* labor
+	relative ? w .* labor : sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * w .* labor
 end
 
 
@@ -242,11 +248,19 @@ function gross_incease(p, q, model; relative = true)
 	A = shocks.supply_shock
 	(; factor_share) = data
 
-	ϵ = options.elasticities.ϵ
+	(;ϵ,σ) = options.elasticities
 	labor = options.labor_slack(model)
-	w = (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+	w = options.labor_reallocation ?
+		ones(length(p)) :
+		(A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
-	relative ? w .* labor : Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* w .* labor
+	if (options.labor_reallocation)
+		return relative ?
+			   (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1)) :
+			   sum(Vector(data.io[findfirst(==("Letzte Verwendung von Gütern zusammen"), data.io.Sektoren), 2:72])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
+	end
+
+	relative ? w .* labor : sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * w .* labor
 
 end
 
