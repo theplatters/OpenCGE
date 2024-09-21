@@ -36,7 +36,7 @@ end
 Leontief() = Leontief(true)
 
 struct CobbDouglas <: ModelType
-	elasticties::CobbDouglasElasticities	
+	elasticities::CobbDouglasElasticities	
 end
 
 

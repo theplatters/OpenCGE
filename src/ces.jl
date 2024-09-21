@@ -224,7 +224,7 @@ function nominal_increase(p, q, model::Model; relative = true)
 	if (options.labor_reallocation)
 		return relative ?
 			   (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1)) :
-			   sum(Vector(data.io[findfirst(==("Letzte Verwendung von Gütern zusammen"), data.io.Sektoren), 2:72])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
+			   sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
 	end
 	
 	w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
@@ -257,7 +257,7 @@ function gross_incease(p, q, model; relative = true)
 	if (options.labor_reallocation)
 		return relative ?
 			   (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1)) :
-			   sum(Vector(data.io[findfirst(==("Letzte Verwendung von Gütern zusammen"), data.io.Sektoren), 2:72])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
+			   sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
 	end
 
 	relative ? w .* labor : sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * w .* labor

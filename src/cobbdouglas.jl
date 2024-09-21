@@ -31,7 +31,6 @@ function cobb_douglas_intermediary_demand(p, y, model)
 	(data.Ω') * (β .* y .* cobb_douglas_costfun(p, y, model)) .* inv.(p)
 end
 
-
 function cobb_douglas_costfun(p, y, model)
 	(; data, options, shocks) = model
 	(; α, β) = (options.elasticities)
@@ -48,9 +47,9 @@ function cobb_douglas_consumption(p, y, model)
 	(; supply_shock, demand_shock) = shocks
 
 	w = cobb_douglas_wages(p, y, model)
-	r = p .^ data.Ω
 	C = w' * data.labor_share
-	C * demand_shock .* p .^ (-0.95) .* data.consumption_share #taking a CES consumption function for now
+	#taking a CES consumption function for now
+	C * demand_shock .* p .^ (-1) .* data.consumption_share 
 end
 
 function solve(

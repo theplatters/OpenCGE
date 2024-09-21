@@ -12,21 +12,21 @@ y = range(1, 2.5, length=50)
 z = @. f(x', y)
 a = Plots.contour(x, y, z, title ="Leontief")
 
-e = 0.9
-
-f(x,y) = (0.55 * x^((e-1)/e) + 0.45 * y^((e-1)/e))^(e/(e-1))
-x = range(0, 2.5, length=100)
-y = range(0, 2.5, length=50)
-z = @. f(x', y)
-b = contour(x, y, z, title = "CES ϵ = 0.9")
-
 e = 0.2
 
 f(x,y) = (0.55 * x^((e-1)/e) + 0.45 * y^((e-1)/e))^(e/(e-1))
 x = range(0, 2.5, length=100)
 y = range(0, 2.5, length=50)
 z = @. f(x', y)
-c = contour(x, y, z, title = "CES ϵ = 0.2")
+b = contour(x, y, z, title = "CES ϵ = 0.2")
+
+e = 0.7
+
+f(x,y) = (0.55 * x^((e-1)/e) + 0.45 * y^((e-1)/e))^(e/(e-1))
+x = range(0, 2.5, length=100)
+y = range(0, 2.5, length=50)
+z = @. f(x', y)
+c = contour(x, y, z, title = "CES ϵ = 0.7")
 
 f(x,y) = (x^0.55 * y^0.45)
 x = range(0, 2.5, length=100)
@@ -35,6 +35,7 @@ z = @. f(x', y)
 d = contour(x, y, z, title = "Cobb-Douglas")
 
 plot(a,b,c,d, size=(800,600))
+Plots.savefig("plots/production_functions.png")
 
 GDP_nominal = CSV.read("data/demand_shock_nominal.csv",DataFrame)
 GDP_no_realloc_nominal = CSV.read("data/demand_shock_nominal_no_realloc.csv",DataFrame)
