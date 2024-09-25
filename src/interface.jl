@@ -2,6 +2,10 @@ abstract type AbstractElasticities end
 abstract type AbstractData end
 
 
+"""
+	CESElasticities(θ::Float64, ϵ::Float64, σ::Float64)
+elasticity parameters for the CES model. θ = Elasticity between goods, ϵ = elasticity of substitution between labor and goods, σ = elasticity of consumption
+"""
 struct CESElasticities <: AbstractElasticities
 	θ::Float64
 	ϵ::Float64
@@ -26,8 +30,8 @@ struct CES <: ModelType
 	labor_reallocation::Bool
 end
 
-CES() = CES(CESElasticities(0.01, 0.5, 0.9), full_demand_labor_allocation, false)
-CES(elasticities::CESElasticities) = CES(elasticities,full_demand_labor_allocation, false)
+CES() = CES(CESElasticities(0.01, 0.5, 0.9), full_labor_slack, false)
+CES(elasticities::CESElasticities) = CES(elasticities,full_labor_slack, false)
 CES(elasticities::CESElasticities, labor_slack) = CES(elasticities, labor_slack, false)
 struct Leontief <: ModelType 
 	labor_effect::Bool

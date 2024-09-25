@@ -8,22 +8,28 @@ data = Data("I-O_DE2019_formatiert.csv")
 cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
 ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
 
-ces_options = CES(ces_elasticities, x -> data.labor_share, true)
-cd_options = CES(CESElasticities(0.99,0.99,0.99), x -> data.labor_share, true)
+ces_options = CES(ces_elasticities, x -> data.labor_share, false)
 ## setting the shock
 shock_amount = 50000
+
+ces_labor_realloc = CES(CESElasticities(0.2, 0.6, 0.9), x -> data.labor_share, true)
 
 
 
 demand_shock = ones(71)
 supply_shock = ones(71)
+demand_shock[8:14] .= rand(range(0.79, 1.1, length = 1000), 7)
 shocks = Shocks(demand_shock, supply_shock)
 sector = ["Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]
 investment = [50000]
 calculate_investment!(shocks, data, investment, sector)
-sol_cd = solve(Model(data, shocks, cd_options))
 
-sum(sol_cd.value_added_relative)
+sol_cd = solve(Model(data, shocks, cd_options))
+sol_realloc = solve(Model(data, shocks, ces_labor_realloc))
+(sol_realloc.prices.^(1 - 0.9) .* sol_realloc.quantities)
+
+sol_realloc |> real_gdp
+
 
 model = Model(data, shocks, ces_options)
 sol = solve(model)
@@ -84,16 +90,18 @@ gdp_effect_simple = 1 + shock_amount / sum(data.io[1:71, "Letzte Verwendung von 
 
 function plot_elasticities(a, b, c, d, e, f; ran = range(0.9, 0.025, length(a)), title = "Real GDP")
 
-	plot_gdp = plot(ran, 100 .* a, title = title, ylabel="%", ylims=(97,103), xlabel="Elasticity", xlims=(0,1), legend=:none)
+	plot_gdp = plot(ran, 100 .* a, title = title, ylabel = "%", ylims = (97, 103), xlabel = "Elasticity", xlims = (0, 1), legend = :none)
 	plot!(ran, 100 .* b, label = "Elasticity between labour and goods")
-	plot!(ran,100 .*  c, label = "Elasticity of consumption")
-	plot!([0.9, 0.025],100 .*  fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP", linestyle=:dot)
-	plot!([0.9, 0.025],100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model", linestyle=:dash)
-	plot_gdp_nominal = plot(ran, 100 .* d, label = "", title = title, ylabel="%", ylims=(97,103), xlabel="Elasticity", xlims=(0,1))
+	plot!(ran, 100 .* c, label = "Elasticity of consumption")
+	plot!([0.9, 0.025], 100 .* fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP", linestyle = :dot)
+	plot!([0.9, 0.025], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model", linestyle = :dash)
+	plot!([0.9, 0.025], 100 .* fill(real_gdp(sol_cd), 2), label = "Calculated GDP of the Cobb Douglas model")
+	plot_gdp_nominal = plot(ran, 100 .* d, label = "", title = title, ylabel = "%", ylims = (97, 103), xlabel = "Elasticity", xlims = (0, 1))
 	plot!(ran, 100 .* e, label = "Elasticity between labour and goods")
-	plot!(ran,100 .*  f, label = "Elasticity of consumption")
-	plot!([0.9, 0.025],100 .*  fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP", linestyle=:dot)
-	plot!([0.9, 0.025],100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model", linestyle=:dash)
+	plot!(ran, 100 .* f, label = "Elasticity of consumption")
+	plot!([0.9, 0.025], 100 .* fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP", linestyle = :dot)
+	plot!([0.9, 0.025], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model", linestyle = :dash)
+	plot!([0.9, 0.025], 100 .* fill(real_gdp(sol_cd), 2), label = "Calculated GDP of the Cobb Douglas model")
 	return plot_gdp, plot_gdp_nominal
 end
 
@@ -106,50 +114,55 @@ calculate_investment!(shocks, data, investment, sector)
 
 (a1, b1, c1, d1, e1, f1) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false)
 (a2, b2, c2, d2, e2, f2) = elasticity_gradient(shocks, model -> data.labor_share, false)
-(a3, b3, c3, d3, e3, f3) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false, [0.5,0.5,0.5])
+(a3, b3, c3, d3, e3, f3) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false, [0.5, 0.5, 0.5])
 (a4, b4, c4, d4, e4, f4) = elasticity_gradient(shocks, model -> data.labor_share, false, [0.5, 0.5, 0.5])
-(a5, b5, c5, d5, e5, f5) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false,[0.1, 0.1, 0.1])
+(a5, b5, c5, d5, e5, f5) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false, [0.1, 0.1, 0.1])
 (a6, b6, c6, d6, e6, f6) = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
 
+(a_realloc, b_realloc, c_realloc, d_realloc, e_realloc, f_realloc) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, true)
+(a_realloc1, b_realloc1, c_realloc1, d_realloc1, e_realloc1, f_realloc1) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, true)
+(a_realloc2, b_realloc2, c_realloc2, d_realloc2, e_realloc2, f_realloc2) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, true)
+
+
 p1, p2 = plot_elasticities(a1, b1, c1, d1, e1, f1, title = "0.9")
-p3, p4 = plot_elasticities(a2, b2, c2, d2, e2, f2, title="0.9")
+p3, p4 = plot_elasticities(a2, b2, c2, d2, e2, f2, title = "0.9")
 
 p5, p6 = plot_elasticities(a3, b3, c3, d3, e3, f3, title = "0.5")
 p7, p8 = plot_elasticities(a4, b4, c4, d4, e4, f4, title = "0.5")
 
-p9, p10 = plot_elasticities(a5, b5, c5, d5, e5, f5, title="0.1")
-p11, p12 = plot_elasticities(a6, b6, c6, d6, e6, f6, title="0.1")
-legend = plot([0 0 0  0 0], showaxis = false, grid = false, label = [" Elasticity between goods" " Elasticity between goods and labour" " Elasticity of consumption" " Baseline" " Leontief"])
-legend_filler = plot([0 0 0 0], showaxis = false, grid = false, legend=:none, legendfontsize=1000) 
-pall = Plots.plot(p1, p5, p9, legend_filler, legend,legend_filler, 
-	layout = @layout([grid(1,3); [D{0.75w} E F{0.5h}]]), 
-	plot_title="Effect of different elasticities on GDP, with labour slack", 
-	margin=7mm, 
-	size=(1980,1500), 
-	xtickfontsize=14,
-	ytickfontsize=14,
-	xguidefontsize=14,
-	yguidefontsize=14,
-	legendfontsize=18,
-	titlefontsize=20,
-	plot_titlefontsize=24,
-	legend_columns=2)
+p9, p10 = plot_elasticities(a5, b5, c5, d5, e5, f5, title = "0.1")
+p11, p12 = plot_elasticities(a6, b6, c6, d6, e6, f6, title = "0.1")
+legend = plot([0 0 0 0 0 0], showaxis = false, grid = false, label = [" Elasticity between goods" " Elasticity between goods and labour" " Elasticity of consumption" " Baseline" " Leontief" "Cobb Douglas"])
+legend_filler = plot([0 0 0 0], showaxis = false, grid = false, legend = :none, legendfontsize = 1000)
+pall = Plots.plot(p1, p5, p9, legend_filler, legend, legend_filler,
+	layout = @layout([grid(1, 3); [D{0.75w} E F{0.5h}]]),
+	plot_title = "Effect of different elasticities on GDP, with labour slack",
+	margin = 7mm,
+	size = (1980, 1500),
+	xtickfontsize = 14,
+	ytickfontsize = 14,
+	xguidefontsize = 14,
+	yguidefontsize = 14,
+	legendfontsize = 18,
+	titlefontsize = 20,
+	plot_titlefontsize = 24,
+	legend_columns = 2)
 Plots.savefig("plots/elasticity_gradient_50000_099.png")
 
 
-pall = Plots.plot(p3, p7, p11, legend_filler, legend,legend_filler, 
-	layout = @layout([grid(1,3); [D{0.75w} E F{0.5h}]]), 
-	plot_title="Effect of different elasticities on GDP, without labour slack", 
-	margin=7mm, 
-	size=(1980,1500), 
-	xtickfontsize=14,
-	ytickfontsize=14,
-	xguidefontsize=14,
-	yguidefontsize=14,
-	legendfontsize=18,
-	titlefontsize=20,
-	plot_titlefontsize=24,
-	legend_columns=2)
+pall = Plots.plot(p3, p7, p11, legend_filler, legend, legend_filler,
+	layout = @layout([grid(1, 3); [D{0.75w} E F{0.5h}]]),
+	plot_title = "Effect of different elasticities on GDP, without labour slack",
+	margin = 7mm,
+	size = (1980, 1500),
+	xtickfontsize = 14,
+	ytickfontsize = 14,
+	xguidefontsize = 14,
+	yguidefontsize = 14,
+	legendfontsize = 18,
+	titlefontsize = 20,
+	plot_titlefontsize = 24,
+	legend_columns = 2)
 Plots.savefig("plots/elasticity_gradient_labour_slack.png")
 
 
@@ -178,11 +191,11 @@ end
 
 
 ## Plotting the results
-p1 = plot(range(100,0, 100),100 .* labour_slack_gradient, title = "Effect of different levels of labour slack on GDPs", label = "Effect on GDP", ylabel="% of GDP")
-plot!([0; 100], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model", linestyle=:dash, legendfontsize=8)
-plot!([0; 100], 100 .* fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP", linestyle=:dot)
+p1 = plot(range(100, 0, 100), 100 .* labour_slack_gradient, title = "Effect of different levels of labour slack on GDPs", label = "Effect on GDP", ylabel = "% of GDP")
+plot!([0; 100], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model", linestyle = :dash, legendfontsize = 8)
+plot!([0; 100], 100 .* fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP", linestyle = :dot)
 
-p2 = plot(range(0, 1, 100), labour_slack_gradient_nominal, title = "Nominal GDP")
+p2 = plot(range(0, 1, 100), labour_slack_gradient_nominal, label = "Nominal GDP")
 plot!([0; 1], fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model")
 plot!([0; 1], fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP")
 plot(p1, p2, size = (1000, 500))
@@ -235,32 +248,36 @@ shocks = Shocks(demand_shock, supply_shock)
 
 (a1, b1, c1, d1, e1, f1) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false)
 (a2, b2, c2, d2, e2, f2) = elasticity_gradient(shocks, model -> data.labor_share, false)
-(a3, b3, c3, d3, e3, f3) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false, [0.5,0.5,0.5])
+(a3, b3, c3, d3, e3, f3) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false, [0.5, 0.5, 0.5])
 (a4, b4, c4, d4, e4, f4) = elasticity_gradient(shocks, model -> data.labor_share, false, [0.5, 0.5, 0.5])
-(a5, b5, c5, d5, e5, f5) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false,[0.1, 0.1, 0.1])
+(a5, b5, c5, d5, e5, f5) = elasticity_gradient(shocks, BeyondHulten.full_demand_labor_allocation, false, [0.1, 0.1, 0.1])
 (a6, b6, c6, d6, e6, f6) = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
 
 p1, p2 = plot_elasticities(a1, b1, c1, d1, e1, f1, title = "0.9")
 
-p3, p4 = plot_elasticities(a2, b2, c2, d2, e2, f2, title="0.9")
+p3, p4 = plot_elasticities(a2, b2, c2, d2, e2, f2, title = "0.9")
 
 p5, p6 = plot_elasticities(a3, b3, c3, d3, e3, f3, title = "0.5")
 p7, p8 = plot_elasticities(a4, b4, c4, d4, e4, f4, title = "0.5")
 
-p9, p10 = plot_elasticities(a5, b5, c5, d5, e5, f5, title="0.1")
-p11, p12 = plot_elasticities(a6, b6, c6, d6, e6, f6, title="0.1")
-legend = plot([0 0 0  0 0], showaxis = false, grid = false, label = [" Elasticity between goods" " Elasticity between goods and labour" " Elasticity of consumption" " Baseline" " Leontief"])
-legend_filler = plot([0 0 0 0], showaxis = false, grid = false, legend=:none, legendfontsize=1000) 
-pall = Plots.plot(p1, p5, p9, legend_filler, legend,legend_filler, 
-	layout = @layout([grid(1,3); [D{0.75w} E F{0.5h}]]), 
-	plot_title="Effect of different elasticities on GDP, with labour slack", 
-	margin=7mm, 
-	size=(1980,1500), 
-	xtickfontsize=14,
-	ytickfontsize=14,
-	xguidefontsize=14,
-	yguidefontsize=14,
-	legendfontsize=18,
-	titlefontsize=20,
-	plot_titlefontsize=24,
-	legend_columns=2)
+p9, p10 = plot_elasticities(a5, b5, c5, d5, e5, f5, title = "0.1")
+p11, p12 = plot_elasticities(a6, b6, c6, d6, e6, f6, title = "0.1")
+legend = plot([0 0 0 0 0], showaxis = false, grid = false, label = [" Elasticity between goods" " Elasticity between goods and labour" " Elasticity of consumption" " Baseline" " Leontief"])
+legend_filler = plot([0 0 0 0], showaxis = false, grid = false, legend = :none, legendfontsize = 1000)
+pall = Plots.plot(p1, p5, p9, legend_filler, legend, legend_filler,
+	layout = @layout([grid(1, 3); [D{0.75w} E F{0.5h}]]),
+	plot_title = "Effect of different elasticities on GDP, with labour slack",
+	margin = 7mm,
+	size = (1980, 1500),
+	xtickfontsize = 14,
+	ytickfontsize = 14,
+	xguidefontsize = 14,
+	yguidefontsize = 14,
+	legendfontsize = 18,
+	titlefontsize = 20,
+	plot_titlefontsize = 24,
+	legend_columns = 2)
+
+ces_labor_realloc = CES(ces_elasticities, x -> data.labor_share, true)
+
+solve(Model(data, shocks, ces_labor_realloc))

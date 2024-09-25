@@ -46,7 +46,7 @@ end
 
 Returns the labor vector adjusted, so that labor can be freely reallocated to accomodate for demand shocks
 """
-function full_demand_labor_allocation(model::Model)
+function full_labor_slack(model::Model)
 	(; data, shocks, options) = model
 	elasticites = options.elasticities
 	inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
@@ -76,8 +76,9 @@ function problem(X, model::Model{CES})
 	consumption_share = (demand_shock .* consumption_share)
 
 	q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+
 	w = options.labor_reallocation ?
-		ones(length(p)) :
+		ones(Float64, length(p)) :
 		p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
 	C = w' * labor
@@ -98,7 +99,7 @@ function solve(
 	model::Model{CES};
 	init = Complex.([ones(71)..., model.data.λ...]),
 )
-	(; data) = model
+	(; data, options) = model
 	#defines the function:
 	f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p))
 
@@ -110,43 +111,33 @@ function solve(
 	x = real.(x_imag)
 	p = x[1:length(data.consumption_share)]
 	q = x[(length(data.consumption_share)+1):end]
-	df = DataFrames.DataFrame(
-		Dict("prices" => p,
-			"quantities" => q,
-			"value_added_relative" => gross_incease(p, q, model),
-			"value_added_nominal_relative" => nominal_increase(p, q, model),
-			"value_added_absolute" => gross_incease(p, q, model, relative = false),
-			"value_added_nominal_absolute" => nominal_increase(p, q, model, relative = false),
-			"sectors" => data.io.Sektoren[1:71]),
-	)
+
+	if (options.labor_reallocation)
+		df = DataFrames.DataFrame(
+			Dict("prices" => p,
+				"quantities" => q,
+				"sectors" => data.io.Sektoren[1:71],
+				"gdp" => (data.consumption_share' * p .^ (1 - options.elasticities.σ)) ^ (1 / (options.elasticities.σ - 1)),
+			))
+
+	else
+		df = DataFrames.DataFrame(
+			Dict("prices" => p,
+				"quantities" => q,
+				"value_added_relative" => gross_incease(p, q, model),
+				"value_added_nominal_relative" => nominal_increase(p, q, model),
+				"value_added_absolute" => gross_incease(p, q, model, relative = false),
+				"value_added_nominal_absolute" => nominal_increase(p, q, model, relative = false),
+				"sectors" => data.io.Sektoren[1:71]),
+		)
+	end
 
 	return df
 end
 
-"""
-	nominal_gdp(p,q,data)
-
-Returns the nominal GDP
-
-# Example
-```julia-repl
-julia> nominal_gdp(ones(76),data.λ,data)
-1.0
-```
-"""
-function nominal_gdp(p, q, model)
-	(; data, shocks, options) = model
-	A = shocks.supply_shock
-	(; factor_share, labor_share) = data
-
-	ϵ = options.elasticities.ϵ
-	#put these values into GDP equation from baquee/farhi (difference from real gdp: we do not divide
-	# q by prices):
-	(p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
-end
 
 """
-	real_gdp(solution::DataFrame;relative)
+	nominal_gdp(solution::DataFrame; relative)
 
 Returns the nominal GDP relative to the preshockgdp, or in € if relative = true is set
 
@@ -163,28 +154,6 @@ end
 
 
 """
-real_gdp(p,q,model)
-
-Returns the GDP adapted to the pre-shock price level
-
-# Example
-```julia-repl
-julia> real_gdp(ones(76),data.λ,data,labor_realloc)
-1
-```
-"""
-function real_gdp(p, q, model::Model{CES}, labor_realloc)
-	(; data, shocks, options) = model
-	A = shocks.supply_shock
-	(; factor_share, labor_share) = data
-
-	ϵ = options.elasticities.ϵ
-	#put these values into real GDP equation from baquee/farhi:
-	#q = q ./ p
-	((A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor_share .^ (-1 / ϵ))' * labor_share
-end
-
-"""
 	real_gdp(solution::DataFrame;relative)
 
 Returns the GDP relative to the preshockgdp, or in € if relative = true is set
@@ -197,6 +166,9 @@ julia> real_gdp(sol)
 """
 
 function real_gdp(solution::DataFrames.DataFrame; relative = true)
+	if hasproperty(solution, :gdp)
+		return solution.gdp[1]
+	end
 	relative ? sum(solution.value_added_relative) : sum(solution.value_added_absolute)
 end
 """
@@ -217,16 +189,11 @@ function nominal_increase(p, q, model::Model; relative = true)
 	A = shocks.supply_shock
 	(; factor_share) = data
 
-	(;ϵ,σ) = options.elasticities
+	(; ϵ, σ) = options.elasticities
 	#put these values into real GDP equation from baquee/farhi:
 	#q = q ./ p
-	labor = options.labor_slack(model)	
-	if (options.labor_reallocation)
-		return relative ?
-			   (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1)) :
-			   sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
-	end
-	
+	labor = options.labor_slack(model)
+
 	w = p .* (A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 	relative ? w .* labor : sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * w .* labor
 end
@@ -248,17 +215,12 @@ function gross_incease(p, q, model; relative = true)
 	A = shocks.supply_shock
 	(; factor_share) = data
 
-	(;ϵ,σ) = options.elasticities
+	(; ϵ, σ) = options.elasticities
 	labor = options.labor_slack(model)
 	w = options.labor_reallocation ?
 		ones(length(p)) :
 		(A .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
-	if (options.labor_reallocation)
-		return relative ?
-			   (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1)) :
-			   sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * (data.consumption_share .* p .^ (1 - σ)) .^ (1 / (σ - 1))
-	end
 
 	relative ? w .* labor : sum(Vector(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])) * w .* labor
 
