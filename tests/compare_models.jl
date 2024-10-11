@@ -3,6 +3,7 @@ using DataFrames
 using CSV
 using Measures
 using Plots
+using CairoMakie
 
 data = Data("I-O_DE2019_formatiert.csv")
 
@@ -203,12 +204,12 @@ shocks = Shocks(demand_shock, supply_shock)
 sector = ["Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]
 investment = [shock_amount]
 calculate_investment!(shocks, data, investment, sector)
-ces = CES(CESElasticities(0.01, 0.2, 0.9), model -> full_demand_labor_allocation(model), false)
+ces = CES(CESElasticities(0.01, 0.2, 0.9), model -> full_labor_slack(model), false)
 model = Model(data, shocks, ces)
 sol = solve(model)
 labour_slack_gradient = []
 labour_slack_gradient_nominal = []
-l(α, model) = (1 - α) * full_demand_labor_allocation(model) + α * model.data.labor_share
+l(α, model) = (1 - α) * full_labor_slack(model) + α * model.data.labor_share
 for α in range(0, 1, 100)
 	labour_share(model) = l(α, model)
 	ces = CES(CESElasticities(0.01, 0.5, 0.9), model -> l(α, model))
@@ -220,19 +221,21 @@ end
 
 
 ## Plotting the results
-p1 = plot(range(100, 0, 100), 100 .* labour_slack_gradient, title = "Effect of different levels of labour slack on GDPs", label = "Effect on GDP", ylabel = "% of GDP")
+p1 = plot(range(100, 0, 100), 100 .* labour_slack_gradient, title = "Effect of different levels of labour slack on GDPs", label = "Effect on GDP", ylabel = "% of GDP", legend=:outerbottom)
 plot!([0; 100], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model", linestyle = :dash, legendfontsize = 8)
 plot!([0; 100], 100 .* fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP", linestyle = :dot)
+plot!([0; 100], 100 .* fill(sol_cd |> real_gdp, 2), label = "Cobb Douglas GDP", linestyle = :dot)
+plot!([0; 100], 100 .* fill(sol_cd |> real_gdp, 2), label = "Cobb Douglas GDP", linestyle = :dot)
 
 p2 = plot(range(0, 1, 100), labour_slack_gradient_nominal, label = "Nominal GDP")
 plot!([0; 1], fill(gdp(sol_leontief, model_leontief), 2), label = "Calculated GDP of the Leontief Model")
 plot!([0; 1], fill(gdp_effect_simple, 2), label = "Proportion of shock to GDP")
+plot!([0; 1], 1 .* fill(sol_cd |> real_gdp, 2), label = "Cobb Douglas GDP", linestyle = :dot)
 plot(p1, p2, size = (1000, 500))
 
 ## Saving the plot
 
 savefig("plots/labour_slack_gradient.png")
-shocks.demand_shock[12] = 1.0
 
 ### Testing area
 

@@ -42,7 +42,7 @@ end
 
 
 """
-	full_demand_labor_allocation(data::CESData)
+	full_labor_slack(model::Model)
 
 Returns the labor vector adjusted, so that labor can be freely reallocated to accomodate for demand shocks
 """
