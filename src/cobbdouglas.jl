@@ -48,7 +48,6 @@ function cobb_douglas_consumption(p, y, model)
 
 	w = cobb_douglas_wages(p, y, model)
 	C = w' * data.labor_share
-	#taking a CES consumption function for now
 	C * demand_shock .* p .^ (-1) .* data.consumption_share 
 end
 

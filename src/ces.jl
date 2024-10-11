@@ -99,7 +99,7 @@ function solve(
 	model::Model{CES};
 	init = Complex.([ones(71)..., model.data.λ...]),
 )
-	(; data, options) = model
+	(; data, options,shocks) = model
 	#defines the function:
 	f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p))
 
@@ -117,7 +117,7 @@ function solve(
 			Dict("prices" => p,
 				"quantities" => q,
 				"sectors" => data.io.Sektoren[1:71],
-				"gdp" => (data.consumption_share' * p .^ (1 - options.elasticities.σ)) ^ (1 / (options.elasticities.σ - 1)),
+				"gdp" => ((shocks.demand_shock .* data.consumption_share)' * p .^ (1 - options.elasticities.σ)) ^ (1 / (options.elasticities.σ - 1)),
 			))
 
 	else
