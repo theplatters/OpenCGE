@@ -181,8 +181,8 @@ l(α, model) = (1 - α) * full_labor_slack(model) + α * model.data.labor_share
 for α in range(0, 1, 100)
 	labour_share(model) = l(α, model)
 	ces = CES(CESElasticities(0.01, 0.5, 0.9), model -> l(α, model))
-	model = Model(data, shocks, ces)
-	sol = solve(model, init = vcat(sol.prices, sol.quantities))
+	global model = Model(data, shocks, ces)
+	global sol = solve(model, init = vcat(sol.prices, sol.quantities))
 	push!(labour_slack_gradient, sol |> real_gdp)
 	push!(labour_slack_gradient_nominal, sol |> nominal_gdp)
 end
