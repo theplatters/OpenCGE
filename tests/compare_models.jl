@@ -67,8 +67,37 @@ struct ElasticityGradientSolution
     elasticities::CESElasticities
     labor_realloc::Bool
     nominal::Bool
+    ϵ::Vector{Float64}
+    θ::Vector{Float64}
+    σ::Vector{Float64}
+    elasticities::CESElasticities
+    labor_realloc::Bool
+    nominal::Bool
 end
 
+function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, nominal=false)
+    s = copy(sol)
+    len = 1000
+    a = ones(len)
+    arr = copy(el)
+    for (idx, i) in enumerate(range(0.99, 0.015, len))
+        arr[elasticity] = i
+        elasticities = CESElasticities(arr...)
+        ces = CES(elasticities, labor_slack, labor_reallocation)
+        model = Model(data, shocks, ces)
+        try
+            s = solve(model, init=vcat(s.prices, s.quantities))
+            if labor_reallocation
+                a[idx] = sol.gdp[1]
+            else
+                a[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
+            end
+        catch
+            a[idx] = NaN
+        end
+        @info idx, arr, a[idx]
+    end
+    return a
 function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, nominal=false)
     s = copy(sol)
     len = 1000
@@ -95,6 +124,10 @@ function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, 
 end
 
 function elasticity_gradient(shocks,
+    labor_slack=full_labor_slack,
+    labor_reallocation=false,
+    starting_elasticities=[0.99, 0.99, 0.99],
+    nominal=false)
     labor_slack=full_labor_slack,
     labor_reallocation=false,
     starting_elasticities=[0.99, 0.99, 0.99],
@@ -138,7 +171,7 @@ function plot_elasticities(results; title="Real GDP", cd=sol_cd, ylims=(97, 103)
         lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label="Elasticity between goods", linestyle=:dash)
     end
 
-    f[1, 2] = Legend(f, ax[1])
+    f[1, 2] = Legend(f, ax[1], labelsize=25)
 
     f
 end
@@ -186,20 +219,24 @@ for α in range(0, 1, 100)
     push!(labour_slack_gradient_nominal, sol |> nominal_gdp)
 end
 
+#============================================================================= 
+Plotting the labour slack effect
+===============================================================================#
 f = Figure()
 ax = Axis(f[1, 1], ytickformat="{:.2f}%", ylabel="GDP", xlabel="Labour slack")
 lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label="Real GDP")
-lines!(ax, [0; 100], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label="Real GDP", linestyle=:dash)
-lines!(ax, [0; 100], 100 .* fill(gdp_effect_simple, 2), label="Real GDP", linestyle=:dash)
-lines!(ax, [0; 100], 100 .* fill(sol_cd |> real_gdp, 2), label="Real GDP", linestyle=:dash)
+lines!(ax, [0; 100], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label="Leontief", linestyle=:dash)
+lines!(ax, [0; 100], 100 .* fill(gdp_effect_simple, 2), label="Baseline", linestyle=:dash)
+lines!(ax, [0; 100], 100 .* fill(sol_cd |> real_gdp, 2), label="Cobb Douglas", linestyle=:dash)
 f[1, 2] = Legend(f, ax)
 f
 
 save("plots/labor_slack_gradient.png", f)
 
 
-### Testing area
-
+#============================================================================= 
+Testing error
+===============================================================================#
 cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
 ces_elasticities = CESElasticities(0.99, 0.99, 0.99)
 options = CES(ces_elasticities, model -> full_demand_labor_allocation(model), false)
