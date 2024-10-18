@@ -101,7 +101,7 @@ function solve(
 )
 	(; data, options,shocks) = model
 	#defines the function:
-	f = NonlinearSolve.NonlinearFunction((u, p) -> problem(u, p))
+	f = NonlinearSolve.NonlinearFunction(problem)
 
 	#defines the concrete problem to be solved (i.e. with inserted parameter values):
 	ProbN = NonlinearSolve.NonlinearProblem(f, init, model)
