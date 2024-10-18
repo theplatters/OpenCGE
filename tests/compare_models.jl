@@ -67,37 +67,8 @@ struct ElasticityGradientSolution
     elasticities::CESElasticities
     labor_realloc::Bool
     nominal::Bool
-    ϵ::Vector{Float64}
-    θ::Vector{Float64}
-    σ::Vector{Float64}
-    elasticities::CESElasticities
-    labor_realloc::Bool
-    nominal::Bool
 end
 
-function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, nominal=false)
-    s = copy(sol)
-    len = 1000
-    a = ones(len)
-    arr = copy(el)
-    for (idx, i) in enumerate(range(0.99, 0.015, len))
-        arr[elasticity] = i
-        elasticities = CESElasticities(arr...)
-        ces = CES(elasticities, labor_slack, labor_reallocation)
-        model = Model(data, shocks, ces)
-        try
-            s = solve(model, init=vcat(s.prices, s.quantities))
-            if labor_reallocation
-                a[idx] = sol.gdp[1]
-            else
-                a[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
-            end
-        catch
-            a[idx] = NaN
-        end
-        @info idx, arr, a[idx]
-    end
-    return a
 function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, nominal=false)
     s = copy(sol)
     len = 1000
@@ -128,10 +99,7 @@ function elasticity_gradient(shocks,
     labor_reallocation=false,
     starting_elasticities=[0.99, 0.99, 0.99],
     nominal=false)
-    labor_slack=full_labor_slack,
-    labor_reallocation=false,
-    starting_elasticities=[0.99, 0.99, 0.99],
-    nominal=false)
+
 
     elasticities = CESElasticities(starting_elasticities...)
     ces = CES(elasticities, labor_slack, labor_reallocation)
@@ -235,7 +203,7 @@ save("plots/labor_slack_gradient.png", f)
 
 
 #============================================================================= 
-Testing error
+Testing grounds
 ===============================================================================#
 cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
 ces_elasticities = CESElasticities(0.99, 0.99, 0.99)
