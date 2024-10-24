@@ -17,7 +17,7 @@ struct CobbDouglasElasticities <: AbstractElasticities
 	β::Vector{Float64}
 end
 
-struct LeontiefElasticies <: AbstractElasticities 
+struct LeontiefElasticies <: AbstractElasticities
 end
 
 struct LeontiefElasticiesLabor <: AbstractElasticities
@@ -26,21 +26,21 @@ end
 abstract type ModelType end
 struct CES <: ModelType
 	elasticities::CESElasticities
-	labor_slack::Union{Vector, Function}	
+	labor_slack::Union{Function, Symbol}
 	labor_reallocation::Bool
 end
 
 CES() = CES(CESElasticities(0.01, 0.5, 0.9), full_labor_slack, false)
-CES(elasticities::CESElasticities) = CES(elasticities,full_labor_slack, false)
+CES(elasticities::CESElasticities) = CES(elasticities, full_labor_slack, false)
 CES(elasticities::CESElasticities, labor_slack) = CES(elasticities, labor_slack, false)
-struct Leontief <: ModelType 
+struct Leontief <: ModelType
 	labor_effect::Bool
 end
 
 Leontief() = Leontief(true)
 
 struct CobbDouglas <: ModelType
-	elasticities::CobbDouglasElasticities	
+	elasticities::CobbDouglasElasticities
 end
 
 
@@ -56,12 +56,12 @@ struct Data <: AbstractData
 	labor_share::Vector{Float64}
 	consumption_share_gross_output::Vector{Float64}
 	grossy::Vector{Float64}
-end	
+end
 
 function Data(filename::String)
 	read_data(filename)
 end
-	
+
 """
 	generateData(io::DataFrames.DataFrame)
 
@@ -73,7 +73,7 @@ julia> Ω, consumption_share, factor_share, λ, labor_share, consumption_share_g
 """
 function generate_data(io::DataFrames.DataFrame)
 	number_sectors = 71
-	Ω = Matrix(coalesce.(io[1:number_sectors, 2:number_sectors +1],0.0))
+	Ω = Matrix(coalesce.(io[1:number_sectors, 2:number_sectors+1], 0.0))
 	Ω = Ω ./ sum(Ω, dims = 2)
 
 	grossy = io[1:number_sectors, "Gesamte Verwendung von Gütern"]
@@ -125,7 +125,7 @@ Given a filename of a IO table located in the /data directory this returns the C
  given a filename of a io table located in the /data directory this returns the cesdata, where shocks are set to ones
 and elasticities are set to the ones presente in the paper by b&f
 """
-function read_data(filename::String)
+function read_data(filename::String)::Data
 	filedir = joinpath(pwd(), "data/", filename)
 	io = CSV.read(filedir, DataFrames.DataFrame, delim = ";", decimal = ',', missingstring = ["-", "x"]) #read in from csv
 	DataFrames.rename!(io, Symbol(names(io)[1]) => :Sektoren) #name the indices after the sectors

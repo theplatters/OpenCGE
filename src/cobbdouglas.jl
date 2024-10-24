@@ -37,8 +37,8 @@ function cobb_douglas_costfun(p, y, model)
 	(; supply_shock, demand_shock) = shocks
 
 	w = cobb_douglas_wages(p, y, model)
-	r = p .^ data.Ω
-	inv.(supply_shock) .* (w .^ α) .* (prod(r, dims = 2) .^ β)
+	r = p .^ (data.Ω)
+	inv.(supply_shock) .* (w .^ α) .* (prod(r, dims = 2) .^ β) .* α .^ -α .* prod((β .* data.Ω)  .^ (-β .* data.Ω), dims = 2)
 end
 
 function cobb_douglas_consumption(p, y, model)

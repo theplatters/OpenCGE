@@ -58,12 +58,12 @@ end
 The objective function as specified in B&F with the added demand shocks, X is the 2*sectors-sized vector,
 data contains the parameters and labor_reallocation is a function that specifies how labor is reallocated accross sectors
 """
-function problem(X, model::Model{CES})
+function problem(X::Vector{Real}, model::Model{CES})
 
 	(; data, options, shocks) = model
 	N = length(data.factor_share)
-	p = @view X[1:N]
-	y = @view X[N+1:end]
+	p = max.(X[1:N],0)
+	y = max.(X[N+1:end],0)
 
 	(; supply_shock, demand_shock) = shocks
 	(; consumption_share, Ω, factor_share) = data
@@ -71,7 +71,7 @@ function problem(X, model::Model{CES})
 	labor = options.labor_slack(model)
 
 
-	Out = zeros(eltype(X), 2 * N)
+	out = zeros(eltype(X), 2 * N)
 
 	consumption_share = (demand_shock .* consumption_share)
 
@@ -83,11 +83,12 @@ function problem(X, model::Model{CES})
 
 	C = w' * labor
 
-	Out[1:N] = p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
-	Out[N+1:end] = y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* consumption_share
+	out[1:N] = p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+	out[N+1:end] = y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* consumption_share
 
-	return Out
+	return out
 end
+
 
 """
 	solve_ces_model(data::CESData, shocks, elasticities,[labor_reallocation, init])
@@ -97,18 +98,21 @@ starting vectors and get back the simulated adapted prices and quantities
 """
 function solve(
 	model::Model{CES};
-	init = Complex.([ones(71)..., model.data.λ...]),
+	init = [ones(length(model.data.λ)); model.data.λ],
 )
-	(; data, options,shocks) = model
+	(; data, options, shocks) = model
+
+
 	#defines the function:
 	f = NonlinearSolve.NonlinearFunction(problem)
-
 	#defines the concrete problem to be solved (i.e. with inserted parameter values):
 	ProbN = NonlinearSolve.NonlinearProblem(f, init, model)
-	#x_imag gives a vector with prices followed by domar weigths:
-	x_imag = NonlinearSolve.solve(ProbN, SciMLNLSolve.NLSolveJL(method = :newton, linesearch = LineSearches.BackTracking()), reltol = 1e-8, abstol = 1e-8).u
+	x = NonlinearSolve.solve(ProbN, reltol = 1e-8, abstol = 1e-8).u
+
 	#turns complex numbers into real numbers:
-	x = real.(x_imag)
+	#x = real.(x_imag)
+	
+	n = length(data.factor_share)
 	p = x[1:length(data.consumption_share)]
 	q = x[(length(data.consumption_share)+1):end]
 
@@ -117,7 +121,7 @@ function solve(
 			Dict("prices" => p,
 				"quantities" => q,
 				"sectors" => data.io.Sektoren[1:71],
-				"gdp" => ((shocks.demand_shock .* data.consumption_share)' * p .^ (1 - options.elasticities.σ)) ^ (1 / (options.elasticities.σ - 1)),
+				"gdp" => ((shocks.demand_shock .* data.consumption_share)' * p .^ (1 - options.elasticities.σ))^(1 / (options.elasticities.σ - 1)),
 			))
 
 	else

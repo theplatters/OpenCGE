@@ -4,7 +4,6 @@ using NonlinearSolve: NonlinearSolve
 using CSV: CSV
 using DataFrames: DataFrames
 using LineSearches: LineSearches
-using SciMLNLSolve: SciMLNLSolve
 using LinearAlgebra
 
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor, Shocks, Data, Model
