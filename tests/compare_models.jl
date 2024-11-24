@@ -21,7 +21,6 @@ sector = ["Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]
 investment = [shock_amount]
 calculate_investment!(shocks, data, investment, sector)
 
-
 #=============================================================================
 Solving for commonly used elasticites and options
 ===============================================================================#

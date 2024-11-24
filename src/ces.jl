@@ -11,8 +11,7 @@ Alters the shock vector, so that the shock in the given sector reflects the inve
 function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Vector{<:Number}, sector::Vector{Int})
 
 	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-				  sum |>
-				  x -> getindex(x, 1:71)
+				  sum |> Base.Fix2(getindex, 1:length(sector))
 
 	for i in 1:length(sector)
 		shocks.demand_shock[sector[i]] = 1 + investment[i] / consumption[sector[i]]
@@ -58,7 +57,7 @@ end
 The objective function as specified in B&F with the added demand shocks, X is the 2*sectors-sized vector,
 data contains the parameters and labor_reallocation is a function that specifies how labor is reallocated accross sectors
 """
-function problem(X::Vector{Real}, model::Model{CES})
+function problem(X::Vector, model::Model{CES})
 
 	(; data, options, shocks) = model
 	N = length(data.factor_share)
