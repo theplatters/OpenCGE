@@ -137,7 +137,7 @@ function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.σ), label = "Elasticity of consumption")
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief model", linestyle = :dash)
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Baseline Effect", linestyle = :dash)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Cobb Douglas modelCobb Douglas model", linestyle = :dash)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Cobb Douglas", linestyle = :dash)
 	end
 
 	f[1, 2] = Legend(f, ax[1], labelsize = 25)
@@ -196,7 +196,7 @@ ax = Axis(f[1, 1], ytickformat = "{:.2f}%", ylabel = "GDP", xlabel = "Labour sla
 lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label = "Real GDP")
 lines!(ax, [0; 100], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief", linestyle = :dash)
 lines!(ax, [0; 100], 100 .* fill(gdp_effect_simple, 2), label = "Baseline", linestyle = :dash)
-lines!(ax, [0; 100], 100 .* fill(sol_cd |> real_gdp, 2), label = "Cobb Douglas", linestyle = :dash)
+lines!(ax, [0; 100], 100 .* fill(sol_cd_ls |> real_gdp, 2), label = "Cobb Douglas", linestyle = :dash)
 f[1, 2] = Legend(f, ax)
 f
 
