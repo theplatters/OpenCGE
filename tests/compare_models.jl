@@ -31,13 +31,11 @@ ces_options_ls = CES(ces_elasticities, model -> data.labor_share, true)
 #cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
 #cd_options = CES(cd_elasticities, x -> data.labor_share, false)
 cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
-cd_options_ls = CobbDouglas(cd_elasticities)
 
 cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
-cd_options = CES(cd_elasticities, model -> data.labor_share)
+cd_options = CES(cd_elasticities, full_labor_slack)
 
-sol_cd = solve(Model(data, shocks, cd_options_ls))
-sol_cd = solve(Model(data, shocks, cd_options))
+sol_cd_ls = solve(Model(data, shocks, cd_options))
 
 ces_labor_realloc = CES(CESElasticities(0.2, 0.6, 0.9), x -> data.labor_share, true)
 sol_realloc = solve(Model(data, shocks, ces_labor_realloc))
@@ -137,9 +135,9 @@ function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.ϵ), label = "Elasticity between goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.θ), label = "Elasticity between labour and goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.σ), label = "Elasticity of consumption")
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Elasticity between goods", linestyle = :dash)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Elasticity between goods", linestyle = :dash)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Elasticity between goods", linestyle = :dash)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief model", linestyle = :dash)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Baseline Effect", linestyle = :dash)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Cobb Douglas modelCobb Douglas model", linestyle = :dash)
 	end
 
 	f[1, 2] = Legend(f, ax[1], labelsize = 25)
