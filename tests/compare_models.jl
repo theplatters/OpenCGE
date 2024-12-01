@@ -208,7 +208,7 @@ Testing grounds
 ===============================================================================#
 cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
 ces_elasticities = CESElasticities(0.99, 0.99, 0.99)
-options = CES(ces_elasticities, model -> full_demand_labor_allocation(model), false)
+options = CES(ces_elasticities, model -> full_labor_slack(model), false)
 m2 = Model(data, shocks, options)
 sol2 = solve(m2)
 sol2 |> real_gdp
