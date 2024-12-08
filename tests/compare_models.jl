@@ -107,7 +107,8 @@ function elasticity_gradient(shocks,
 	labor_slack = full_labor_slack,
 	labor_reallocation = false,
 	starting_elasticities = [0.99, 0.99, 0.99],
-	nominal = false)
+	nominal = false
+	)
 
 
 	elasticities = CESElasticities(starting_elasticities...)
@@ -175,33 +176,30 @@ function plot_prices(results; title = "Real GDP", cd = sol_cd, ylims = (97, 103)
 	f
 end
 
-a = elasticity_gradient(shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
-b = elasticity_gradient(shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
-c = elasticity_gradient(shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
-d = elasticity_gradient(shocks, full_labor_slack, false, [0.05, 0.05, 0.05])
+#shock 4 different sectors
+for sector in rand(data.io.Sektoren,4)
+	shocks = Shocks(ones(71), ones(71))
+	calculate_investment!(shocks, data, [50000], [sector])
+	a = elasticity_gradient(shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
+	b = elasticity_gradient(shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
+	c = elasticity_gradient(shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
+	d = elasticity_gradient(shocks, full_labor_slack, false, [0.1, 0.1, 0.1])
 
-e = elasticity_gradient(shocks, model -> data.labor_share, false, [0.99, 0.99, 0.99])
-f = elasticity_gradient(shocks, model -> data.labor_share, false, [0.7, 0.7, 0.7])
-g = elasticity_gradient(shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
-h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.05, 0.05, 0.05])
+	e = elasticity_gradient(shocks, model -> data.labor_share, false, [0.99, 0.99, 0.99])
+	f = elasticity_gradient(shocks, model -> data.labor_share, false, [0.7, 0.7, 0.7])
+	g = elasticity_gradient(shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
+	h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
 
-## Labour reallocation
-g = elasticity_gradient(shocks, model -> data.labor_share, true)
-h = elasticity_gradient(shocks, model -> data.labor_share, true, [0.5, 0.5, 0.5])
-i = elasticity_gradient(shocks, model -> data.labor_share, true, [0.1, 0.1, 0.1])
-
-
-p1 = plot_elasticities([a, b, c], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour slack")
-p2 = plot_elasticities([d, e, f], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack")
-p3 = plot_elasticities([g, h, i], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour reallocation")
-save("plots/elastictiy_gradient_ls.png", p1)
-save("plots/elastictiy_gradient_no_ls.png", p2)
-save("plots/elastictiy_gradient_lr.png", p3)
-
-
-p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour slack")
-p1 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour slack")
-
+	
+	p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour slack" * sector)
+	p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour slack" * sector)
+	show(p1)
+	show(p2)
+end
+#= 	save("plots/elastictiy_gradient_ls.png", p1)
+	save("plots/elastictiy_gradient_no_ls.png", p2)
+	save("plots/elastictiy_gradient_lr.png", p3)
+ =#
 #=============================================================================
 Simulating labour slack effect
 ===============================================================================#
@@ -235,44 +233,3 @@ f
 
 save("plots/labor_slack_gradient.png", f)
 
-
-#============================================================================= 
-Testing grounds
-===============================================================================#
-cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
-ces_elasticities = CESElasticities(0.99, 0.99, 0.99)
-options = CES(ces_elasticities, model -> full_labor_slack(model), false)
-m2 = Model(data, shocks, options)
-sol2 = solve(m2)
-sol2 |> real_gdp
-
-real_gdp(sol2)
-nominal_gdp(sol2)
-
-
-
-using LinearAlgebra
-
-impulses = CSV.read("data/impulses.csv", DataFrame) ./ 10e5
-elastities = LeontiefElasticiesLabor()
-elastities = LeontiefElasticies()
-demand_shock = Vector(impulses[1, 3:end-1])
-maximum(eachcol(impulses))
-calculate_investment!(shocks, data, Vector(impulses[1, 3:end-1]), data.io.Sektoren[1:71])
-shocks = Shocks(demand_shock, demand_shock)
-
-shocks.demand_shock
-
-impulses[1, "Machinery"]
-names(impulses)
-
-model = Model(data, shocks, ces_elasticities)
-sol = solve(model)
-
-
-data.io.Sektoren
-## Supply shockdemand_shock = ones(71)
-supply_shock = ones(71)
-supply_shock[4] = 0.8
-demand_shock = ones(71)
-shocks = Shocks(demand_shock, supply_shock)
