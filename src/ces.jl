@@ -31,7 +31,7 @@ function calculate_investment!(shocks::Shocks, data::AbstractData, investment::V
 				  sum |>
 				  x -> getindex(x, 1:71)
 
-	for i in 1:length(sector)
+	for i in eachindex(sector) 
 		sector_number = findfirst(==(sector[i]), data.io.Sektoren)
 		shocks.demand_shock[sector_number] = 1 + investment[i] / consumption[sector_number]
 		println("Demand shock to sector $(sector[i]): $(shocks.demand_shock[sector_number])")

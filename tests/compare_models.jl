@@ -5,6 +5,7 @@ using BeyondHulten
 using CSV
 using CairoMakie
 using DataFrames
+using StatsBase
 #=============================================================================
 Loading in Data
 ===============================================================================#
@@ -41,7 +42,7 @@ ces_labor_realloc = CES(CESElasticities(0.2, 0.6, 0.9), x -> data.labor_share, t
 sol_realloc = solve(Model(data, shocks, ces_labor_realloc))
 sol_realloc |> real_gdp
 
-
+data.consumption_share |> sum
 
 model = Model(data, shocks, ces_options)
 sol = solve(model)
@@ -65,6 +66,9 @@ struct ElasticityGradientSolution
 	ϵ::Vector{Float64}
 	θ::Vector{Float64}
 	σ::Vector{Float64}
+	mean_prices_ϵ::Vector{Float64}
+	mean_prices_θ::Vector{Float64}
+	mean_prices_σ::Vector{Float64}
 	elasticities::CESElasticities
 	labor_realloc::Bool
 	nominal::Bool
@@ -73,9 +77,10 @@ end
 function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, nominal = false)
 	s = copy(sol)
 	len = 1000
-	a = ones(len)
+	gdp = ones(len)
+	mean_prices = ones(len)
 	arr = copy(el)
-	for (idx, i) in enumerate(range(0.99, 0.015, len))
+	@inbounds for (idx, i) in enumerate(range(0.99, 0.015, len))
 		arr[elasticity] = i
 		elasticities = CESElasticities(arr...)
 		ces = CES(elasticities, labor_slack, labor_reallocation)
@@ -83,16 +88,19 @@ function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, 
 		try
 			s = solve(model, init = vcat(s.prices, s.quantities))
 			if labor_reallocation
-				a[idx] = sol.gdp[1]
+				gdp[idx] = sol.gdp[1]
 			else
-				a[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
+				gdp[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
+				mean_prices[idx] = mean(s.prices, weights(s.quantities))
 			end
-		catch
-			a[idx] = NaN
+		catch e
+			@warn e
+			gdp[idx] = NaN
+			mean_prices[idx] = NaN
 		end
-		@info idx, arr, a[idx]
+		@show idx, arr, gdp[idx] mean_prices[idx]
 	end
-	return a
+	return (gdp, mean_prices)
 end
 
 function elasticity_gradient(shocks,
@@ -113,11 +121,11 @@ function elasticity_gradient(shocks,
 	t3 = @task gradient(shocks, labor_slack, labor_reallocation, 3, sol_original, starting_elasticities, nominal)
 	schedule(t3)
 
-	a = fetch(t1)
-	b = fetch(t2)
-	c = fetch(t3)
+	(a, ap) = fetch(t1)
+	(b, bp) = fetch(t2)
+	(c, cp) = fetch(t3)
 	elasticities = starting_elasticities
-	return ElasticityGradientSolution(a, b, c, CESElasticities(elasticities...), labor_reallocation, false)
+	return ElasticityGradientSolution(a, b, c, ap, bp, cp, CESElasticities(elasticities...), labor_reallocation, false)
 end
 
 
@@ -145,14 +153,37 @@ function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97
 	f
 end
 
-a = elasticity_gradient(shocks, full_labor_slack, false)
-b = elasticity_gradient(shocks, full_labor_slack, false, [0.5, 0.5, 0.5])
-c = elasticity_gradient(shocks, full_labor_slack, false, [0.1, 0.1, 0.1])
+function plot_prices(results; title = "Real GDP", cd = sol_cd, ylims = (97, 103))
+	f = Figure(size = (1980, 720), title = title)
 
+	ga = f[1, 1] = GridLayout()
+	ax = [Axis(ga[1, 1], ylabel = "GDP", ytickformat = "{:.2f}%", title = "0.99"),
+		Axis(ga[1, 2], xlabel = "Elasticity", ytickformat = "{:.2f}%", title = "0.7"),
+		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
+		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
 
-d = elasticity_gradient(shocks, model -> data.labor_share, false)
-e = elasticity_gradient(shocks, model -> data.labor_share, false, [0.5, 0.5, 0.5])
-f = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
+	supertitle = Label(f[0, :], title, fontsize = 40, tellwidth = false)
+	linkaxes!(ax[1], ax[2], ax[3], ax[4])
+	for (i, el) in enumerate(results)
+		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_ϵ), label = "Elasticity between goods")
+		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_θ), label = "Elasticity between labour and goods")
+		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_σ), label = "Elasticity of consumption")
+	end
+
+	f[1, 2] = Legend(f, ax[1], labelsize = 25)
+
+	f
+end
+
+a = elasticity_gradient(shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
+b = elasticity_gradient(shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
+c = elasticity_gradient(shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
+d = elasticity_gradient(shocks, full_labor_slack, false, [0.05, 0.05, 0.05])
+
+e = elasticity_gradient(shocks, model -> data.labor_share, false, [0.99, 0.99, 0.99])
+f = elasticity_gradient(shocks, model -> data.labor_share, false, [0.7, 0.7, 0.7])
+g = elasticity_gradient(shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
+h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.05, 0.05, 0.05])
 
 ## Labour reallocation
 g = elasticity_gradient(shocks, model -> data.labor_share, true)
@@ -168,6 +199,8 @@ save("plots/elastictiy_gradient_no_ls.png", p2)
 save("plots/elastictiy_gradient_lr.png", p3)
 
 
+p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour slack")
+p1 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, with labour slack")
 
 #=============================================================================
 Simulating labour slack effect
