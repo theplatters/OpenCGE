@@ -9,7 +9,7 @@ Imports
 ===============================================================================#
 using BeyondHulten
 using CSV
-using GLMakie 
+using GLMakie
 using DataFrames
 using StatsBase
 #=============================================================================
@@ -103,7 +103,7 @@ function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, 
 			@warn e
 			gdp[idx] = NaN
 			mean_prices[idx] = NaN
-			@info idx 
+			@info idx
 		end
 	end
 	return (gdp, mean_prices)
@@ -113,8 +113,8 @@ function elasticity_gradient(shocks,
 	labor_slack = full_labor_slack,
 	labor_reallocation = false,
 	starting_elasticities = [0.99, 0.99, 0.99],
-	nominal = false
-	)
+	nominal = false,
+)
 
 
 	elasticities = CESElasticities(starting_elasticities...)
@@ -151,9 +151,9 @@ function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.ϵ), label = "Elasticity between goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.θ), label = "Elasticity between labour and goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.σ), label = "Elasticity of consumption")
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief model", linestyle = :dash)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Baseline Effect", linestyle = :dash)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Cobb Douglas", linestyle = :dash)
+		#lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief model", linestyle = :dash)
+		#lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Baseline Effect", linestyle = :dash)
+		#lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Cobb Douglas", linestyle = :dash)
 	end
 
 	f[1, 2] = Legend(f, ax[1], labelsize = 25)
@@ -184,7 +184,19 @@ function plot_prices(results; title = "Real GDP", cd = sol_cd, ylims = (97, 103)
 end
 
 #shock 4 different sectors
-for sector in rand(data.io.Sektoren[1:71],4)
+
+sectors = [
+	"Kohle",
+	"Chemische Erzeugnisse",
+	"Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten",
+	"Fische, Fischerei- und Aquakulturerzeugnisse, DL",
+	"Großhandelsleistungen (oh.Handelsleistungen m.Kfz)",
+	"Dienstleistungen v.Versicherungen u.Pensionskassen",
+	"Nahrungs- u. Futtermittel, Getränke, Tabakerzeugn.",
+	"Sonstige Fahrzeuge"
+]
+
+for sector in sectors
 	@info sector
 	shocks = Shocks(ones(71), ones(71))
 
@@ -201,16 +213,16 @@ for sector in rand(data.io.Sektoren[1:71],4)
 	g = elasticity_gradient(shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
 	h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
 
-	
+
 	p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
 	p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
 	p3 = plot_elasticities([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP with labour slack " * sector)
 	p4 = plot_elasticities([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack " * sector)
 
- 	save("plots/elastictiy_gradient_ls_prices_$sector.png" , p1)
+	save("plots/elastictiy_gradient_ls_prices_$sector.png", p1)
 	save("plots/elastictiy_gradient_no_ls_prices_$sector.png", p2)
-	save("plots/elastictiy_gradient_no_ls_$sector.png", p3)
- 	save("plots/elastictiy_gradient_ls_$sector.png" , p4)
+	save("plots/elastictiy_gradient_ls_$sector.png", p3)
+	save("plots/elastictiy_gradient_no_ls_$sector.png", p4)
 end
 #=============================================================================
 Simulating labour slack effect
@@ -266,11 +278,11 @@ fig = Figure()
 ax = Axis(fig[1, 1])
 
 sl_x = Slider(fig[2, 1], range = 0.7:0.1:1.8, startvalue = 1.4)
-sl_y = Slider(fig[1, 2], range = 1:71, startvalue = 1,horizontal = false)
+sl_y = Slider(fig[1, 2], range = 1:71, startvalue = 1, horizontal = false)
 
 ces_elasticities = CESElasticities(0.01, 0.5, 0.9)
 ces_options = CES(ces_elasticities, full_labor_slack, false)
-p = lift(sl_x.value, sl_y.value) do x,y
+p = lift(sl_x.value, sl_y.value) do x, y
 	@info data.io.Sektoren[y]
 	demand_shock = ones(71)
 	supply_shock = ones(71)
@@ -280,7 +292,7 @@ p = lift(sl_x.value, sl_y.value) do x,y
 	m = Model(data, shocks, ces_options)
 	sol = solve(m)
 	@info sol |> real_gdp, sol |> nominal_gdp
-	Point2f(sol |> real_gdp, sol|> nominal_gdp)
+	Point2f(sol |> real_gdp, sol |> nominal_gdp)
 end
 
 scatter!(p, color = :red, markersize = 20)
