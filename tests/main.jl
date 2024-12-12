@@ -224,6 +224,35 @@ for sector in sectors
 	save("plots/elastictiy_gradient_ls_$sector.png", p3)
 	save("plots/elastictiy_gradient_no_ls_$sector.png", p4)
 end
+
+for sector in sectors
+	@info sector
+	shocks = Shocks(ones(71), ones(71))
+
+	sector_number = findfirst(==(sector), data.io.Sektoren)
+	shocks.supply_shock[sector_number] = 1.1
+
+	a = elasticity_gradient(shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
+	b = elasticity_gradient(shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
+	c = elasticity_gradient(shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
+	d = elasticity_gradient(shocks, full_labor_slack, false, [0.1, 0.1, 0.1])
+
+	e = elasticity_gradient(shocks, model -> data.labor_share, false, [0.99, 0.99, 0.99])
+	f = elasticity_gradient(shocks, model -> data.labor_share, false, [0.7, 0.7, 0.7])
+	g = elasticity_gradient(shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
+	h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
+
+
+	p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
+	p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
+	p3 = plot_elasticities([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP with labour slack " * sector)
+	p4 = plot_elasticities([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack " * sector)
+
+	save("plots/eg_supply_ls_prices_$sector.png", p1)
+	save("plots/eg_supply_no_ls_prices_$sector.png", p2)
+	save("plots/eg_supply_ls_$sector.png", p3)
+	save("plots/eg_supply_no_ls_$sector.png", p4)
+end
 #=============================================================================
 Simulating labour slack effect
 ===============================================================================#
