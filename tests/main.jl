@@ -3,7 +3,7 @@ Imports
 ===============================================================================#
 using BeyondHulten
 using CSV
-using CairoMakie
+using GLMakie 
 using DataFrames
 using StatsBase
 #=============================================================================
@@ -210,6 +210,14 @@ end
 Simulating labour slack effect
 ===============================================================================#
 
+shock_amount = 50000
+demand_shock = ones(71)
+supply_shock = ones(71)
+shocks = Shocks(demand_shock, supply_shock)
+sector = ["Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]
+investment = [shock_amount]
+calculate_investment!(shocks, data, investment, sector)
+
 ces = CES(CESElasticities(0.01, 0.5, 0.9), model -> full_labor_slack(model), false)
 model = Model(data, shocks, ces)
 sol = solve(model)
@@ -228,6 +236,7 @@ end
 #============================================================================= 
 Plotting the labour slack effect
 ===============================================================================#
+
 f = Figure()
 ax = Axis(f[1, 1], ytickformat = "{:.2f}%", ylabel = "GDP", xlabel = "Labour slack")
 lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label = "Real GDP")
@@ -239,3 +248,37 @@ f
 
 save("plots/labor_slack_gradient.png", f)
 
+#=============================================================================
+Different Investments
+===============================================================================#
+
+
+using GLMakie
+
+fig = Figure()
+
+ax = Axis(fig[1, 1])
+
+sl_x = Slider(fig[2, 1], range = 0.7:0.1:1.8, startvalue = 1.4)
+sl_y = Slider(fig[1, 2], range = 1:71, startvalue = 1,horizontal = false)
+
+ces_elasticities = CESElasticities(0.01, 0.5, 0.9)
+ces_options = CES(ces_elasticities, full_labor_slack, false)
+p = lift(sl_x.value, sl_y.value) do x,y
+	@info data.io.Sektoren[y]
+	demand_shock = ones(71)
+	supply_shock = ones(71)
+	demand_shock[y] = x
+	shocks = Shocks(demand_shock, supply_shock)
+
+	m = Model(data, shocks, ces_options)
+	sol = solve(m)
+	@info sol |> real_gdp, sol |> nominal_gdp
+	Point2f(sol |> real_gdp, sol|> nominal_gdp)
+end
+
+scatter!(p, color = :red, markersize = 20)
+
+limits!(ax, 0.9, 1.1, 0.9, 1.1)
+
+fig
