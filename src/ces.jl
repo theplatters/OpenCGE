@@ -1,25 +1,6 @@
 include("interface.jl")
 
 
-
-
-"""
-	calculate_investment!(shock::Shocks, data::CESData, investment::Number, sector::Int)
-
-Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
-"""
-function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Vector{<:Number}, sector::Vector{Int})
-
-	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-				  sum |> Base.Fix2(getindex, 1:length(sector))
-
-	for i in 1:length(sector)
-		shocks.demand_shock[sector[i]] = 1 + investment[i] / consumption[sector[i]]
-		println("Demand shock to sector $(sector): $(shocks.demand_shock[sector[i]])")
-	end
-
-end
-
 """
 	calculate_investment!(shock::Shocks, data::Data, investment::Number, sector::String)
 
@@ -36,9 +17,18 @@ function calculate_investment!(shocks::Shocks, data::AbstractData, investment::V
 		shocks.demand_shock[sector_number] = 1 + investment[i] / consumption[sector_number]
 		println("Demand shock to sector $(sector[i]): $(shocks.demand_shock[sector_number])")
 	end
-
 end
 
+"""
+	calculate_investment!(shock::Shocks, data::Data, investment::Dict)
+
+Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
+"""
+function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Dict{String, Number})
+	for (sector, investment) in investment
+		calculate_investment!(shocks, data, [investment], [sector])
+	end 
+end
 
 """
 	full_labor_slack(model::Model)
@@ -46,8 +36,7 @@ end
 Returns the labor vector adjusted, so that labor can be freely reallocated to accomodate for demand shocks
 """
 function full_labor_slack(model::Model)
-	(; data, shocks, options) = model
-	elasticites = options.elasticities
+	(; data, shocks) = model
 	inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 

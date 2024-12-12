@@ -43,12 +43,8 @@ struct CobbDouglas <: ModelType
 	elasticities::CobbDouglasElasticities
 end
 
-
-
-
-
 struct Data <: AbstractData
-	io::DataFrames.DataFrame
+	io::DataFrame
 	Ω::Matrix{Float64}
 	consumption_share::Vector{Float64}
 	factor_share::Vector{Float64}

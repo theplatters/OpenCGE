@@ -2,7 +2,7 @@ module BeyondHulten
 
 using NonlinearSolve: NonlinearSolve
 using CSV: CSV
-using DataFrames: DataFrames
+using DataFrames
 using LineSearches: LineSearches
 using LinearAlgebra
 
