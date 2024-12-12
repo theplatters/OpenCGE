@@ -97,6 +97,7 @@ function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, 
 			@warn e
 			gdp[idx] = NaN
 			mean_prices[idx] = NaN
+			@info idx 
 		end
 	end
 	return (gdp, mean_prices)
@@ -135,10 +136,10 @@ function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97
 	ga = f[1, 1] = GridLayout()
 	ax = [Axis(ga[1, 1], ylabel = "GDP", ytickformat = "{:.2f}%", title = "0.9"),
 		Axis(ga[1, 2], xlabel = "Elasticity", ytickformat = "{:.2f}%", title = "0.5"),
-		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.1"),
-		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.1")]
+		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
+		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
 
-	supertitle = Label(f[0, :], title, fontsize = 40, tellwidth = false)
+	supertitle = Label(f[0, :], title, fontsize = 20, tellwidth = false)
 	linkaxes!(ax[1], ax[2], ax[3], ax[4])
 	for (i, el) in enumerate(results)
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.ϵ), label = "Elasticity between goods")
@@ -178,6 +179,7 @@ end
 
 #shock 4 different sectors
 for sector in rand(data.io.Sektoren[1:71],4)
+	@info sector
 	shocks = Shocks(ones(71), ones(71))
 
 	sector_number = findfirst(==(sector), data.io.Sektoren)
@@ -194,10 +196,10 @@ for sector in rand(data.io.Sektoren[1:71],4)
 	h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
 
 	
-	p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack" * sector)
-	p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack" * sector)
-	p3 = plot_elasticities([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP with labour slack" * sector)
-	p4 = plot_elasticities([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack" * sector)
+	p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
+	p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
+	p3 = plot_elasticities([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP with labour slack " * sector)
+	p4 = plot_elasticities([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack " * sector)
 
  	save("plots/elastictiy_gradient_ls_prices_$sector.png" , p1)
 	save("plots/elastictiy_gradient_no_ls_prices_$sector.png", p2)
