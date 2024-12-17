@@ -75,6 +75,9 @@ struct ElasticityGradientSolution
 	mean_prices_ϵ::Vector{Float64}
 	mean_prices_θ::Vector{Float64}
 	mean_prices_σ::Vector{Float64}
+	concessions_ϵ::Vector{Vector{Float64}}
+	concessions_θ::Vector{Vector{Float64}}
+	concessions_σ::Vector{Vector{Float64}}
 	elasticities::CESElasticities
 	labor_realloc::Bool
 	nominal::Bool
@@ -85,6 +88,7 @@ function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, 
 	len = 500
 	gdp = ones(len)
 	mean_prices = ones(len)
+	concessions  = Vector{Vector{Float64}}(undef,len)
 	arr = copy(el)
 	@inbounds for (idx, i) in enumerate(range(0.99, 0.015, len))
 		arr[elasticity] = i
@@ -98,6 +102,7 @@ function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, 
 			else
 				gdp[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
 				mean_prices[idx] = mean(s.prices, weights(s.quantities))
+				concessions[idx] = sol.prices .- mean_prices[idx]
 			end
 		catch e
 			@warn e
@@ -106,7 +111,7 @@ function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, 
 			@info idx
 		end
 	end
-	return (gdp, mean_prices)
+	return (gdp, mean_prices, concessions)
 end
 
 function elasticity_gradient(shocks,
@@ -128,11 +133,11 @@ function elasticity_gradient(shocks,
 	t3 = @task gradient(shocks, labor_slack, labor_reallocation, 3, sol_original, starting_elasticities, nominal)
 	schedule(t3)
 
-	(a, ap) = fetch(t1)
-	(b, bp) = fetch(t2)
-	(c, cp) = fetch(t3)
+	(a, ap,ac) = fetch(t1)
+	(b, bp,bc) = fetch(t2)
+	(c, cp, cc) = fetch(t3)
 	elasticities = starting_elasticities
-	return ElasticityGradientSolution(a, b, c, ap, bp, cp, CESElasticities(elasticities...), labor_reallocation, false)
+	return ElasticityGradientSolution(a, b, c, ap, bp, cp,ac,bc,cc, CESElasticities(elasticities...), labor_reallocation, false)
 end
 
 
