@@ -280,15 +280,18 @@ sol = solve(Model(data, shocks, options))
 concessions = DataFrame(
 	sectors = data.io.Sektoren[1:71],
 	price_derivation = sol.prices .- mean(sol.prices, weights(sol.quantities)),
-	concession = Vector(data.io[1:71, "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]))
+	from = Vector(data.io[1:71, "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]),
+	to =  Vector(data.io[findfirst(==("Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"), data.io.Sektoren), 2:72]))
 
-
+CSV.write("data/concessions.csv", concessions)
 fig = Figure()
 ax1 = Axis(fig[1, 1], ylabel = "Price Derivation", xlabel = "Sectors")
-ax2 = Axis(fig[1, 2], ylabel = "Concessions", xlabel = "Sectors")
+ax2 = Axis(fig[2, 1], ylabel = "Concessions", xlabel = "Sectors")
+ax3 = Axis(fig[2, 2], ylabel = "Concessions", xlabel = "Sectors")
 
 barplot!(ax1, concessions.price_derivation, bar_labels = concessions.sectors)
 barplot!(ax2, concessions.concession, bar_labels = concessions.sectors)
+barplot!(ax3, concessions.concession, bar_labels = concessions.sectors)
 
 
 fig
