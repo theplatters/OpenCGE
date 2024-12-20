@@ -5,6 +5,8 @@ using CSV: CSV
 using DataFrames
 using LineSearches: LineSearches
 using LinearAlgebra
+using StatsBase
+using GLMakie
 
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor, Shocks, Data, Model
 export read_data, calculate_investment!
@@ -13,7 +15,9 @@ export CBData, read_data_cb, cobb_douglas_costfun, cobb_douglas_consumption, cob
 export solve
 export CES, Leontief, CobbDouglas
 export gdp
-include("leontief.jl")
 
+export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution
+include("leontief.jl")
+include("util.jl")
 
 end

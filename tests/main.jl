@@ -20,18 +20,7 @@ data = Data("I-O_DE2019_formatiert.csv")
 #=============================================================================
 Setting the shocks
 ===============================================================================#
-function standard_shock()
-	shock_amount = 50000
-	demand_shock = ones(71)
-	supply_shock = ones(71)
-	shocks = Shocks(demand_shock, supply_shock)
-	sector = ["Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]
-	investment = [shock_amount]
-	calculate_investment!(shocks, data, investment, sector)
-	return shocks
-end
-
-shocks = standard_shock()
+shocks = standard_shock(data)
 #=============================================================================
 Solving for commonly used elasticites and options
 ===============================================================================#
@@ -65,128 +54,13 @@ leontief = Leontief()
 
 model_leontief = Model(data, shocks, leontief)
 sol_leontief = solve(model_leontief)
-
+shock_amount = 50_000
 ## Calculting the shock amount proportional to GDP
 gdp_effect_simple = 1 + shock_amount / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
 
 #=============================================================================
 Simulating the effect of different elasticites
 ===============================================================================#
-struct ElasticityGradientSolution
-	ϵ::Vector{Float64}
-	θ::Vector{Float64}
-	σ::Vector{Float64}
-	mean_prices_ϵ::Vector{Float64}
-	mean_prices_θ::Vector{Float64}
-	mean_prices_σ::Vector{Float64}
-	elasticities::CESElasticities
-	labor_realloc::Bool
-	nominal::Bool
-end
-
-function gradient(shocks, labor_slack, labor_reallocation, elasticity, sol, el, nominal = false)
-	s = copy(sol)
-	len = 500
-	gdp = ones(len)
-	mean_prices = ones(len)
-	concessions = Vector{Vector{Float64}}(undef, len)
-	arr = copy(el)
-	@inbounds for (idx, i) in enumerate(range(0.99, 0.015, len))
-		arr[elasticity] = i
-		elasticities = CESElasticities(arr...)
-		ces = CES(elasticities, labor_slack, labor_reallocation)
-		model = Model(data, shocks, ces)
-		try
-			s = solve(model, init = vcat(s.prices, s.quantities))
-			if labor_reallocation
-				gdp[idx] = sol.gdp[1]
-			else
-				gdp[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
-				mean_prices[idx] = mean(s.prices, weights(s.quantities))
-			end
-		catch e
-			@warn e
-			gdp[idx] = NaN
-			mean_prices[idx] = NaN
-			@info idx
-		end
-	end
-	return (gdp, mean_prices)
-end
-
-function elasticity_gradient(shocks,
-	labor_slack = full_labor_slack,
-	labor_reallocation = false,
-	starting_elasticities = [0.99, 0.99, 0.99],
-	nominal = false,
-)
-
-
-	elasticities = CESElasticities(starting_elasticities...)
-	ces = CES(elasticities, labor_slack, labor_reallocation)
-	model = Model(data, shocks, ces)
-	sol_original = solve(model)
-	t1 = @task gradient(shocks, labor_slack, labor_reallocation, 1, sol_original, starting_elasticities, nominal)
-	schedule(t1)
-	t2 = @task gradient(shocks, labor_slack, labor_reallocation, 2, sol_original, starting_elasticities, nominal)
-	schedule(t2)
-	t3 = @task gradient(shocks, labor_slack, labor_reallocation, 3, sol_original, starting_elasticities, nominal)
-	schedule(t3)
-
-	(a, ap) = fetch(t1)
-	(b, bp) = fetch(t2)
-	(c, cp) = fetch(t3)
-	elasticities = starting_elasticities
-	return ElasticityGradientSolution(a, b, c, ap, bp, cp, CESElasticities(elasticities...), labor_reallocation, false)
-end
-
-
-function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97, 103))
-	f = Figure(size = (1980, 720), title = title)
-
-	ga = f[1, 1] = GridLayout()
-	ax = [Axis(ga[1, 1], ylabel = "GDP", ytickformat = "{:.2f}%", title = "0.9"),
-		Axis(ga[1, 2], xlabel = "Elasticity", ytickformat = "{:.2f}%", title = "0.5"),
-		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
-		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
-
-	supertitle = Label(f[0, :], title, fontsize = 20, tellwidth = false)
-	linkaxes!(ax[1], ax[2], ax[3], ax[4])
-	for (i, el) in enumerate(results)
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.ϵ), label = "Elasticity between goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.θ), label = "Elasticity between labour and goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.σ), label = "Elasticity of consumption")
-		#lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief model", linestyle = :dash)
-		#lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Baseline Effect", linestyle = :dash)
-		#lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Cobb Douglas", linestyle = :dash)
-	end
-
-	f[1, 2] = Legend(f, ax[1], labelsize = 25)
-
-	f
-end
-
-function plot_prices(results; title = "Real GDP", cd = sol_cd, ylims = (97, 103))
-	f = Figure(size = (1980, 720), title = title)
-
-	ga = f[1, 1] = GridLayout()
-	ax = [Axis(ga[1, 1], ylabel = "GDP", ytickformat = "{:.2f}%", title = "0.99"),
-		Axis(ga[1, 2], xlabel = "Elasticity", ytickformat = "{:.2f}%", title = "0.7"),
-		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
-		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
-
-	supertitle = Label(f[0, :], title, fontsize = 20, tellwidth = false)
-	linkaxes!(ax[1], ax[2], ax[3], ax[4])
-	for (i, el) in enumerate(results)
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_ϵ), label = "Elasticity between goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_θ), label = "Elasticity between labour and goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_σ), label = "Elasticity of consumption")
-	end
-
-	f[1, 2] = Legend(f, ax[1], labelsize = 25)
-
-	f
-end
 
 #shock 4 different sectors
 
@@ -208,15 +82,15 @@ for sector in sectors
 	sector_number = findfirst(==(sector), data.io.Sektoren)
 	shocks.demand_shock[sector_number] = 1.4
 
-	a = elasticity_gradient(shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
-	b = elasticity_gradient(shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
-	c = elasticity_gradient(shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
-	d = elasticity_gradient(shocks, full_labor_slack, false, [0.1, 0.1, 0.1])
+	a = BeyondHulten.elasticity_gradient(data,shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
+	b = BeyondHulten.elasticity_gradient(data,shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
+	c = BeyondHulten.elasticity_gradient(data,shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
+	d = BeyondHulten.elasticity_gradient(data,shocks, full_labor_slack, false, [0.1, 0.1, 0.1])
 
-	e = elasticity_gradient(shocks, model -> data.labor_share, false, [0.99, 0.99, 0.99])
-	f = elasticity_gradient(shocks, model -> data.labor_share, false, [0.7, 0.7, 0.7])
-	g = elasticity_gradient(shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
-	h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
+	e = BeyondHulten.elasticity_gradient(data,shocks, model -> data.labor_share, false, [0.99, 0.99, 0.99])
+	f = BeyondHulten.elasticity_gradient(data,shocks, model -> data.labor_share, false, [0.7, 0.7, 0.7])
+	g = BeyondHulten.elasticity_gradient(data,shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
+	h = BeyondHulten.elasticity_gradient(data,shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
 
 
 	p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
@@ -224,19 +98,10 @@ for sector in sectors
 	p3 = plot_elasticities([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP with labour slack " * sector)
 	p4 = plot_elasticities([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack " * sector)
 
-	save("plots/elastictiy_gradient_ls_prices_$sector.png", p1)
-	save("plots/elastictiy_gradient_no_ls_prices_$sector.png", p2)
+	save("plots/elastictiy_gradient_ls_adjusted_prices__$sector.png", p1)
+	save("plots/elastictiy_gradient_no_ls_adjusted_prices_$sector.png", p2)
 	save("plots/elastictiy_gradient_ls_$sector.png", p3)
 	save("plots/elastictiy_gradient_no_ls_$sector.png", p4)
-
-	append!(concessions, DataFrame(
-		sector = sector,
-		low_others_high = a.concessions_σ[end],
-		high_others_low = a.concessions_σ[1],
-		low_others_low = c.concessions_σ[1],
-		high_others_high = c.concessions_σ[end],
-	))
-
 
 end
 
@@ -263,8 +128,8 @@ for sector in sectors
 	p3 = plot_elasticities([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP with labour slack " * sector)
 	p4 = plot_elasticities([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack " * sector)
 
-	save("plots/eg_supply_ls_prices_$sector.png", p1)
-	save("plots/eg_supply_no_ls_prices_$sector.png", p2)
+	save("plots/eg_supply_ls_prices_adjusted_$sector.png", p1)
+	save("plots/eg_supply_no_ls_prices_adjusted_$sector.png", p2)
 	save("plots/eg_supply_ls_$sector.png", p3)
 	save("plots/eg_supply_no_ls_$sector.png", p4)
 end
@@ -274,40 +139,53 @@ concessions
 ===============================================================================#
 
 
-options = CES(CESElasticities(0.99, 0.99, 0.99), full_labor_slack, false)
-shocks = standard_shock()
-sol = solve(Model(data, shocks, options))
-concessions = DataFrame(
-	sectors = data.io.Sektoren[1:71],
-	price_derivation = sol.prices .- mean(sol.prices, weights(sol.quantities)),
-	from = Vector(data.io[1:71, "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"]),
-	to =  Vector(data.io[findfirst(==("Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"), data.io.Sektoren), 2:72]))
 
-CSV.write("data/concessions.csv", concessions)
+for sector in sectors 
+	options = CES(CESElasticities(0.99, 0.99, 0.99), full_labor_slack, false)
+	options_no_ls = CES(CESElasticities(0.99, 0.99, 0.99), model -> data.labor_share, false)
+	demand_shock = standard_shock(data, sector)
+	sol_demand = solve(Model(data, demand_shock, options))
+	sol_demand_no_ls = solve(Model(data, demand_shock, options_no_ls))
+	ts = standard_tech_shock(data, sector)
+	@info ts.supply_shock[findfirst(==(sector), data.io.Sektoren)]
+	sol_tech = solve(Model(data, ts, options))
+	sol_tech_no_ls = solve(Model(data, ts, options_no_ls))
+
+
+
+	concessions = DataFrame(
+	sectors = data.io.Sektoren[1:71],
+	price_deviation_demand = sol_demand.prices .- 1.0,
+	price_deviation_tech = sol_tech.prices .- 1.0,
+	price_deviation_demand_no_ls = sol_demand_no_ls.prices .- 1.0,
+	price_deviation_tech_no_ls = sol_tech_no_ls.prices .- 1.0,
+	from = Vector(data.io[1:71, sector]),
+	to =  Vector(data.io[findfirst(==(sector), data.io.Sektoren), 2:72]))
+
+	CSV.write("data/concessions_$(sector).csv", concessions)
+end
 fig = Figure()
 ax1 = Axis(fig[1, 1], ylabel = "Price Derivation", xlabel = "Sectors")
 ax2 = Axis(fig[2, 1], ylabel = "Concessions", xlabel = "Sectors")
-ax3 = Axis(fig[2, 2], ylabel = "Concessions", xlabel = "Sectors")
 
-barplot!(ax1, concessions.price_derivation, bar_labels = concessions.sectors)
-barplot!(ax2, concessions.concession, bar_labels = concessions.sectors)
-barplot!(ax3, concessions.concession, bar_labels = concessions.sectors)
+barplot!(ax1, concessions_tech.price_derivation, bar_labels = concessions_tech.sectors)
+barplot!(ax2, concessions_tech.from, bar_labels = concessions_tech.sectors)
 
 
 fig
-
-save("plots/concessions.png", fig)
 #=============================================================================
 Simulating labour slack effect
 ===============================================================================#
 
 
-shocks = standard_shock()
+shocks = BeyondHulten.standard_shock(data)
 ces = CES(CESElasticities(0.01, 0.5, 0.9), model -> full_labor_slack(model), false)
 model = Model(data, shocks, ces)
 sol = solve(model)
-labour_slack_gradient = []
-labour_slack_gradient_nominal = []
+labour_slack_gradient = Vector{Float64}()
+labour_slack_gradient_prices = Vector{Float64}()
+labour_slack_gradient_prices_weighted = Vector{Float64}()
+labour_slack_gradient_nominal = Vector{Float64}()
 l(α, model) = (1 - α) * full_labor_slack(model) + α * model.data.labor_share
 for α in range(0, 1, 100)
 	labour_share(model) = l(α, model)
@@ -315,6 +193,7 @@ for α in range(0, 1, 100)
 	global model = Model(data, shocks, ces)
 	global sol = solve(model, init = vcat(sol.prices, sol.quantities))
 	push!(labour_slack_gradient, sol |> real_gdp)
+	push!(labour_slack_gradient_prices_weighted, mean(sol.prices, weights(sol.quantities)))
 	push!(labour_slack_gradient_nominal, sol |> nominal_gdp)
 end
 
@@ -332,6 +211,22 @@ f[1, 2] = Legend(f, ax)
 f
 
 save("plots/labor_slack_gradient.png", f)
+
+f = Figure()
+ax = Axis(f[1, 1], ytickformat = "{:.2f}%", xlabel = "Labour slack")
+lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient_prices, label = "Mean Prices")
+lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient_prices_weighted, label = "Weighted Mean Prices")
+f[1, 2] = Legend(f, ax)
+f
+
+save("plots/labor_slack_gradient_prices.png", f)
+
+
+f = Figure()
+ax = Axis(f[1, 1], ytickformat = "{:.2f}%", xlabel = "Labour slack")
+lines!(ax, range(100, 0, 100), 100 .* (labour_slack_gradient - labour_slack_gradient_nominal), label = "Mean Prices")
+f[1, 2] = Legend(f, ax)
+f
 
 #=============================================================================
 Different Investments

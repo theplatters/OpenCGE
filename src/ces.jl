@@ -104,9 +104,15 @@ function solve(
 	p = x[1:length(data.consumption_share)]
 	q = x[(length(data.consumption_share)+1):end]
 
+
+	labor = options.labor_slack(model)
+	(;ϵ,θ,σ) = options.elasticities
+	wages = p .* (shocks.supply_shock .^ ((ϵ - 1) / ϵ)) .* (data.factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+	numair = 1 - (sum(gross_incease(p,q,model)) - sum(nominal_increase(p,q,model)))
 	if (options.labor_reallocation)
 		df = DataFrames.DataFrame(
 			Dict("prices" => p,
+				"prices_shifted" => p ./ numair,
 				"quantities" => q,
 				"sectors" => data.io.Sektoren[1:71],
 				"gdp" => ((shocks.demand_shock .* data.consumption_share)' * p .^ (1 - options.elasticities.σ))^(1 / (options.elasticities.σ - 1)),
@@ -115,12 +121,14 @@ function solve(
 	else
 		df = DataFrames.DataFrame(
 			Dict("prices" => p,
+				"prices_shifted" => p ./ numair,
 				"quantities" => q,
 				"value_added_relative" => gross_incease(p, q, model),
 				"value_added_nominal_relative" => nominal_increase(p, q, model),
 				"value_added_absolute" => gross_incease(p, q, model, relative = false),
 				"value_added_nominal_absolute" => nominal_increase(p, q, model, relative = false),
-				"sectors" => data.io.Sektoren[1:71]),
+				"sectors" => data.io.Sektoren[1:71],
+				"wages" => wages)
 		)
 	end
 
