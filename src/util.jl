@@ -1,8 +1,8 @@
 function standard_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten")
-	shock_amount = 50_000
+	shock_amount = 100_000
 	demand_shock = ones(71)
 	supply_shock = ones(71)
-	demand_shock[findfirst(==(sector), data.io.Sektoren)] = 1.4097957577943152
+	demand_shock[findfirst(==(sector), data.io.Sektoren)] = 1.8097957577943152
 	shocks = Shocks(supply_shock, demand_shock)
 	return shocks
 end
@@ -11,7 +11,7 @@ end
 function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten")
 	demand_shock = ones(71)
 	supply_shock = ones(71)
-	supply_shock[findfirst(==(sector), data.io.Sektoren)] = 1.1
+	supply_shock[findfirst(==(sector), data.io.Sektoren)] = 1.2
 	@info supply_shock[findfirst(==(sector), data.io.Sektoren)]
 	Shocks(supply_shock, demand_shock)
 end

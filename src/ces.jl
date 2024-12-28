@@ -12,7 +12,7 @@ function calculate_investment!(shocks::Shocks, data::AbstractData, investment::V
 				  sum |>
 				  x -> getindex(x, 1:71)
 
-	for i in eachindex(sector) 
+	for i in eachindex(sector)
 		sector_number = findfirst(==(sector[i]), data.io.Sektoren)
 		shocks.demand_shock[sector_number] = 1 + investment[i] / consumption[sector_number]
 		println("Demand shock to sector $(sector[i]): $(shocks.demand_shock[sector_number])")
@@ -27,7 +27,7 @@ Alters the shock vector, so that the shock in the given sector reflects the inve
 function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Dict{String, Number})
 	for (sector, investment) in investment
 		calculate_investment!(shocks, data, [investment], [sector])
-	end 
+	end
 end
 
 """
@@ -50,8 +50,8 @@ function problem(X::Vector, model::Model{CES})
 
 	(; data, options, shocks) = model
 	N = length(data.factor_share)
-	p = max.(X[1:N],0)
-	y = max.(X[N+1:end],0)
+	p = max.(X[1:N], 0)
+	y = max.(X[N+1:end], 0)
 
 	(; supply_shock, demand_shock) = shocks
 	(; consumption_share, Ω, factor_share) = data
@@ -99,16 +99,16 @@ function solve(
 
 	#turns complex numbers into real numbers:
 	#x = real.(x_imag)
-	
+
 	n = length(data.factor_share)
 	p = x[1:length(data.consumption_share)]
 	q = x[(length(data.consumption_share)+1):end]
 
 
 	labor = options.labor_slack(model)
-	(;ϵ,θ,σ) = options.elasticities
+	(; ϵ, θ, σ) = options.elasticities
 	wages = p .* (shocks.supply_shock .^ ((ϵ - 1) / ϵ)) .* (data.factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
-	numair = 1 - (sum(gross_incease(p,q,model)) - sum(nominal_increase(p,q,model)))
+	consumption_share = shocks.demand_shock .* data.consumption_share
 	if (options.labor_reallocation)
 		df = DataFrames.DataFrame(
 			Dict("prices" => p,
@@ -121,14 +121,31 @@ function solve(
 	else
 		df = DataFrames.DataFrame(
 			Dict("prices" => p,
-				"prices_shifted" => p ./ numair,
+				"prices_shifted" => p  ./ mean(p, weights(p .* q)),
 				"quantities" => q,
-				"value_added_relative" => gross_incease(p, q, model),
-				"value_added_nominal_relative" => nominal_increase(p, q, model),
-				"value_added_absolute" => gross_incease(p, q, model, relative = false),
-				"value_added_nominal_absolute" => nominal_increase(p, q, model, relative = false),
+				"value_added_relative" => nominal_increase(p, q, model),
+				"value_added" => nominal_increase(p, q, model, relative = false),
+				"nominal_gdp" => sum(nominal_increase(p, q, model)),
+				"nominal_gdp_absolute" => sum(nominal_increase(p, q, model, relative = false)) / mean(wages),
+				"nominal_gdp2" => sum(nominal_increase(p, q, model)) / mean(wages),
+				"nominal_gdp2a" => sum(nominal_increase(p, q, model)) / mean(wages, weights(q)),
+				"nominal_gdp3" => sum(nominal_increase(p, q, model)) / mean(wages, weights(p .* q)),
+				"nominal_gdp4" => sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share)),
+				"nominal_gdp5" => sum(nominal_increase(p, q, model)) / mean(wages, weights(data.factor_share .* p .* q)),
+				"real_gdp" => sum(nominal_increase(p, q, model)) / mean(p, weights(consumption_share)),
+				"real_gdp2" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p),
+				"real_gdp3" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(consumption_share)),
+				"real_gdp4" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(p .* q)),
+				"real_gdp_absolute" => sum(nominal_increase(p, q, model, relative = false)) / mean(p, weights(consumption_share)),
+				"mean_wages" => mean(p, weights(consumption_share)),
+				"test1" => mean(p ./ wages), #false
+				"test2" => mean(p, weights(consumption_share)) / mean(wages, weights(consumption_share)),
+				"test3" => mean(p, weights(p .* q)) / mean(wages, weights(consumption_share)),
+				"test4" => mean(wages ./ p),
+				"test5" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share .* p .* q)),
+				"test6" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share)),
 				"sectors" => data.io.Sektoren[1:71],
-				"wages" => wages)
+				"wages" => wages),
 		)
 	end
 
@@ -149,7 +166,10 @@ julia> nominal_gdp(sol)
 ```
 """
 function nominal_gdp(solution::DataFrames.DataFrame; relative = true)
-	relative ? sum(solution.value_added_nominal_relative) : sum(solution.value_added_nominal_absolute)
+	if !relative
+		return solution.nominal_gdp_absolute[1]
+	end
+	return solution.nominal_gdp[1]
 end
 
 
@@ -166,10 +186,10 @@ julia> real_gdp(sol)
 """
 
 function real_gdp(solution::DataFrames.DataFrame; relative = true)
-	if hasproperty(solution, :gdp)
-		return solution.gdp[1]
+	if !relative
+		return solution.real_gdp_absolute[1]
 	end
-	relative ? sum(solution.value_added_relative) : sum(solution.value_added_absolute)
+	return solution.real_gdp[1]
 end
 """
 	nominal_increase(p, q, model)

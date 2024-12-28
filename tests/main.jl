@@ -37,7 +37,7 @@ cd_options = CES(cd_elasticities, full_labor_slack)
 
 sol_cd_ls = solve(Model(data, shocks, cd_options))
 
-ces_labor_realloc = CES(CESElasticities(0.2, 0.6, 0.9), x -> data.labor_share, true)
+ees_labor_realloc = CES(CESElasticities(0.2, 0.6, 0.9), x -> data.labor_share, true)
 sol_realloc = solve(Model(data, shocks, ces_labor_realloc))
 sol_realloc |> real_gdp
 
@@ -47,6 +47,13 @@ model = Model(data, shocks, ces_options)
 sol = solve(model)
 real_gdp(sol)
 
+
+#=============================================================================
+Technology Shock
+===============================================================================#
+shocks = standard_tech_shock(data)
+
+sol_cd_ls = solve(Model(data, shocks, cd_options))
 #=============================================================================
 Simulating the  shock with a Leontief Model
 ===============================================================================#
@@ -128,8 +135,8 @@ for sector in sectors
 	p3 = plot_elasticities([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on GDP with labour slack " * sector)
 	p4 = plot_elasticities([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on GDP, without labour slack " * sector)
 
-	save("plots/eg_supply_ls_prices_adjusted_$sector.png", p1)
-	save("plots/eg_supply_no_ls_prices_adjusted_$sector.png", p2)
+	save("plots/eg_supply_ls_prices_$sector.png", p1)
+	save("plots/eg_supply_no_ls_prices_$sector.png", p2)
 	save("plots/eg_supply_ls_$sector.png", p3)
 	save("plots/eg_supply_no_ls_$sector.png", p4)
 end
