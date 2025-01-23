@@ -127,15 +127,17 @@ function solve(
 				"gdp" => ((shocks.demand_shock .* data.consumption_share)' * p .^ (1 - options.elasticities.σ))^(1 / (options.elasticities.σ - 1)),
 			))
 
+
 	else
+
+    inflator  = 1 + mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share))
 		df = DataFrames.DataFrame(
 			Dict("prices" => p,
 				"prices_shifted" => p ./ mean(p, weights(p .* q)),
 				"quantities" => q,
 				"value_added_relative" => nominal_increase(p, q, model),
 				"value_added" => nominal_increase(p, q, model, relative = false),
-				"nominal_gdp" => sum(nominal_increase(p, q, model)),
-				"nominal_gdp_absolute" => sum(nominal_increase(p, q, model, relative = false)) / mean(wages),
+				"nominal_gdp6" => sum(nominal_increase(p, q, model)),
 				"nominal_gdp2" => sum(nominal_increase(p, q, model)) / mean(wages),
 				"nominal_gdp2a" => sum(nominal_increase(p, q, model)) / mean(wages, weights(q)),
 				"nominal_gdp3" => sum(nominal_increase(p, q, model)) / mean(wages, weights(p .* q)),
