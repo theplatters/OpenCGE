@@ -86,7 +86,7 @@ function elasticity_gradient(data,
 end
 
 
-function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97, 103))
+function plot_elasticities(results; title = "Real GDP", cd, leontief, ylims = (97, 103))
 	f = Figure(size = (1980, 720), title = title)
 
 	ga = f[1, 1] = GridLayout()
@@ -101,9 +101,9 @@ function plot_elasticities(results; title = "Real GDP", cd = sol_cd, ylims = (97
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.ϵ), label = "Elasticity between goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.θ), label = "Elasticity between labour and goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.σ), label = "Elasticity of consumption")
-		#lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief model", linestyle = :dash)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief, 2), label = "Leontief model", linestyle = :dash)
 		#lines!(ax[i], [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Baseline Effect", linestyle = :dash)
-		#lines!(ax[i], [0.9, 0.015], 100 .* fill(real_gdp(cd), 2), label = "Cobb Douglas", linestyle = :dash)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd, 2), label = "Cobb Douglas", linestyle = :dash)
 	end
 
 	f[1, 2] = Legend(f, ax[1], labelsize = 25)

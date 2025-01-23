@@ -52,6 +52,7 @@ struct Data <: AbstractData
 	labor_share::Vector{Float64}
 	consumption_share_gross_output::Vector{Float64}
 	grossy::Vector{Float64}
+	unemployment::Float64
 end
 
 function Data(filename::String)
@@ -128,9 +129,11 @@ function read_data(filename::String)::Data
 	io.Sektoren = replace.(io.Sektoren, r"^\s+" => "") #remove unneccasary whitespaces
 	io = coalesce.(io, 0) #set nans to 0
 
+	unemployment_df = identity.(DataFrame(XLSX.readtable(joinpath(pwd(), "data/", "unemployment_data.xlsx"), "Daten", "B:C", first_row = 6,column_labels = ["year", "unemployment"])))
+	unemployment_df[!,:year] = [x isa String ? parse(Int, x) : x for x in unemployment_df[!,:year]]
+	unemployment = unemployment_df[findfirst(==(2019),unemployment_df.year),:unemployment] / 100
 	Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy = generate_data(io)
-	#return a mutable structure element (see above):
-	return Data(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy)
+	#return a mutable structure element (see above):	
+	return Data(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy,unemployment)
 end
-
 

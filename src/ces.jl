@@ -40,13 +40,26 @@ function full_labor_slack(model::Model)
 	inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 
+function full_labor_slack_constrained(model::Model)
+	(; data, shocks) = model
+	workforce = 41562 #taken from 
+	#https://www-genesis.destatis.de/datenbank/online/table/12211-0001
+	total = workforce / (1 - data.unemployment)
+	new_labour = inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
+
+	if (sum(new_labour) * (1 - data.unemployment) > 1)
+		new_labour = inv(1 - data.unemployment) * new_labour / sum(new_labour)
+	end
+	return new_labour
+end
+
 """
   problem(X, model::Model{CES})
 
 The objective function as specified in B&F with the added demand shocks, X is the 2*sectors-sized vector,
 data contains the parameters and labor_reallocation is a function that specifies how labor is reallocated accross sectors
 """
-function problem(X::Vector, model::Model{CES})
+function problem(out::Vector,X::Vector, model::Model{CES})
 
 	(; data, options, shocks) = model
 	N = length(data.factor_share)
@@ -59,8 +72,6 @@ function problem(X::Vector, model::Model{CES})
 	labor = options.labor_slack(model)
 
 
-	out = zeros(eltype(X), 2 * N)
-
 	consumption_share = (demand_shock .* consumption_share)
 
 	q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
@@ -71,10 +82,9 @@ function problem(X::Vector, model::Model{CES})
 
 	C = w' * labor
 
-	out[1:N] = p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
-	out[N+1:end] = y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* consumption_share
-
-	return out
+	out[1:N] .= p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+	out[N+1:end] .= y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* consumption_share
+	nothing
 end
 
 
@@ -92,9 +102,8 @@ function solve(
 
 
 	#defines the function:
-	f = NonlinearSolve.NonlinearFunction(problem)
 	#defines the concrete problem to be solved (i.e. with inserted parameter values):
-	ProbN = NonlinearSolve.NonlinearProblem(f, init, model)
+	ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
 	x = NonlinearSolve.solve(ProbN, reltol = 1e-8, abstol = 1e-8).u
 
 	#turns complex numbers into real numbers:
@@ -112,7 +121,7 @@ function solve(
 	if (options.labor_reallocation)
 		df = DataFrames.DataFrame(
 			Dict("prices" => p,
-				"prices_shifted" => p ./ numair,
+				"prices_shifted" => p ./ mean(p, weights(p .* q)),
 				"quantities" => q,
 				"sectors" => data.io.Sektoren[1:71],
 				"gdp" => ((shocks.demand_shock .* data.consumption_share)' * p .^ (1 - options.elasticities.σ))^(1 / (options.elasticities.σ - 1)),
@@ -121,7 +130,7 @@ function solve(
 	else
 		df = DataFrames.DataFrame(
 			Dict("prices" => p,
-				"prices_shifted" => p  ./ mean(p, weights(p .* q)),
+				"prices_shifted" => p ./ mean(p, weights(p .* q)),
 				"quantities" => q,
 				"value_added_relative" => nominal_increase(p, q, model),
 				"value_added" => nominal_increase(p, q, model, relative = false),
@@ -133,17 +142,17 @@ function solve(
 				"nominal_gdp4" => sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share)),
 				"nominal_gdp5" => sum(nominal_increase(p, q, model)) / mean(wages, weights(data.factor_share .* p .* q)),
 				"real_gdp" => sum(nominal_increase(p, q, model)) / mean(p, weights(consumption_share)),
-				"real_gdp2" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p),
-				"real_gdp3" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(consumption_share)),
-				"real_gdp4" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(p .* q)),
-				"real_gdp_absolute" => sum(nominal_increase(p, q, model, relative = false)) / mean(p, weights(consumption_share)),
+				#"real_gdp2" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p),
+				#"real_gdp3" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(consumption_share)),
+				#"real_gdp4" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(p .* q)),
+				#"real_gdp_absolute" => sum(nominal_increase(p, q, model, relative = false)) / mean(p, weights(consumption_share)),
 				"mean_wages" => mean(p, weights(consumption_share)),
-				"test1" => mean(p ./ wages), #false
-				"test2" => mean(p, weights(consumption_share)) / mean(wages, weights(consumption_share)),
-				"test3" => mean(p, weights(p .* q)) / mean(wages, weights(consumption_share)),
-				"test4" => mean(wages ./ p),
-				"test5" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share .* p .* q)),
-				"test6" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share)),
+				#"test1" => mean(p ./ wages), #false
+				#"test2" => mean(p, weights(consumption_share)) / mean(wages, weights(consumption_share)),
+				#"test3" => mean(p, weights(p .* q)) / mean(wages, weights(consumption_share)),
+				#"test4" => mean(wages ./ p),
+				#"test5" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share .* p .* q)),
+				#"test6" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share)),
 				"sectors" => data.io.Sektoren[1:71],
 				"wages" => wages),
 		)

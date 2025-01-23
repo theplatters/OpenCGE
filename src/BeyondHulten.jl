@@ -7,6 +7,7 @@ using LineSearches: LineSearches
 using LinearAlgebra
 using StatsBase
 using GLMakie
+using XLSX
 
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor, Shocks, Data, Model
 export read_data, calculate_investment!
