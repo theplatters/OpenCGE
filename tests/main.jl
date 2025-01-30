@@ -64,7 +64,6 @@ model_leontief = Model(data, shocks, leontief)
 sol_leontief = solve(model_leontief)
 shock_amount = 50_000
 ## Calculting the shock amount proportional to GDP
-gdp_effect_simple = 1 + shock_amount / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
 
 #=============================================================================
 Simulating the effect of different elasticites
@@ -81,46 +80,51 @@ sectors = [
 	"Nahrungs- u. Futtermittel, Getränke, Tabakerzeugn.",
 	"Sonstige Fahrzeuge",
 ]
-
-
+sector_number = findfirst(==(data.io.Sektoren[1]), data.io.Sektoren)
+data.io[:, "Letzte Verwendung von Gütern zusammen"]
 for sector in sectors
 	@info sector
 	shocks = Shocks(ones(71), ones(71))
 
 	sector_number = findfirst(==(sector), data.io.Sektoren)
 	shocks.demand_shock[sector_number] = 1.4
-
-	a = BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
-	b = BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
-	c = BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
-	d = BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, [0.1, 0.1, 0.1])
-
-	e = BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, [0.99, 0.99, 0.99])
-	f = BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, [0.7, 0.7, 0.7])
-	g = BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, [0.2, 0.2, 0.2])
-	h = BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, [0.1, 0.1, 0.1])
-
-
-	cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
-	cd_options = CES(cd_elasticities, full_labor_slack)
-	sol_cd_ls = solve(Model(data, shocks, cd_options))
-	leontief = Leontief()
-
-	model_leontief = Model(data, shocks, leontief)
-	sol_leontief = solve(model_leontief)
-	
-	#p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
-	#p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
-	p1 = plot_elasticities([a, b, c, d], title = "Effect of different elasticities on GDP with labour slack " * sector, cd = real_gdp(sol_cd_ls), leontief = gdp(sol_leontief, model_leontief))
-
-	cd_options = CES(cd_elasticities, model -> model.data.labor_share)
-	sol_cd_ls = solve(Model(data, shocks, cd_options))
-	p2 = plot_elasticities([e, f, g, h], title = "Effect of different elasticities on GDP, without labour slack " * sector, cd = real_gdp(sol_cd_ls), leontief = gdp(sol_leontief, model_leontief))
-
+	gdp_effect_simple = 1 +  data.io[sector_number, "Letzte Verwendung von Gütern zusammen"] / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+	@info gdp_effect_simple
+	a, b, c, d =
+	fetch.([
+		Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, elasticity) for elasticity in [fill(0.99,3),fill(0.7,3),fill(0.2,3),fill(0.1,3)]])
+		
+		e, f, g, h =
+		fetch.([
+			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, elasticity) for elasticity in [fill(0.99,3),fill(0.7,3),fill(0.2,3),fill(0.1,3)]])
+			
+			
+			cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
+			cd_options = CES(cd_elasticities, full_labor_slack)
+			sol_cd_ls = solve(Model(data, shocks, cd_options))
+			leontief = Leontief()
+			
+			model_leontief = Model(data, shocks, leontief)
+			sol_leontief = solve(model_leontief)
+			
+			#p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
+			#p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
+			p1 = plot_elasticities([a, b, c, d], 
+			title = "Effect of different elasticities on GDP with labour slack " * sector, 
+			cd = real_gdp(sol_cd_ls), 
+			leontief = gdp(sol_leontief, model_leontief),
+			initial = gdp_effect_simple)
+			
+			cd_options = CES(cd_elasticities, model -> model.data.labor_share)
+			sol_cd_ls = solve(Model(data, shocks, cd_options))
+	p2 = plot_elasticities([e, f, g, h], 
+		title = "Effect of different elasticities on GDP, without labour slack " * sector, 
+		cd = real_gdp(sol_cd_ls), 
+		leontief = gdp(sol_leontief, model_leontief),
+		initial = gdp_effect_simple)
 	save("plots/elastictiy_gradient_ls_$sector.png", p1)
 	save("plots/elastictiy_gradient_no_ls_$sector.png", p2)
 end
-
 for sector in sectors
 	@info sector
 	shocks = Shocks(ones(71), ones(71))
@@ -128,15 +132,13 @@ for sector in sectors
 	sector_number = findfirst(==(sector), data.io.Sektoren)
 	shocks.supply_shock[sector_number] = 1.1
 
-	a = elasticity_gradient(shocks, full_labor_slack, false, [0.99, 0.99, 0.99])
-	b = elasticity_gradient(shocks, full_labor_slack, false, [0.7, 0.7, 0.7])
-	c = elasticity_gradient(shocks, full_labor_slack, false, [0.2, 0.2, 0.2])
-	d = elasticity_gradient(shocks, full_labor_slack, false, [0.1, 0.1, 0.1])
+	a, b, c, d =
+		fetch.([
+			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, elasticity) for elasticity in [fill(0.99,3),fill(0.7,3),fill(0.2,3),fill(0.1,3)]])
 
-	e = elasticity_gradient(shocks, model -> data.labor_share, false, [0.99, 0.99, 0.99])
-	f = elasticity_gradient(shocks, model -> data.labor_share, false, [0.7, 0.7, 0.7])
-	g = elasticity_gradient(shocks, model -> data.labor_share, false, [0.2, 0.2, 0.2])
-	h = elasticity_gradient(shocks, model -> data.labor_share, false, [0.1, 0.1, 0.1])
+	e, f, g, h =
+		fetch.([
+			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, elasticity) for elasticity in [fill(0.99,3),fill(0.7,3),fill(0.2,3),fill(0.1,3)]])
 
 
 	cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
