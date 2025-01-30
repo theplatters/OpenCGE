@@ -88,7 +88,7 @@ for sector in sectors
 
 	sector_number = findfirst(==(sector), data.io.Sektoren)
 	shocks.demand_shock[sector_number] = 1.4
-	gdp_effect_simple = 1 +  data.io[sector_number, "Letzte Verwendung von Gütern zusammen"] / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+	gdp_effect_simple = 1 +  0.4 * data.io[sector_number, "Letzte Verwendung von Gütern zusammen"] / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
 	@info gdp_effect_simple
 	a, b, c, d =
 	fetch.([

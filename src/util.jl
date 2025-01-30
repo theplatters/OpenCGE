@@ -102,7 +102,7 @@ function plot_elasticities(results; title = "Real GDP", cd, leontief, ylims = (9
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.θ), label = "Elasticity between labour and goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.σ), label = "Elasticity of consumption")
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief, 2), label = "Leontief model", linestyle = :dash)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Baseline Effect", linestyle = :dash)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Baseline Effect", linestyle = :dot)
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd, 2), label = "Cobb Douglas", linestyle = :dash)
 	end
 
