@@ -146,6 +146,7 @@ for sector in sectors
 	save("plots/elastictiy_gradient_ls_$sector.png", p1)
 	save("plots/elastictiy_gradient_no_ls_$sector.png", p2)
 end
+
 for sector in sectors
 	@info sector
 	shocks = Shocks(ones(71), ones(71))
@@ -231,6 +232,8 @@ shocks = BeyondHulten.standard_shock(data)
 ces = CES(CESElasticities(0.01, 0.5, 0.9), model -> full_labor_slack(model), false)
 model = Model(data, shocks, ces)
 sol = solve(model)
+
+sol_cd_ls = solve(Model(data, shocks, cd_options))
 labour_slack_gradient = Vector{Float64}()
 labour_slack_gradient_prices = Vector{Float64}()
 labour_slack_gradient_prices_weighted = Vector{Float64}()
@@ -243,7 +246,6 @@ for α in range(0, 1, 100)
 	global sol = solve(model, init = vcat(sol.prices, sol.quantities))
 	push!(labour_slack_gradient, sol |> real_gdp)
 	push!(labour_slack_gradient_prices_weighted, mean(sol.prices, weights(sol.quantities)))
-	push!(labour_slack_gradient_nominal, sol |> nominal_gdp)
 end
 
 #============================================================================= 
