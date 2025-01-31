@@ -42,13 +42,6 @@ sol_cd_ls2 = solve(Model(data, shocks, cd_options))
 ces_labor_realloc = CES(CESElasticities(0.2, 0.6, 0.9), x -> data.labor_share, true)
 sol_realloc = solve(Model(data, shocks, ces_labor_realloc))
 
-data.consumption_share |> sum
-
-model = Model(data, shocks, ces_options)
-sol = solve(model)
-real_gdp(sol)
-
-
 #=============================================================================
 Technology Shock
 ===============================================================================#
@@ -232,7 +225,8 @@ shocks = BeyondHulten.standard_shock(data)
 ces = CES(CESElasticities(0.01, 0.5, 0.9), model -> full_labor_slack(model), false)
 model = Model(data, shocks, ces)
 sol = solve(model)
-
+sector_number = findfirst(==("Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten"), data.io.Sektoren)
+gdp_effect_simple = 1 + 0.4 * data.io[sector_number, "Letzte Verwendung von Gütern zusammen"] / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
 sol_cd_ls = solve(Model(data, shocks, cd_options))
 labour_slack_gradient = Vector{Float64}()
 labour_slack_gradient_prices = Vector{Float64}()
