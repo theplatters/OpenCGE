@@ -17,7 +17,7 @@ export solve
 export CES, Leontief, CobbDouglas
 export gdp
 
-export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution
+export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages
 include("leontief.jl")
 include("util.jl")
 

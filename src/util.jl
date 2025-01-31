@@ -23,6 +23,9 @@ struct ElasticityGradientSolution
 	mean_prices_ϵ::Vector{Float64}
 	mean_prices_θ::Vector{Float64}
 	mean_prices_σ::Vector{Float64}
+	real_wages_ϵ::Vector{Float64}
+	real_wages_θ::Vector{Float64}
+	real_wages_σ::Vector{Float64}
 	elasticities::CESElasticities
 	labor_realloc::Bool
 	nominal::Bool
@@ -34,6 +37,7 @@ function gradient(data, shocks, labor_slack, labor_reallocation, elasticity, sol
 	len = 500
 	gdp = ones(len)
 	mean_prices = ones(len)
+	real_wages = ones(len)
 	arr = copy(el)
 	@inbounds for (idx, i) in enumerate(range(0.99, 0.015, len))
 		arr[elasticity] = i
@@ -47,6 +51,7 @@ function gradient(data, shocks, labor_slack, labor_reallocation, elasticity, sol
 			else
 				gdp[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
 				mean_prices[idx] = mean(s.prices_shifted, weights(s.quantities))
+				real_wages[idx] =  s.real_wage[1]
 			end
 		catch e
 			@warn e
@@ -55,7 +60,7 @@ function gradient(data, shocks, labor_slack, labor_reallocation, elasticity, sol
 			@info idx
 		end
 	end
-	return (gdp, mean_prices)
+	return (gdp, mean_prices, real_wages)
 end
 
 function elasticity_gradient(data,
@@ -78,11 +83,11 @@ function elasticity_gradient(data,
 	t3 = @task gradient(data, shocks, labor_slack, labor_reallocation, 3, sol_original, starting_elasticities, nominal)
 	schedule(t3)
 
-	(a, ap) = fetch(t1)
-	(b, bp) = fetch(t2)
-	(c, cp) = fetch(t3)
+	(a, ap, aw) = fetch(t1)
+	(b, bp, bw) = fetch(t2)
+	(c, cp, cw) = fetch(t3)
 	elasticities = starting_elasticities
-	return ElasticityGradientSolution(a, b, c, ap, bp, cp, CESElasticities(elasticities...), labor_reallocation, false)
+	return ElasticityGradientSolution(a, b, c, ap, bp, cp, aw, bw, cw, CESElasticities(elasticities...), labor_reallocation, false)
 end
 
 
@@ -126,6 +131,29 @@ function plot_prices(results; title = "Real GDP", cd = sol_cd, ylims = (97, 103)
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_ϵ), label = "Elasticity between goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_θ), label = "Elasticity between labour and goods")
 		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_σ), label = "Elasticity of consumption")
+	end
+
+	f[2, 1] = Legend(f, ax[1], labelsize = 25, tellwidth = false, orientation = :horizontal)
+
+	f
+end
+
+
+function plot_wages(results; title = "Real Wages", cd = sol_cd, ylims = (97, 103))
+	f = Figure(size = (1980, 1000), title = title)
+
+	ga = f[1, 1] = GridLayout()
+	ax = [Axis(ga[1, 1], ylabel = "Wages", ytickformat = "{:.2f}%", title = "0.99"),
+		Axis(ga[1, 2], xlabel = "Elasticity", ytickformat = "{:.2f}%", title = "0.7"),
+		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
+		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
+
+	supertitle = Label(f[0, :], title, fontsize = 20, tellwidth = false)
+	linkaxes!(ax[1], ax[2], ax[3], ax[4])
+	for (i, el) in enumerate(results)
+		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.real_wages_ϵ), label = "Elasticity between goods")
+		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.real_wages_θ), label = "Elasticity between labour and goods")
+		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.real_wages_σ), label = "Elasticity of consumption")
 	end
 
 	f[2, 1] = Legend(f, ax[1], labelsize = 25, tellwidth = false, orientation = :horizontal)

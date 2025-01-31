@@ -127,6 +127,10 @@ for sector in sectors
 		leontief = gdp(sol_leontief, model_leontief),
 		initial = gdp_effect_simple)
 
+	p1_wages = plot_wages([a, b, c, d],
+		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		cd = real_gdp(sol_cd_ls))
+
 	cd_options = CES(cd_elasticities, model -> model.data.labor_share)
 	sol_cd_ls = solve(Model(data, shocks, cd_options))
 
@@ -136,8 +140,15 @@ for sector in sectors
 		leontief = gdp(sol_leontief, model_leontief),
 		initial = gdp_effect_simple)
 
+	p2_wages = plot_wages([e, f, g, h],
+		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		cd = real_gdp(sol_cd_ls))
+
 	save("plots/elastictiy_gradient_ls_$sector.png", p1)
 	save("plots/elastictiy_gradient_no_ls_$sector.png", p2)
+
+	save("plots/elastictiy_gradient_wages_ls_$sector.png", p1_wages)
+	save("plots/elastictiy_gradient_wages_no_ls_$sector.png", p2_wages)
 end
 
 for sector in sectors
