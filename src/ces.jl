@@ -155,6 +155,7 @@ function solve(
 				#"test4" => mean(wages ./ p),
 				#"test5" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share .* p .* q)),
 				#"test6" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share)),
+				"real_wage" => mean(wages, weights(data.labor_share)) / mean(p, weights(data.consumption_share)), 
 				"sectors" => data.io.Sektoren[1:71],
 				"wages" => wages),
 		)
