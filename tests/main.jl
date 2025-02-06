@@ -91,11 +91,25 @@ for sector in sectors
 	barplot!(ax,sol.quantities - data.λ, bar_labels = data.io.Sektoren[1:71],label_rotation = pi/2 )
 
 	save("plots/diff_lambda_$sector.png", f)
+
 end
+begin
+	f = Figure(size = (1980,1000))
+	ax = Axis(f[1, 1], ylabel = "q - λ", xlabel = "Sector")
+	shocks = impulse_shock(data, impulses)
+
+	model = Model(data, shocks, ces_options)
+	sol = solve(model)
+	barplot!(ax,sol.quantities - data.λ, bar_labels = data.io.Sektoren[1:71],label_rotation = pi/2 )
+
+	save("plots/diff_lambda_imp.png", f)
+end
+
+
 
 begin
 	shocks = impulse_shock(data, impulses)
-	gdp_effect_simple = 1 + (sum(shocks.demand_shock) - 71) / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+	gdp_effect_simple = mean(shocks.demand_shock)
 	@info gdp_effect_simple
 	a, b, c, d =
 		fetch.([
@@ -117,35 +131,34 @@ begin
 	#p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
 	#p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
 	p1 = plot_elasticities([a, b, c, d],
-		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		title = "Effect of different elasticities on GDP with labour slack ",
 		cd = real_gdp(sol_cd_ls),
 		leontief = gdp(sol_leontief, model_leontief),
 		initial = gdp_effect_simple)
 
 	p1_wages = plot_wages([a, b, c, d],
-		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		title = "Effect of different elasticities on GDP with labour slack ",
 		cd = real_gdp(sol_cd_ls))
 
 	cd_options = CES(cd_elasticities, model -> model.data.labor_share)
 	sol_cd_ls = solve(Model(data, shocks, cd_options))
 
 	p2 = plot_elasticities([e, f, g, h],
-		title = "Effect of different elasticities on GDP, without labour slack " * sector,
+		title = "Effect of different elasticities on GDP, without labour slack ",
 		cd = real_gdp(sol_cd_ls),
 		leontief = gdp(sol_leontief, model_leontief),
 		initial = gdp_effect_simple)
 
 	p2_wages = plot_wages([e, f, g, h],
-		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		title = "Effect of different elasticities on GDP with labour slack ",
 		cd = real_gdp(sol_cd_ls))
 
-	save("plots/eg_imp_ls_$sector.png", p1)
-	save("plots/eg_imp_no_ls_$sector.png", p2)
+	save("plots/eg_imp_ls.png", p1)
+	save("plots/eg_imp_no_ls.png", p2)
 
-	save("plots/eg_imp_wages_ls_$sector.png", p1_wages)
-	save("plots/eg_imp_wages_no_ls_$sector.png", p2_wages)
+	save("plots/eg_imp_wages_ls.png", p1_wages)
+	save("plots/eg_imp_wages_no_ls.png", p2_wages)
 end
-
 
 for sector in sectors
 	@info sector
