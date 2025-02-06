@@ -16,7 +16,7 @@ using StatsBase
 Loading in Data
 ===============================================================================#
 data = Data("I-O_DE2019_formatiert.csv")
-
+impulses = load_impulses("impulses.csv")
 #=============================================================================
 Setting the shocks
 ===============================================================================#
@@ -93,6 +93,58 @@ for sector in sectors
 	save("plots/diff_lambda_$sector.png", f)
 end
 
+begin
+	shocks = impulse_shock(data, impulses)
+	gdp_effect_simple = 1 + (sum(shocks.demand_shock) - 71) / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+	@info gdp_effect_simple
+	a, b, c, d =
+		fetch.([
+			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, elasticity) for elasticity in [fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)]])
+
+	e, f, g, h =
+		fetch.([
+			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, elasticity) for elasticity in [fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)]])
+
+
+	cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
+	cd_options = CES(cd_elasticities, full_labor_slack)
+	sol_cd_ls = solve(Model(data, shocks, cd_options))
+	leontief = Leontief()
+
+	model_leontief = Model(data, shocks, leontief)
+	sol_leontief = solve(model_leontief)
+
+	#p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
+	#p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
+	p1 = plot_elasticities([a, b, c, d],
+		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		cd = real_gdp(sol_cd_ls),
+		leontief = gdp(sol_leontief, model_leontief),
+		initial = gdp_effect_simple)
+
+	p1_wages = plot_wages([a, b, c, d],
+		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		cd = real_gdp(sol_cd_ls))
+
+	cd_options = CES(cd_elasticities, model -> model.data.labor_share)
+	sol_cd_ls = solve(Model(data, shocks, cd_options))
+
+	p2 = plot_elasticities([e, f, g, h],
+		title = "Effect of different elasticities on GDP, without labour slack " * sector,
+		cd = real_gdp(sol_cd_ls),
+		leontief = gdp(sol_leontief, model_leontief),
+		initial = gdp_effect_simple)
+
+	p2_wages = plot_wages([e, f, g, h],
+		title = "Effect of different elasticities on GDP with labour slack " * sector,
+		cd = real_gdp(sol_cd_ls))
+
+	save("plots/eg_imp_ls_$sector.png", p1)
+	save("plots/eg_imp_no_ls_$sector.png", p2)
+
+	save("plots/eg_imp_wages_ls_$sector.png", p1_wages)
+	save("plots/eg_imp_wages_no_ls_$sector.png", p2_wages)
+end
 
 
 for sector in sectors

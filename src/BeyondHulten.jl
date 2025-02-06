@@ -16,9 +16,15 @@ export CBData, read_data_cb, cobb_douglas_costfun, cobb_douglas_consumption, cob
 export solve
 export CES, Leontief, CobbDouglas
 export gdp
+export load_impulses
 
-export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages
+export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock
+
+include("interface.jl")
+include("cobbdouglas.jl")
 include("leontief.jl")
+include("ces.jl")
 include("util.jl")
+include("impulses.jl")
 
 end

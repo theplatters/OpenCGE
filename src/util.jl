@@ -16,6 +16,12 @@ function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,
 	Shocks(supply_shock, demand_shock)
 end
 
+function impulse_shock(data, impulses)
+	effect = 1 .+ impulses[:,2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+	demand_shock = Vector(effect[1, :])
+	supply_shock = ones(71)
+	Shocks(supply_shock, demand_shock)
+end
 struct ElasticityGradientSolution
 	ϵ::Vector{Float64}
 	θ::Vector{Float64}
