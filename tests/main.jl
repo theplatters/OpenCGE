@@ -47,7 +47,9 @@ Technology Shock
 ===============================================================================#
 shocks = standard_tech_shock(data)
 
-sol_cd_ls = solve(Model(data, shocks, cd_options))
+ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
+ces_options = CES(ces_elasticities, x -> data.labor_share, false)
+sol_ces_tech = solve(Model(data, shocks, ces_options))
 #=============================================================================
 Simulating the  shock with a Leontief Model
 ===============================================================================#
@@ -75,8 +77,12 @@ sectors = [
 ]
 
 
+shocks = impulse_shock(data, impulses)
+max_index = argmax(shocks.demand_shock)
 
-
+data.io.Sektoren[max_index]
+impulses[:,2:end-2]
+effect = 1 .+ impulses[:,2:end-2] ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
 for sector in sectors
 
 	f = Figure(size= (2000,2000))
@@ -113,7 +119,9 @@ end
 begin
 	shocks = impulse_shock(data, impulses)
 	@info shocks
-	gdp_effect_simple = sum(shocks.demand_shock .- 1)
+
+	gdp_effect_simple = 1+  sum(mean(col) for col in eachcol(impulses[:,2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
+
 	@info gdp_effect_simple
 	a, b, c, d =
 		fetch.([
@@ -163,6 +171,8 @@ begin
 	save("plots/eg_imp_wages_ls.png", p1_wages)
 	save("plots/eg_imp_wages_no_ls.png", p2_wages)
 end
+
+
 
 for sector in sectors
 	@info sector

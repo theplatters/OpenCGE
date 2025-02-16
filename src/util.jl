@@ -17,7 +17,7 @@ function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,
 end
 
 function impulse_shock(data, impulses)
-	effect = 1 .+ impulses[:,2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+	effect = 1 .+ impulses[:,2:end-2] ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
 	demand_shock = [mean(col) for col in eachcol(effect[1:2,:])]
 	supply_shock = ones(71)
 	Shocks(supply_shock, demand_shock)
