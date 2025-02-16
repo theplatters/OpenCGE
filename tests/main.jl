@@ -79,20 +79,23 @@ sectors = [
 
 for sector in sectors
 
-	f = Figure(size = (1980,1000))
-	ax = Axis(f[1, 1], ylabel = "q - λ", xlabel = "Sector", title = "$(sector)")
+	f = Figure(size= (2000,2000))
+	ax1 = Axis(f[1, 1], ylabel = "q - λ", xlabel = "Sector", title = "$(sector)")
+	ax2 = Axis(f[2, 1], ylabel = "q - λ", xlabel = "sector -> shocked sector", title = "$(sector)")
 	@info sector
 	shocks = Shocks(ones(71), ones(71))
 	sector_number = findfirst(==(sector), data.io.Sektoren)
-	shocks.demand_shock[sector_number] = 1.4
+	shocks.demand_shock[sector_number] = 1.8
+
 
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
-	barplot!(ax,sol.quantities - data.λ, bar_labels = data.io.Sektoren[1:71],label_rotation = pi/2 )
-
+	barplot!(ax1,sol.quantities - data.λ, bar_labels = data.io.Sektoren[1:71],label_rotation = pi/2 )
+	scatter!(ax2, data.Ω[1:71, sector_number], sol.quantities - data.λ, markersize = 10, label=data.io.Sektoren[1:71], marker = :utriangle, color = 1:71, colormap=:plasma)
+	scatter!(ax2, data.Ω[sector_number, 1:71], sol.quantities - data.λ, markersize = 10, label=data.io.Sektoren[1:71], marker = :dtriangle, color = 1:71, colormap=:plasma)
 	save("plots/diff_lambda_$sector.png", f)
-
 end
+
 begin
 	f = Figure(size = (1980,1000))
 	ax = Axis(f[1, 1], ylabel = "q - λ", xlabel = "Sector")
@@ -109,7 +112,8 @@ end
 
 begin
 	shocks = impulse_shock(data, impulses)
-	gdp_effect_simple = mean(shocks.demand_shock)
+	@info shocks
+	gdp_effect_simple = sum(shocks.demand_shock .- 1)
 	@info gdp_effect_simple
 	a, b, c, d =
 		fetch.([

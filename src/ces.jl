@@ -103,8 +103,6 @@ function solve(
   ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
   x = NonlinearSolve.solve(ProbN, reltol=1e-8, abstol=1e-8).u
 
-  #turns complex numbers into real numbers:
-  #x = real.(x_imag)
 
   n = length(data.factor_share)
   p = x[1:length(data.consumption_share)]
@@ -115,48 +113,36 @@ function solve(
   (; ϵ, θ, σ) = options.elasticities
   wages = p .* (shocks.supply_shock .^ ((ϵ - 1) / ϵ)) .* (data.factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
   consumption_share = shocks.demand_shock .* data.consumption_share
-  if (options.labor_reallocation)
-    df = DataFrames.DataFrame(
-      Dict("prices" => p,
-        "prices_shifted" => p ./ mean(p, weights(p .* q)),
-        "quantities" => q,
-        "sectors" => data.io.Sektoren[1:71],
-        "gdp" => ((shocks.demand_shock .* data.consumption_share)' * p .^ (1 - options.elasticities.σ))^(1 / (options.elasticities.σ - 1)),
-      ))
+  inflator = 1 + mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share))
 
-
-  else
-
-    inflator = 1 + mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share))
-    df = DataFrames.DataFrame(
-      Dict("prices" => p,
-        "prices_shifted" => p ./ mean(p, weights(p .* q)),
-        "quantities" => q,
-        "value_added_relative" => nominal_increase(p, q, model),
-        "value_added" => nominal_increase(p, q, model, relative=false),
-        "nominal_gdp6" => sum(nominal_increase(p, q, model)),
-        "nominal_gdp2" => sum(nominal_increase(p, q, model)) / mean(wages),
-        "nominal_gdp2a" => sum(nominal_increase(p, q, model)) / mean(wages, weights(q)),
-        "nominal_gdp3" => sum(nominal_increase(p, q, model)) / mean(wages, weights(p .* q)),
-        "nominal_gdp4" => sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share)),
-        "nominal_gdp5" => sum(nominal_increase(p, q, model)) / mean(wages, weights(data.factor_share .* p .* q)),
-        "real_gdp" => sum(nominal_increase(p, q, model)) / mean(p, weights(consumption_share)),
-        #"real_gdp2" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p),
-        #"real_gdp3" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(consumption_share)),
-        #"real_gdp4" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(p .* q)),
-        #"real_gdp_absolute" => sum(nominal_increase(p, q, model, relative = false)) / mean(p, weights(consumption_share)),
-        "mean_wages" => mean(p, weights(consumption_share)),
-        #"test1" => mean(p ./ wages), #false
-        #"test2" => mean(p, weights(consumption_share)) / mean(wages, weights(consumption_share)),
-        #"test3" => mean(p, weights(p .* q)) / mean(wages, weights(consumption_share)),
-        #"test4" => mean(wages ./ p),
-        #"test5" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share .* p .* q)),
-        #"test6" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share)),
-        "real_wage" => mean(wages, weights(data.labor_share)) / mean(p, weights(data.consumption_share)),
-        "sectors" => data.io.Sektoren[1:71],
-        "wages" => wages),
-    )
-  end
+  df = DataFrames.DataFrame(
+    Dict("prices" => p,
+      "prices_shifted" => p ./ mean(p, weights(p .* q)),
+      "quantities" => q,
+      "value_added_relative" => nominal_increase(p, q, model),
+      "value_added" => nominal_increase(p, q, model, relative=false),
+      "nominal_gdp6" => sum(nominal_increase(p, q, model)),
+      "nominal_gdp2" => sum(nominal_increase(p, q, model)) / mean(wages),
+      "nominal_gdp2a" => sum(nominal_increase(p, q, model)) / mean(wages, weights(q)),
+      "nominal_gdp3" => sum(nominal_increase(p, q, model)) / mean(wages, weights(p .* q)),
+      "nominal_gdp4" => sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share)),
+      "nominal_gdp5" => sum(nominal_increase(p, q, model)) / mean(wages, weights(data.factor_share .* p .* q)),
+      "real_gdp" => sum(nominal_increase(p, q, model)) / mean(p, weights(consumption_share)),
+      #"real_gdp2" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p),
+      #"real_gdp3" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(consumption_share)),
+      #"real_gdp4" => (sum(nominal_increase(p, q, model)) / mean(wages, weights(consumption_share))) * mean(p, weights(p .* q)),
+      #"real_gdp_absolute" => sum(nominal_increase(p, q, model, relative = false)) / mean(p, weights(consumption_share)),
+      "mean_wages" => mean(p, weights(consumption_share)),
+      #"test1" => mean(p ./ wages), #false
+      #"test2" => mean(p, weights(consumption_share)) / mean(wages, weights(consumption_share)),
+      #"test3" => mean(p, weights(p .* q)) / mean(wages, weights(consumption_share)),
+      #"test4" => mean(wages ./ p),
+      #"test5" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share .* p .* q)),
+      #"test6" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share)),
+      "real_wage" => mean(wages, weights(data.labor_share)) / mean(p, weights(data.consumption_share)),
+      "sectors" => data.io.Sektoren[1:71],
+      "wages" => wages),
+  )
 
   return df
 end
