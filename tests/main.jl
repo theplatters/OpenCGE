@@ -109,7 +109,7 @@ begin
 
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
-	barplot!(ax,sol.quantities - data.λ, bar_labels = data.io.Sektoren[1:71],label_rotation = pi/2 )
+	barplot!(ax,sol.quantities - data.λ, bar_labels = data.io.Sektoren[1:71],label_rotation = pi/2 ,flip_labels_at = (0.0,0.005))
 
 	save("plots/diff_lambda_imp.png", f)
 end
@@ -149,7 +149,7 @@ begin
 		initial = gdp_effect_simple)
 
 	p1_wages = plot_wages([a, b, c, d],
-		title = "Effect of different elasticities on GDP with labour slack ",
+		title = "Effect of different elasticities on wages with labour slack ",
 		cd = real_gdp(sol_cd_ls))
 
 	cd_options = CES(cd_elasticities, model -> model.data.labor_share)
@@ -162,7 +162,7 @@ begin
 		initial = gdp_effect_simple)
 
 	p2_wages = plot_wages([e, f, g, h],
-		title = "Effect of different elasticities on GDP with labour slack ",
+		title = "Effect of different elasticities on wages without labour slack ",
 		cd = real_gdp(sol_cd_ls))
 
 	save("plots/eg_imp_ls.png", p1)
