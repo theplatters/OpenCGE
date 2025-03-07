@@ -13,7 +13,7 @@ z = @. f(x', y)
 a = Plots.contour(x, y, z, title ="Leontief")
 
 e = 0.2
-
+1
 f(x,y) = (0.55 * x^((e-1)/e) + 0.45 * y^((e-1)/e))^(e/(e-1))
 x = range(0, 2.5, length=100)
 y = range(0, 2.5, length=50)
