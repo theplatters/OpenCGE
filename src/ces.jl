@@ -115,6 +115,7 @@ function solve(
   consumption_share = shocks.demand_shock .* data.consumption_share
   inflator = 1 + mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share))
 
+  consumption = wages' * labor .* consumption_share .* p .^(-σ) 
   df = DataFrames.DataFrame(
     Dict("prices" => p,
       "prices_shifted" => p ./ mean(p, weights(p .* q)),
@@ -141,6 +142,7 @@ function solve(
       #"test6" => mean(p, weights(consumption_share)) / mean(wages, weights(data.factor_share)),
       "real_wage" => mean(wages, weights(data.labor_share)) / mean(p, weights(data.consumption_share)),
       "sectors" => data.io.Sektoren[1:71],
+      "consumption" => consumption,
       "wages" => wages),
   )
 
