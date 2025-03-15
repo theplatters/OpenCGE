@@ -23,27 +23,17 @@ function impulse_shock(data, impulses)
 	Shocks(supply_shock, demand_shock)
 end
 struct ElasticityGradientSolution
-	ϵ::Vector{Float64}
-	θ::Vector{Float64}
-	σ::Vector{Float64}
-	mean_prices_ϵ::Vector{Float64}
-	mean_prices_θ::Vector{Float64}
-	mean_prices_σ::Vector{Float64}
-	real_wages_ϵ::Vector{Float64}
-	real_wages_θ::Vector{Float64}
-	real_wages_σ::Vector{Float64}
-	elasticities::CESElasticities
+	ϵ::Vector{DataFrame}
+	θ::Vector{DataFrame}
+	σ::Vector{DataFrame}
 	labor_realloc::Bool
 	nominal::Bool
 end
 
 
 function gradient(data, shocks, labor_slack, labor_reallocation, elasticity, sol, el, nominal = false)
-	s = copy(sol)
 	len = 500
-	gdp = ones(len)
-	mean_prices = ones(len)
-	real_wages = ones(len)
+	sols = Vector{Union{DataFrame,Nothing}}(undef, len)
 	arr = copy(el)
 	@inbounds for (idx, i) in enumerate(range(0.99, 0.015, len))
 		arr[elasticity] = i
@@ -51,22 +41,15 @@ function gradient(data, shocks, labor_slack, labor_reallocation, elasticity, sol
 		ces = CES(elasticities, labor_slack, labor_reallocation)
 		model = Model(data, shocks, ces)
 		try
-			s = solve(model, init = vcat(s.prices, s.quantities))
-			if labor_reallocation
-				gdp[idx] = sol.gdp[1]
-			else
-				gdp[idx] = nominal ? s |> nominal_gdp : s |> real_gdp
-				mean_prices[idx] = mean(s.prices_shifted, weights(s.quantities))
-				real_wages[idx] =  s.real_wage[1]
-			end
+			sols[idx] = solve(model)
 		catch e
+
+			sols[idx] = nothing 
 			@warn e
-			gdp[idx] = NaN
-			mean_prices[idx] = NaN
 			@info idx
 		end
 	end
-	return (gdp, mean_prices, real_wages)
+	return sols
 end
 
 function elasticity_gradient(data,
@@ -89,11 +72,9 @@ function elasticity_gradient(data,
 	t3 = @task gradient(data, shocks, labor_slack, labor_reallocation, 3, sol_original, starting_elasticities, nominal)
 	schedule(t3)
 
-	(a, ap, aw) = fetch(t1)
-	(b, bp, bw) = fetch(t2)
-	(c, cp, cw) = fetch(t3)
-	elasticities = starting_elasticities
-	return ElasticityGradientSolution(a, b, c, ap, bp, cp, aw, bw, cw, CESElasticities(elasticities...), labor_reallocation, false)
+	sols_ϵ, sols_θ, sols_σ = fetch(t1), fetch(t2), fetch(t3)
+	
+	return ElasticityGradientSolution(sols_ϵ,sols_θ,sols_σ, labor_reallocation, nominal)
 end
 
 
@@ -106,12 +87,12 @@ function plot_elasticities(results; title = "Real GDP", cd, leontief, ylims = (9
 		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
 		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
 
-	supertitle = Label(f[0, :], title, fontsize = 20, tellwidth = false)
+	map_to_gdp(x) = 100 .* reverse(map(x -> x.real_gdp[1],x))
 	linkaxes!(ax[1], ax[2], ax[3], ax[4])
 	for (i, el) in enumerate(results)
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.ϵ), label = "Elasticity between goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.θ), label = "Elasticity between labour and goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.σ), label = "Elasticity of consumption")
+		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.ϵ), label = "Elasticity between goods")
+		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods")
+		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption")
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief, 2), label = "Leontief model", linestyle = :dash)
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Baseline Effect", linestyle = :dot)
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd, 2), label = "Cobb Douglas", linestyle = :dash)
@@ -154,12 +135,13 @@ function plot_wages(results; title = "Real Wages", cd = sol_cd, ylims = (97, 103
 		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
 		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
 
-	supertitle = Label(f[0, :], title, fontsize = 20, tellwidth = false)
+
+	map_to_real_wages(x) = 100 .* reverse(map(x -> x.real_wage[1],x))
 	linkaxes!(ax[1], ax[2], ax[3], ax[4])
 	for (i, el) in enumerate(results)
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.real_wages_ϵ), label = "Elasticity between goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.real_wages_θ), label = "Elasticity between labour and goods")
-		lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.real_wages_σ), label = "Elasticity of consumption")
+		lines!(ax[i], 0.015 .. 0.9, map_to_real_wages(el.ϵ), label = "Elasticity between goods")
+		lines!(ax[i], 0.015 .. 0.9, map_to_real_wages(el.θ), label = "Elasticity between labour and goods")
+		lines!(ax[i], 0.015 .. 0.9, map_to_real_wages(el.σ), label = "Elasticity of consumption")
 	end
 
 	f[2, 1] = Legend(f, ax[1], labelsize = 25, tellwidth = false, orientation = :horizontal)

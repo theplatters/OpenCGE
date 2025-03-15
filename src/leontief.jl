@@ -37,6 +37,7 @@ function solve(model::Model{Leontief})
   df = DataFrames.DataFrame(
     Dict("prices" => p,
       "quantities" => q,
+      "quantities_relative" => q./ sum(data.io[vcat(1:71,78),"Gesamte Verwendung von Gütern"]),
       "sectors" => model.options.labor_effect ? vcat(data.io.Sektoren[1:71], data.io.Sektoren[78]) : data.io.Sektoren[1:71],
     ))
 
