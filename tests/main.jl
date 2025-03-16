@@ -71,8 +71,6 @@ sectors = [
 	"Sonstige Fahrzeuge",
 ]
 
-findfirst(==(sectors[1]),data.io.Sektoren)
-
 shocks = impulse_shock(data, impulses)
 
 effect = 1 .+ impulses[:, 2:end-2] ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
@@ -101,7 +99,7 @@ begin
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev=true)  # Sort indices in descending order
 	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
-	top5_indices = vcat(sorted_indices[1:5],sorted_lambda[1:5])
+	top5_indices = vcat(sorted_shocks[1:5],sorted_lambda[1:5])
 	f = Figure(size = (1980, 1000))
 	ax = Axis(f[1, 1], xlabel = "Sector", 
 		xticks = (1:length(top5_indices), data.io.Sektoren[top5_indices]),
@@ -114,15 +112,16 @@ begin
 	model_leontief = Model(data, shocks, Leontief())
 	sol_leontief = solve(model_leontief)
 	#barplot!(ax, sol.quantities - data.λ, bar_labels=data.io.Sektoren[1:71], label_rotation=pi / 2, flip_labels_at=(0.0, 0.005))
-	@info sum(sol.consumption .- data.consumption_share), real_gdp(sol)
+	@info sum(sol.prices .* sol.consumption / mean(sol.prices,weights(data.λ)) .- data.consumption_share), (sol.real_gdp[1])
+	@info sol.nominal_gdp[1]
 	group = sort(repeat(1:4,length(top5_indices)))
 	barplot!(ax,
 		repeat(1:length(top5_indices), 4),
 		[
 			shocks.demand_shock[top5_indices] .- 1
-			sol.quantities[top5_indices] ./ data.λ[top5_indices] .- 1;
+			sol.prices[top5_indices] .* sol.quantities[top5_indices] ./ (data.λ[top5_indices] * mean(sol.prices,weights(sol.consumption))).- 1;
 			(data.λ[top5_indices] .+ sol_leontief.quantities_relative[top5_indices]) ./ data.λ[top5_indices] .- 1
-			sol.prices[top5_indices] ./ mean(sol.prices,weights(sol.consumption)) .- 1
+			sol.prices[top5_indices] ./ mean(sol.prices,weights(data.consumption_share)) .- 1
 		],
 		dodge = group,
 		color = colors[group])
@@ -217,7 +216,6 @@ for sector in sectors
 	sector_number = findfirst(==(sector), data.io.Sektoren)
 	shocks.demand_shock[sector_number] = 1.4
 	gdp_effect_simple = 1 + 0.4 * data.io[sector_number, "Letzte Verwendung von Gütern zusammen"] / sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
-	@info gdp_effect_simple
 	a, b, c, d =
 		ThreadsX.map(elasticity -> BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, elasticity), [fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)])
 
@@ -233,6 +231,8 @@ for sector in sectors
 	model_leontief = Model(data, shocks, leontief)
 	sol_leontief = solve(model_leontief)
 
+	@info gdp_effect_simple
+	@info gdp(sol_leontief,model_leontief)
 	#p1 = plot_prices([a, b, c, d], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, with labour slack " * sector)
 	#p2 = plot_prices([e, f, g, h], cd = sol_cd_ls, title = "Effect of different elasticities on mean prices, without labour slack " * sector)
 	p1 = plot_elasticities([a, b, c, d],

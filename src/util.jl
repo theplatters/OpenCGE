@@ -66,11 +66,11 @@ function elasticity_gradient(data,
 	model = Model(data, shocks, ces)
 	sol_original = solve(model)
 	t1 = @task gradient(data, shocks, labor_slack, labor_reallocation, 1, sol_original, starting_elasticities, nominal)
-	schedule(t1)
 	t2 = @task gradient(data, shocks, labor_slack, labor_reallocation, 2, sol_original, starting_elasticities, nominal)
+	schedule(t1)
 	schedule(t2)
-	t3 = @task gradient(data, shocks, labor_slack, labor_reallocation, 3, sol_original, starting_elasticities, nominal)
 	schedule(t3)
+	t3 = @task gradient(data, shocks, labor_slack, labor_reallocation, 3, sol_original, starting_elasticities, nominal)
 
 	sols_ϵ, sols_θ, sols_σ = fetch(t1), fetch(t2), fetch(t3)
 	
