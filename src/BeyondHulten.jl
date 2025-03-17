@@ -18,7 +18,7 @@ export CES, Leontief, CobbDouglas
 export gdp
 export load_impulses
 
-export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock
+export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock, plot_consumption
 
 include("interface.jl")
 include("cobbdouglas.jl")

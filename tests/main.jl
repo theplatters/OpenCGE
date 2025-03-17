@@ -96,6 +96,7 @@ end
 
 ces_options = CES(ces_elasticities, x -> data.labor_share, false)
 begin
+	shocks = impulse_shock(data, impulses)
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev=true)  # Sort indices in descending order
 	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
@@ -112,16 +113,16 @@ begin
 	model_leontief = Model(data, shocks, Leontief())
 	sol_leontief = solve(model_leontief)
 	#barplot!(ax, sol.quantities - data.λ, bar_labels=data.io.Sektoren[1:71], label_rotation=pi / 2, flip_labels_at=(0.0, 0.005))
-	@info sum(sol.prices .* sol.consumption / mean(sol.prices,weights(data.λ)) .- data.consumption_share), (sol.real_gdp[1])
+	@info sum(sol.prices .* sol.consumption / sol.numeraire[1] .- data.consumption_share), (sol.real_gdp[1])
 	@info sol.nominal_gdp[1]
 	group = sort(repeat(1:4,length(top5_indices)))
 	barplot!(ax,
 		repeat(1:length(top5_indices), 4),
 		[
 			shocks.demand_shock[top5_indices] .- 1
-			sol.prices[top5_indices] .* sol.quantities[top5_indices] ./ (data.λ[top5_indices] * mean(sol.prices,weights(sol.consumption))).- 1;
+			sol.prices[top5_indices] .* sol.quantities[top5_indices] ./ (data.λ[top5_indices] * sol.numeraire[1]).- 1;
 			(data.λ[top5_indices] .+ sol_leontief.quantities_relative[top5_indices]) ./ data.λ[top5_indices] .- 1
-			sol.prices[top5_indices] ./ mean(sol.prices,weights(data.consumption_share)) .- 1
+			sol.prices[top5_indices] ./ sol.numeraire[1] .- 1
 		],
 		dodge = group,
 		color = colors[group])
@@ -145,7 +146,7 @@ begin
 	#barplot!(ax, sol.quantities - data.λ, bar_labels=data.io.Sektoren[1:71], label_rotation=pi / 2, flip_labels_at=(0.0, 0.005))
 
 	barplot!(ax,
-		1 .- sol.prices ./ mean(sol.wages),
+		sol.prices ./ sol.numeraire[1] .- 1,
 		bar_labels = data.io.Sektoren[1:71], label_rotation = pi / 2, flip_labels_at = (0.0, 0.005))
 	save("plots/diff_prices_imp.png", f)
 end
@@ -161,11 +162,11 @@ begin
 	@info gdp_effect_simple
 	a, b, c, d =
 		fetch.([
-			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, elasticity) for elasticity in [fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)]])
+			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, full_labor_slack, false, elasticity) for elasticity in [fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.05, 3)]])
 
 	e, f, g, h =
 		fetch.([
-			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, elasticity) for elasticity in [fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)]])
+			Threads.@spawn BeyondHulten.elasticity_gradient(data, shocks, model -> model.data.labor_share, false, elasticity) for elasticity in [fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.05, 3)]])
 
 
 	cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
@@ -201,11 +202,21 @@ begin
 		title = "Effect of different elasticities on wages without labour slack ",
 		cd = real_gdp(sol_cd_ls))
 
+	p1_consumption = plot_consumption([a, b, c, d],
+		title = "Effect of different elasticities on consumption without labour slack ",
+		cd = real_gdp(sol_cd_ls))
+	p2_consumption = plot_consumption([e, f, g, h],
+		title = "Effect of different elasticities on consumption without labour slack ",
+		cd = real_gdp(sol_cd_ls))
+
 	save("plots/eg_imp_ls.png", p1)
 	save("plots/eg_imp_no_ls.png", p2)
 
 	save("plots/eg_imp_wages_ls.png", p1_wages)
 	save("plots/eg_imp_wages_no_ls.png", p2_wages)
+
+	save("plots/eg_imp_cons_ls.png", p1_consumption)
+	save("plots/eg_imp_cons_no_ls.png", p2_consumption)
 end
 
 
