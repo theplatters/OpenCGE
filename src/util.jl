@@ -90,7 +90,7 @@ function plot_elasticities(results; title="Real GDP", cd, leontief, ylims=(97, 1
     Axis(ga[2, 1], ytickformat="{:.2f}%", title="0.2"),
     Axis(ga[2, 2], ytickformat="{:.2f}%", title="0.05")]
 
-  map_to_gdp(x) = 100 .* reverse(map(x -> x.real_gdp2[1], x))
+  map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x), x))
   linkaxes!(ax[1], ax[2], ax[3], ax[4])
   for (i, el) in enumerate(results)
     lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.ϵ), label="Elasticity between goods")
@@ -106,29 +106,6 @@ function plot_elasticities(results; title="Real GDP", cd, leontief, ylims=(97, 1
   f
 end
 
-function plot_prices(results; title="Real GDP", cd=sol_cd, ylims=(97, 103))
-  f = Figure(size=(1980, 100), title=title)
-
-  ga = f[1, 1] = GridLayout()
-  ax = [Axis(ga[1, 1], ylabel="GDP", ytickformat="{:.2f}%", title="0.99"),
-    Axis(ga[1, 2], xlabel="Elasticity", ytickformat="{:.2f}%", title="0.7"),
-    Axis(ga[2, 1], ytickformat="{:.2f}%", title="0.2"),
-    Axis(ga[2, 2], ytickformat="{:.2f}%", title="0.05")]
-
-  supertitle = Label(f[0, :], title, fontsize=20, tellwidth=false)
-  linkaxes!(ax[1], ax[2], ax[3], ax[4])
-  for (i, el) in enumerate(results)
-    lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_ϵ), label="Elasticity between goods")
-    lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_θ), label="Elasticity between labour and goods")
-    lines!(ax[i], 0.015 .. 0.9, 100 .* reverse(el.mean_prices_σ), label="Elasticity of consumption")
-  end
-
-  f[2, 1] = Legend(f, ax[1], labelsize=25, tellwidth=false, orientation=:horizontal)
-
-  f
-end
-
-
 function plot_wages(results; title="Real Wages", cd=sol_cd, ylims=(97, 103))
   f = Figure(size=(1980, 1000), title=title)
 
@@ -139,7 +116,7 @@ function plot_wages(results; title="Real Wages", cd=sol_cd, ylims=(97, 103))
     Axis(ga[2, 2], ytickformat="{:.2f}%", title="0.05")]
 
 
-  map_to_real_wages(x) = 100 .* reverse(map(x -> x.real_wage[1], x))
+  map_to_real_wages(x) = 100 .* reverse(map(x -> mean(x.wages), x))
   linkaxes!(ax[1], ax[2], ax[3], ax[4])
   for (i, el) in enumerate(results)
     lines!(ax[i], 0.015 .. 0.9, map_to_real_wages(el.ϵ), label="Elasticity between goods")
@@ -162,7 +139,7 @@ function plot_consumption(results; title="Real Wages", cd=sol_cd, ylims=(97, 103
     Axis(ga[2, 2], ytickformat="{:.2f}%", title="0.05")]
 
 
-  map_to_consumption(sols) = 100 .* reverse(map(x -> sum(x.prices .* x.consumption ./ x.numeraire[1]) - x.real_gdp[1], sols))
+  map_to_consumption(sols) = 100 .* reverse(map(x -> sum(sol.consumption), sols))
   linkaxes!(ax[1], ax[2], ax[3], ax[4])
   for (i, el) in enumerate(results)
     lines!(ax[i], 0.015 .. 0.9, map_to_consumption(el.ϵ), label="Elasticity between goods")
@@ -174,29 +151,7 @@ function plot_consumption(results; title="Real Wages", cd=sol_cd, ylims=(97, 103
 
   f
 end
-function plot_laspeyres_index(results; title="Laspeyres Index", cd=sol_cd, ylims=(97, 103))
-  f = Figure(size=(1980, 1000), title=title)
 
-  ga = f[1, 1] = GridLayout()
-  ax = [Axis(ga[1, 1], ylabel="laspeyres Index", ytickformat="{:.2f}%", title="0.99"),
-    Axis(ga[1, 2], xlabel="Elasticity", ytickformat="{:.2f}%", title="0.7"),
-    Axis(ga[2, 1], ytickformat="{:.2f}%", title="0.2"),
-    Axis(ga[2, 2], ytickformat="{:.2f}%", title="0.05")]
-
-
-  map_to_lp(sols) = 100 .* reverse(map(x -> x.laspeyres_index[1], sols))
-  linkaxes!(ax[1], ax[2], ax[3], ax[4])
-  for (i, el) in enumerate(results)
-    lines!(ax[i], 0.015 .. 0.9, map_to_lp(el.ϵ), label="Elasticity between goods")
-    lines!(ax[i], 0.015 .. 0.9, map_to_lp(el.θ), label="Elasticity between labour and goods")
-    lines!(ax[i], 0.015 .. 0.9, map_to_lp(el.σ), label="Elasticity of consumption")
-  end
-
-  f[2, 1] = Legend(f, ax[1], labelsize=25, tellwidth=false, orientation=:horizontal)
-
-  f
-
-end
 function plot_pasche_index(results; title="Pashe Index", cd=sol_cd, ylims=(97, 103))
   f = Figure(size=(1980, 1000), title=title)
 

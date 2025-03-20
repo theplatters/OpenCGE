@@ -13,6 +13,7 @@ using XLSX
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor
 
 # Export Data, Models, and Shocks
+export Solution
 export Shocks, Data, Model, CBData, read_data_cb
 
 # Export Data Reading and Investment Functions
@@ -24,12 +25,14 @@ export cobb_douglas_costfun, cobb_douglas_consumption, cobb_douglas_intermediary
 
 # Export Model Constructors & Solver
 export solve
-export CES, Leontief, CobbDouglas
+export CES, Leontief, CobbDouglas, Solution
+
 
 # Export Visualization and Utility Functions
-export elasticities_gradient, plot_elasticities, plot_prices, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock, plot_consumption, plot_laspeyres_index, load_impulses, plot_pasche_index 
+export elasticities_gradient, plot_elasticities, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock, plot_consumption, load_impulses
 
 include("interface.jl")
+include("solution.jl")
 include("cobbdouglas.jl")
 include("leontief.jl")
 include("ces.jl")

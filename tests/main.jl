@@ -113,16 +113,15 @@ begin
 	model_leontief = Model(data, shocks, Leontief())
 	sol_leontief = solve(model_leontief)
 	#barplot!(ax, sol.quantities - data.λ, bar_labels=data.io.Sektoren[1:71], label_rotation=pi / 2, flip_labels_at=(0.0, 0.005))
-	@info sum(sol.prices .* sol.consumption / sol.numeraire[1] .- data.consumption_share), (sol.real_gdp[1]), sol.real_gdp2[1], sol.laspeyres_index[1]
 	@info sol.nominal_gdp[1]
 	group = sort(repeat(1:4,length(top5_indices)))
 	barplot!(ax,
 		repeat(1:length(top5_indices), 4),
 		[
 			shocks.demand_shock[top5_indices] .- 1
-			sol.prices[top5_indices] .* sol.quantities[top5_indices] ./ (data.λ[top5_indices] * sol.numeraire[1]).- 1;
-			(data.λ[top5_indices] .+ sol_leontief.quantities_relative[top5_indices]) ./ data.λ[top5_indices] .- 1
-			sol.prices[top5_indices] ./ sol.numeraire[1] .- 1
+			sol.prices[top5_indices] .* sol.quantities[top5_indices] ./ (data.λ[top5_indices] ).- 1;
+			(data.λ[top5_indices] .+ sol_leontief.quantities[top5_indices]) ./ data.λ[top5_indices] .- 1
+			sol.prices[top5_indices] .- 1
 		],
 		dodge = group,
 		color = colors[group])
@@ -146,7 +145,7 @@ begin
 	#barplot!(ax, sol.quantities - data.λ, bar_labels=data.io.Sektoren[1:71], label_rotation=pi / 2, flip_labels_at=(0.0, 0.005))
 
 	barplot!(ax,
-		sol.prices ./ sol.numeraire[1] .- 1,
+		sol.prices.- 1,
 		bar_labels = data.io.Sektoren[1:71], label_rotation = pi / 2, flip_labels_at = (0.0, 0.005))
 	save("plots/diff_prices_imp.png", f)
 end
@@ -189,7 +188,7 @@ begin
 	p2 = plot_elasticities([e, f, g, h],
 		title = "Effect of different elasticities on GDP, without labour slack ",
 		cd = real_gdp(sol_cd_ls),
-		leontief = gdp(sol_leontief, model_leontief),
+		leontief = real_gdp(sol_leontief, model_leontief),
 		initial = gdp_effect_simple)
 
 	p2_wages = plot_wages([e, f, g, h],
@@ -203,21 +202,6 @@ begin
 		title = "Effect of different elasticities on consumption without labour slack ",
 		cd = real_gdp(sol_cd_ls))
 
-
-	p1_lp = plot_laspeyres_index([a, b, c, d],
-		title = "Effect of different elasticities on consumption without labour slack ",
-		cd = real_gdp(sol_cd_ls))
-	p2_lp = plot_laspeyres_index([e, f, g, h],
-		title = "Effect of different elasticities on consumption without labour slack ",
-		cd = real_gdp(sol_cd_ls))
-
-
-	p1_pasche = plot_pasche_index([a, b, c, d],
-		title = "Effect of different elasticities on consumption without labour slack ",
-		cd = real_gdp(sol_cd_ls))
-	p2_pasche = plot_pasche_index([e, f, g, h],
-		title = "Effect of different elasticities on consumption without labour slack ",
-		cd = real_gdp(sol_cd_ls))
 
 	save("plots/eg_imp_ls.png", p1)
 	save("plots/eg_imp_no_ls.png", p2)
