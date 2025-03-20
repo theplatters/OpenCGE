@@ -113,8 +113,9 @@ function solve(
   wages = p .* (shocks.supply_shock .^ ((ϵ - 1) / ϵ)) .* (data.factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
   consumption_share = shocks.demand_shock .* data.consumption_share
   consumption = wages' * labor .* consumption_share .* p .^(-σ) 
-
-  numeraire = mean(p, weights(data.consumption_share))
+  laspeyres_index = sum(consumption) / sum(data.consumption_share)
+  numeraire = mean(p, weights(data.λ))
+  pashe_index = sum(p .* consumption) / sum(data.consumption_share .* p)
   df = DataFrames.DataFrame(
     Dict("prices" => p,
       "prices_shifted" => p ./ numeraire,
@@ -123,11 +124,14 @@ function solve(
       "value_added" => nominal_increase(p, q, model, relative=false),
       "nominal_gdp" => sum(nominal_increase(p, q, model)),
       "real_gdp" => sum(nominal_increase(p, q, model)) / numeraire,
+      "real_gdp2" => sum(nominal_increase(p, q, model)) / numeraire * laspeyres_index,
       "mean_wages" => mean(p, weights(consumption_share)),
       "real_wage" => mean(wages, weights(data.labor_share)) / numeraire,
       "numeraire" => numeraire,
       "sectors" => data.io.Sektoren[1:71],
       "consumption" => consumption,
+      "laspeyres_index" => laspeyres_index,
+      "pashe_index" => pashe_index,
       "wages" => wages),
   )
 
