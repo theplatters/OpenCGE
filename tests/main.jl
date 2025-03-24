@@ -100,7 +100,7 @@ begin
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev=true)  # Sort indices in descending order
 	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
-	top5_indices = vcat(sorted_shocks[1:5],sorted_lambda[1:5])
+	top5_indices = vcat(sorted_shocks[1:5],sorted_lambda[1:5]) #indices of sectors with biggest demand shock and with biggest overall size
 	f = Figure(size = (1980, 1000))
 	ax = Axis(f[1, 1], xlabel = "Sector", 
 		xticks = (1:length(top5_indices), data.io.Sektoren[top5_indices]),

@@ -37,19 +37,6 @@ function full_labor_slack(model::Model)
 	inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 
-function full_labor_slack_constrained(model::Model)
-	(; data, shocks) = model
-	workforce = 41562 #taken from 
-	#https://www-genesis.destatis.de/datenbank/online/table/12211-0001
-	total = workforce / (1 - data.unemployment)
-	new_labour = inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
-
-	if (sum(new_labour) * (1 - data.unemployment) > 1)
-		new_labour = inv(1 - data.unemployment) * new_labour / sum(new_labour)
-	end
-	return new_labour
-end
-
 """
   problem(X, model::Model{CES})
 
@@ -86,7 +73,7 @@ end
 
 
 """
-	solve_ces_model(data::CESData, shocks, elasticities,[labor_reallocation, init])
+	solve_ces_model(model::Model{CES}; init = [ones(length(model.data.λ)); model.data.λ])
 The main function of this module, input the relavant model data, shocks and optionally labor_reallocation and
 starting vectors and get back the simulated adapted prices and quantities
 
