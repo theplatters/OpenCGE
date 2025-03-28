@@ -62,7 +62,6 @@ function solve(
   p = x[1:length(data.consumption_share)]
   q = x[(length(data.consumption_share)+1):end]
   grossy = Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
-  @info grossy
   df = DataFrames.DataFrame(
     Dict("prices" => p,
       "quantities" => q,

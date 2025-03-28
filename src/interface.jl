@@ -52,11 +52,10 @@ struct Data <: AbstractData
     labor_share::Vector{Float64}
     consumption_share_gross_output::Vector{Float64}
     grossy::Vector{Float64}
-    unemployment::Float64
 end
 
-function Data(filename::String; read_unemployment::Bool)
-    read_data(filename,read_unemployment)
+function Data(filename::String)
+    read_data(filename)
 end
 
 """
@@ -78,8 +77,6 @@ function generate_data(io::DataFrames.DataFrame)
                   sum |>
                   x -> getindex(x, 1:number_sectors)
     value_added = Vector(io[findfirst(==("Bruttowertschöpfung"), io.Sektoren), 2:number_sectors+1])
-
-    @info Ω
 
     factor_share = value_added ./ grossy
     consumption_share = (I - diagm(1 .- factor_share) * Ω)' * grossy
@@ -122,22 +119,15 @@ Given a filename of a IO table located in the /data directory this returns the C
  given a filename of a io table located in the /data directory this returns the cesdata, where shocks are set to ones
 and elasticities are set to the ones presente in the paper by b&f
 """
-function read_data(filename::String, read_unemployment::Bool)::Data
+function read_data(filename::String)::Data
     filedir = joinpath(pwd(), "data/", filename)
     io = CSV.read(filedir, DataFrames.DataFrame, delim=";", decimal=',', missingstring=["-", "x"]) #read in from csv
     DataFrames.rename!(io, Symbol(names(io)[1]) => :Sektoren) #name the indices after the sectors
     io.Sektoren = replace.(io.Sektoren, r"^\s+" => "") #remove unneccasary whitespaces
     io = coalesce.(io, 0) #set nans to 0
 
-	if read_unemployment
-		unemployment_df = identity.(DataFrame(XLSX.readtable(joinpath(pwd(), "data/", "unemployment_data.xlsx"), "Daten", "B:C", first_row=6, column_labels=["year", "unemployment"])))
-		unemployment_df[!, :year] = [x isa String ? parse(Int, x) : x for x in unemployment_df[!, :year]]
-		unemployment = unemployment_df[findfirst(==(2019), unemployment_df.year), :unemployment] / 100
-	else
-		unemployment = 0
-	end
     Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy = generate_data(io)
     #return a mutable structure element (see above):	
-    return Data(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy, unemployment)
+    return Data(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy) 
 end
 

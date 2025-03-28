@@ -13,8 +13,9 @@ end
 
 function Solution(prices_raw, quantities, wages, consumption, numeraire, real_gdp, nominal_gdp, model)
 	return Solution(
-    prices_raw ./ numeraire,
-		prices_raw, quantities,
+		prices_raw ./ numeraire,
+		prices_raw,
+		quantities,
 		wages ./ numeraire,
 		wages,
 		consumption,

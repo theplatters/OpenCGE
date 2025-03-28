@@ -20,7 +20,6 @@ function solve(model::Model{Leontief})
 			hcat(wages', 0))
 
 
-		@info shock
 		q = inv(I - A) * (vcat(shock, 0))
 		p = ones(length(q))
 
