@@ -16,7 +16,7 @@ const ces_options_ls = CES(ces_elasticities, model -> model.data.labor_share, tr
 const leontief = Leontief()
 
 
-function plot_change_in_levels(data,impulses)
+function plot_change_in_levels(data, impulses)
 	shocks = impulse_shock(data, impulses)
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev = true)  # Sort indices in descending order
@@ -32,19 +32,20 @@ function plot_change_in_levels(data,impulses)
 	f = Figure(size = (1980, 1000))
 	ax = Axis(f[1, 1], xlabel = "Sector",
 		xticks = (1:length(top5_indices), data.io.Sektoren[top5_indices]),
-		xticklabelrotation = -1 * pi / 4)
+		xticklabelrotation = -1 * pi / 4,
+		ytickformat = "{:.2f}%")
 	group = sort(repeat(1:4, length(top5_indices)))
 	barplot!(ax,
 		repeat(1:length(top5_indices), 4),
 		[
-			shocks.demand_shock[top5_indices] .- 1
-			shocks.demand_shock[top5_indices] .- 1
-			sol.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1;
-			sol.prices[top5_indices] .- 1
+			100 * (shocks.demand_shock[top5_indices] .- 1);
+			100 * (shocks.demand_shock[top5_indices] .- 1);
+			100 * (sol.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1);
+			100 * (sol.prices[top5_indices] .- 1)
 		],
 		dodge = group,
 		color = colors[group])
-	labels = ["Increase in state spending", "Increase in consumption CGE", "Change in consumption CGE", "Derivaton of price from Numeraire CGE"]
+	labels = ["Increase in state spending", "Change in consumption Leontief", "Change in consumption CGE", "Diviation of price from Numeraire CGE"]
 	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
 
 	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
@@ -61,8 +62,42 @@ function plot_change_in_levels(data,impulses)
 	save("plots/diff_prices_imp.png", f)
 end
 
+function plot_change_price(data, impulse)
+	shocks = impulse_shock(data, impulse)
+	model = Model(data, shocks, ces_options)
+	sol = solve(model)
 
+	f = Figure(size = (1980, 1000))
+	ax = Axis(f[1, 1],
+		xlabel = "Change in quantities",
+		ylabel = "Change in prices",
+		ytickformat = "{:.2f}%",
+		xtickformat = "{:.2f}%")
+	for (i, label) in enumerate(data.io.Sektoren[1:71])
+		p = Point2f(100 * (sol.quantities[i] / data.λ[i] - 1), 100 * (sol.prices[i] - 1))
+		scatter!(p, markersize = 20, color = :black)
+		if (sol.prices[i] - 1 > 0.04)
+			text!(p, text = label, color = :gray70, offset = (0, 20),
+				align = (:center, :bottom))
+		end
+	end
+	save("plots/scatter_prices_imp.png", f)
+end
 
+function diff_lambda(data, impulses)
+	colors = Makie.wong_colors()
+	f = Figure(size = (1980, 1000))
+	ax = Axis(f[1, 1], ytickformat = "{:.2f}%")
+	hidexdecorations!(ax, grid = false)
+	shocks = impulse_shock(data, impulses)
+
+	model = Model(data, shocks, ces_options)
+	sol = solve(model)
+	barplot!(ax,
+		100 .* (sol.quantities ./ data.λ .- 1),
+		bar_labels = data.io.Sektoren[1:71], label_rotation = pi / 2, flip_labels_at = (0.0, 0.005))
+	save("plots/diff_lambda_imp.png", f)
+end
 
 
 function simulate(shocks, data, title, gdp_effect_simple)
@@ -151,8 +186,8 @@ end
 Simulating labour slack effect
 ===============================================================================#
 
-function labor_slack_gradient(data,impulse)
-	shocks = BeyondHulten.impulse_shock(data,impulse)
+function labor_slack_gradient(data, impulse)
+	shocks = BeyondHulten.impulse_shock(data, impulse)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulse[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
@@ -195,10 +230,14 @@ function (@main)(args)
 		#"Sonstige Fahrzeuge",
 	]
 
+
+	plot_change_price(data, impulses)
+
 	plot_gradients(sectors, data)
 	shocks = impulse_shock(data, impulses)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 	simulate(shocks, data, "impulse", gdp_effect_simple)
-	plot_change_in_levels(data,impulses)
-	labor_slack_gradient(data,impulses)
+	plot_change_in_levels(data, impulses)
+	diff_lambda(data, impulses)
+	labor_slack_gradient(data, impulses)
 end
