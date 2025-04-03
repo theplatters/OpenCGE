@@ -88,14 +88,16 @@ function diff_lambda(data, impulses)
 	colors = Makie.wong_colors()
 	f = Figure(size = (1980, 1000))
 	ax = Axis(f[1, 1], ytickformat = "{:.2f}%")
-	hidexdecorations!(ax, grid = false)
 	shocks = impulse_shock(data, impulses)
 
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
+  sol_leontief = solve(Model(data, shocks, leontief))
 	barplot!(ax,
-		100 .* (sol.quantities ./ data.λ .- 1),
-		bar_labels = data.io.Sektoren[1:71], label_rotation = pi / 2, flip_labels_at = (0.0, 0.005))
+    repeat(1:71, 2),
+		[100 .* (sol.quantities ./ data.λ .- 1); 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)],
+    stack = repeat(1:71,2),
+    color = colors[sort(repeat(1:2, 71))])
 	save("plots/diff_lambda_imp.png", f)
 end
 
