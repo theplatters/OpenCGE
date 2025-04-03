@@ -2,9 +2,7 @@
 Imports
 ===============================================================================#
 using BeyondHulten
-using CSV
 using GLMakie
-using DataFrames
 using StatsBase
 using ThreadsX
 using ProgressMeter
@@ -40,17 +38,16 @@ function plot_change_in_levels(data,impulses)
 		repeat(1:length(top5_indices), 4),
 		[
 			shocks.demand_shock[top5_indices] .- 1
-			sol.prices[top5_indices] .* sol.quantities[top5_indices] ./ (data.λ[top5_indices]) .- 1;
-			(data.λ[top5_indices] .+ sol_leontief.quantities[top5_indices]) ./ data.λ[top5_indices] .- 1
+			shocks.demand_shock[top5_indices] .- 1
+			sol.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1;
 			sol.prices[top5_indices] .- 1
 		],
 		dodge = group,
 		color = colors[group])
-	labels = ["Increase in state spending", "Increase in quantities CGE", "Change in quantities Leontief", "Change in Price"]
+	labels = ["Increase in state spending", "Increase in consumption CGE", "Change in consumption CGE", "Derivaton of price from Numeraire CGE"]
 	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
-	title = "Groups"
 
-	Legend(f[1, 2], elements, labels, title)
+	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
 	save("plots/diff_consumption_imp.png", f)
 
 	colors = Makie.wong_colors()
@@ -160,6 +157,7 @@ function labor_slack_gradient(data,impulse)
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
 	sol_cd_ls = solve(Model(data, shocks, cd_options))
+	sol_leontief = solve(Model(data, shocks, leontief))
 	labour_slack_gradient = Vector{Float64}()
 	l(α, model) = (1 - α) * full_labor_slack(model) + α * model.data.labor_share
 	for α in range(0, 1, 100)
@@ -173,7 +171,7 @@ function labor_slack_gradient(data,impulse)
 	f = Figure()
 	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", ylabel = "GDP", xlabel = "Labour slack")
 	lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label = "Real GDP")
-	lines!(ax, [0; 100], 100 .* fill(gdp(sol_leontief, model_leontief), 2), label = "Leontief", linestyle = :dash)
+	lines!(ax, [0; 100], 100 .* fill(real_gdp(sol_leontief), 2), label = "Leontief", linestyle = :dash)
 	lines!(ax, [0; 100], 100 .* fill(gdp_effect_simple, 2), label = "Baseline", linestyle = :dash)
 	lines!(ax, [0; 100], 100 .* fill(sol_cd_ls |> real_gdp, 2), label = "Cobb Douglas", linestyle = :dash)
 	f[1, 2] = Legend(f, ax)
