@@ -98,6 +98,11 @@ function diff_lambda(data, impulses)
 		[100 .* (sol.quantities ./ data.λ .- 1); 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)],
     stack = repeat(1:71,2),
     color = colors[sort(repeat(1:2, 71))])
+
+	labels = ["CGE", "Leontief"]
+	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
+
+	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
 	save("plots/diff_lambda_imp.png", f)
 end
 
