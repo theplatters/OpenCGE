@@ -41,6 +41,7 @@ Leontief() = Leontief(true)
 
 struct CobbDouglas <: ModelType
     elasticities::CobbDouglasElasticities
+    labor_slack::Union{Function,Symbol}
 end
 
 struct Data <: AbstractData

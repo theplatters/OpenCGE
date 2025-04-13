@@ -7,9 +7,10 @@ using StatsBase
 using ThreadsX
 using ProgressMeter
 
-const cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
-const cd_options = CES(cd_elasticities, model -> model.data.labor_share)
-const cd_options_ls = CES(cd_elasticities, BeyondHulten.full_labor_slack)
+const data =  Data("I-O_DE2019_formatiert.csv")
+const cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
+const cd_options = CobbDouglas(cd_elasticities, model -> model.data.labor_share)
+const cd_options_ls = CobbDouglas(cd_elasticities, BeyondHulten.full_labor_slack)
 const ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
 const ces_options = CES(ces_elasticities, model -> model.data.labor_share, false)
 const ces_options_ls = CES(ces_elasticities, model -> model.data.labor_share, true)
@@ -225,7 +226,6 @@ end
 
 
 function (@main)(args)
-	data = Data("I-O_DE2019_formatiert.csv")
 	impulses = load_impulses("impulses.csv")
 	sectors = [
 		"Kohle",
@@ -243,6 +243,8 @@ function (@main)(args)
 	plot_gradients(sectors, data)
 	shocks = impulse_shock(data, impulses)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
+
+	sol = solve(Model(data,shocks,cd_options))
 	simulate(shocks, data, "impulse", gdp_effect_simple)
 	plot_change_in_levels(data, impulses)
 	diff_lambda(data, impulses)

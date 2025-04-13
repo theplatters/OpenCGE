@@ -15,7 +15,8 @@ end
 function cobb_douglas_wages(p, y, model)
   (; data, options, shocks) = model
   (; α, β) = (options.elasticities)
-  α .* p .* y .* data.labor_share .^ -1
+  labor  = options.labor_slack(model)
+  α .* p .* y .* labor .^ -1
 end
 
 function cobb_douglas_intermediary_demand(p, y, model)
@@ -45,7 +46,8 @@ function cobb_douglas_consumption(p, y, model)
   (; supply_shock, demand_shock) = shocks
 
   w = cobb_douglas_wages(p, y, model)
-  C = w' * data.labor_share
+  labor  = options.labor_slack(model)
+  C = w' * labor 
   C * demand_shock .* p .^ (-1) .* data.consumption_share
 end
 
@@ -61,17 +63,14 @@ function solve(
   x = NonlinearSolve.solve(prob)
   p = x[1:length(data.consumption_share)]
   q = x[(length(data.consumption_share)+1):end]
+  wages = cobb_douglas_wages(p,q,model)
+  labor = model.options.labor_slack(model)
+  consumption = cobb_douglas_consumption(p,q,model)
+  laspeyres_index = sum(consumption) / sum(data.consumption_share)
+  numeraire = mean(p, weights(consumption))
   grossy = Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
-  df = DataFrames.DataFrame(
-    Dict("prices" => p,
-      "quantities" => q,
-      "sectors" => data.io.Sektoren[1:71],
-      "value_added_nominal_absolute" => p .* data.labor_share .* cobb_douglas_wages(p, q, model) .* grossy,
-      "value_added_nominal_relative" => p .* data.labor_share .* cobb_douglas_wages(p, q, model),
-      "value_added_absolute" => data.labor_share .* cobb_douglas_wages(p, q, model) .* grossy,
-      "value_added_relative" => data.labor_share .* cobb_douglas_wages(p, q, model),
-    ))
 
-  df
+  return Solution(p, q, wages, consumption, numeraire, laspeyres_index, (wages' * labor) / numeraire, model)
+
 end
 
