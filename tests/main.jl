@@ -17,12 +17,12 @@ const ces_options_ls = CES(ces_elasticities, model -> model.data.labor_share, tr
 const leontief = Leontief()
 
 
-function plot_change_in_levels(data, impulses)
+function axis_change_in_level!(fig, data, impulses)
 	shocks = impulse_shock(data, impulses)
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev = true)  # Sort indices in descending order
 	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
-	top5_indices = vcat(sorted_shocks[1:5], sorted_lambda[1:5]) #indices of sectors with biggest demand shock and with biggest overall size
+	top5_indices = sorted_shocks[1:5]
 
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
@@ -30,8 +30,7 @@ function plot_change_in_levels(data, impulses)
 	model_leontief = Model(data, shocks, Leontief())
 	sol_leontief = solve(model_leontief)
 
-	f = Figure(size = (1980, 1000))
-	ax = Axis(f[1, 1], xlabel = "Sector",
+	ax = Axis(fig[1, 1], xlabel = "Sector",
 		xticks = (1:length(top5_indices), data.io.Sektoren[top5_indices]),
 		xticklabelrotation = -1 * pi / 4,
 		ytickformat = "{:.2f}%")
@@ -50,26 +49,14 @@ function plot_change_in_levels(data, impulses)
 	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
 
 	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
-	save("plots/diff_consumption_imp.png", f)
-
-	colors = Makie.wong_colors()
-	f = Figure(size = (1980, 1000))
-	ax = Axis(f[1, 1], xlabel = "Sector")
-	shocks = impulse_shock(data, impulses)
-
-	barplot!(ax,
-		sol.prices .- 1,
-		bar_labels = data.io.Sektoren[1:71], label_rotation = pi / 2, flip_labels_at = (0.0, 0.005))
-	save("plots/diff_prices_imp.png", f)
 end
 
-function plot_change_price(data, impulse)
+function axis_change_in_price!(fig,data, impulse)
 	shocks = impulse_shock(data, impulse)
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
 
-	f = Figure(size = (1980, 1000))
-	ax = Axis(f[1, 1],
+	ax = Axis(fig[1, 2],
 		xlabel = "Change in quantities",
 		ylabel = "Change in prices",
 		ytickformat = "{:.2f}%",
@@ -82,8 +69,15 @@ function plot_change_price(data, impulse)
 				align = (:center, :bottom))
 		end
 	end
-	save("plots/scatter_prices_imp.png", f)
 end
+
+function panel(data,impulses)
+	fig = Figure(size = (1980,1020))
+	axis_change_in_level!(fig,data,impulses)
+	axis_change_in_price!(fig,data,impulses)
+	save("plots/panel.png",fig)
+end
+
 
 function diff_lambda(data, impulses)
 	colors = Makie.wong_colors()
@@ -214,17 +208,9 @@ function labor_slack_gradient(data, impulse)
 	f = Figure()
 	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", ylabel = "GDP", xlabel = "Labour slack")
 	lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label = "Real GDP")
-	lines!(ax, [0; 100], 100 .* fill(real_gdp(sol_leontief), 2), label = "Leontief", linestyle = :dash)
-	lines!(ax, [0; 100], 100 .* fill(gdp_effect_simple, 2), label = "Baseline", linestyle = :dash)
-	lines!(ax, [0; 100], 100 .* fill(sol_cd_ls |> real_gdp, 2), label = "Cobb Douglas", linestyle = :dash)
-	f[1, 2] = Legend(f, ax)
-	f
-
+	lines!(ax, [0; 10	panel(data,impulses)
 	save("plots/labor_slack_gradient.png", f)
-end
-
-
-
+end	panel(data,impulses)
 function (@main)(args)
 	impulses = load_impulses("impulses.csv")
 	sectors = [
@@ -238,15 +224,14 @@ function (@main)(args)
 	]
 
 
-	plot_change_price(data, impulses)
 
 	plot_gradients(sectors, data)
 	shocks = impulse_shock(data, impulses)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 
+	panel(data,impulses)
 	sol = solve(Model(data,shocks,cd_options))
 	simulate(shocks, data, "impulse", gdp_effect_simple)
-	plot_change_in_levels(data, impulses)
 	diff_lambda(data, impulses)
 	labor_slack_gradient(data, impulses)
 end
