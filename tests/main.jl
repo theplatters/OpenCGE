@@ -12,7 +12,7 @@ const cd_options = CES(cd_elasticities, model -> model.data.labor_share)
 const cd_options_ls = CES(cd_elasticities, BeyondHulten.full_labor_slack)
 const ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
 const ces_options = CES(ces_elasticities, model -> model.data.labor_share, false)
-const ces_options_ls = CES(ces_elasticities, model -> model.data.labor_share, true)
+const ces_options_ls = CES(ces_elasticities, BeyondHulten.full_labor_slack, false)
 const leontief = Leontief()
 
 
@@ -88,12 +88,12 @@ function diff_lambda(data, impulses; options = ces_options, name = "diff_lambda_
 	model = Model(data, shocks, options)
 	sol = solve(model)
 	sol_leontief = solve(Model(data, shocks, leontief))
+	grp = sort(repeat(1:2, 71))
 	barplot!(ax,
-		repeat(1:71, 2),
+		repeat(1:71,2),
 		[100 .* (sol.quantities ./ data.λ .- 1); 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)],
-		stack = repeat(1:71, 2),
-		color = colors[sort(repeat(1:2, 71))])
-
+		dodge = grp,
+		color = colors[grp])
 	labels = ["CGE", "Leontief"]
 	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
 
