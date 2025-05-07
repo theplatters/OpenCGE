@@ -34,6 +34,16 @@ Returns the labor vector adjusted, so that labor can be freely reallocated to ac
 """
 function full_labor_slack(model::Model)
   (; data, shocks) = model
+  inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
+end
+
+"""
+	empircial_labor_slack(model::Model)
+
+Returns the labor vector adjusted, so that labor can be freely reallocated, but with employment constraints to accomodate for demand shocks
+"""
+function empircial_labor_slack(model::Model)
+  (; data, shocks) = model
   inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
 end
 

@@ -7,24 +7,23 @@ using StatsBase
 using ThreadsX
 using ProgressMeter
 
-const data =  Data("I-O_DE2019_formatiert.csv")
-const cd_elasticities = CobbDouglasElasticities(data.factor_share, 1 .- data.factor_share)
-const cd_options = CobbDouglas(cd_elasticities, model -> model.data.labor_share)
-const cd_options_ls = CobbDouglas(cd_elasticities, BeyondHulten.full_labor_slack)
+const cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
+const cd_options = CES(cd_elasticities, model -> model.data.labor_share)
+const cd_options_ls = CES(cd_elasticities, BeyondHulten.full_labor_slack)
 const ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
 const ces_options = CES(ces_elasticities, model -> model.data.labor_share, false)
 const ces_options_ls = CES(ces_elasticities, model -> model.data.labor_share, true)
 const leontief = Leontief()
 
 
-function axis_change_in_level!(fig, data, impulses)
+function axis_change_in_level!(fig, data, impulses; options)
 	shocks = impulse_shock(data, impulses)
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev = true)  # Sort indices in descending order
 	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
 	top5_indices = sorted_shocks[1:5]
 
-	model = Model(data, shocks, ces_options)
+	model = Model(data, shocks, options)
 	sol = solve(model)
 
 	model_leontief = Model(data, shocks, Leontief())
@@ -51,10 +50,11 @@ function axis_change_in_level!(fig, data, impulses)
 	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
 end
 
-function axis_change_in_price!(fig,data, impulse)
+function axis_change_in_price!(fig, data, impulse; options)
 	shocks = impulse_shock(data, impulse)
-	model = Model(data, shocks, ces_options)
+	model = Model(data, shocks, options)
 	sol = solve(model)
+
 
 	ax = Axis(fig[1, 2],
 		xlabel = "Change in quantities",
@@ -71,34 +71,34 @@ function axis_change_in_price!(fig,data, impulse)
 	end
 end
 
-function panel(data,impulses)
-	fig = Figure(size = (1980,1020))
-	axis_change_in_level!(fig,data,impulses)
-	axis_change_in_price!(fig,data,impulses)
-	save("plots/panel.png",fig)
+function panel(data, impulses; options = ces_options, name = "panel")
+	fig = Figure(size = (1980, 1020))
+	axis_change_in_level!(fig, data, impulses, options = options)
+	axis_change_in_price!(fig, data, impulses, options = options)
+	save("plots/$(name).png", fig)
 end
 
 
-function diff_lambda(data, impulses)
+function diff_lambda(data, impulses; options = ces_options, name = "diff_lambda_imp")
 	colors = Makie.wong_colors()
 	f = Figure(size = (1980, 1000))
 	ax = Axis(f[1, 1], ytickformat = "{:.2f}%")
 	shocks = impulse_shock(data, impulses)
 
-	model = Model(data, shocks, ces_options)
+	model = Model(data, shocks, options)
 	sol = solve(model)
-  sol_leontief = solve(Model(data, shocks, leontief))
+	sol_leontief = solve(Model(data, shocks, leontief))
 	barplot!(ax,
-    repeat(1:71, 2),
+		repeat(1:71, 2),
 		[100 .* (sol.quantities ./ data.λ .- 1); 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)],
-    stack = repeat(1:71,2),
-    color = colors[sort(repeat(1:2, 71))])
+		stack = repeat(1:71, 2),
+		color = colors[sort(repeat(1:2, 71))])
 
 	labels = ["CGE", "Leontief"]
 	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
 
-	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
-	save("plots/diff_lambda_imp.png", f)
+	axislegend(ax, elements, labels, position = :rt, labelsize = 28)
+	save("plots/$(name).png", f)
 end
 
 
@@ -193,7 +193,7 @@ function labor_slack_gradient(data, impulse)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulse[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
-	sol_cd_ls = solve(Model(data, shocks, cd_options))
+	sol_cd = solve(Model(data, shocks, cd_options))
 	sol_leontief = solve(Model(data, shocks, leontief))
 	labour_slack_gradient = Vector{Float64}()
 	l(α, model) = (1 - α) * full_labor_slack(model) + α * model.data.labor_share
@@ -205,13 +205,20 @@ function labor_slack_gradient(data, impulse)
 		push!(labour_slack_gradient, sol |> real_gdp)
 	end
 
-	f = Figure()
+	f = Figure(size = (1000, 800))
 	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", ylabel = "GDP", xlabel = "Labour slack")
 	lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label = "Real GDP")
-	lines!(ax, [0; 10	panel(data,impulses)
+	lines!(ax, [0, 100], 100 .* fill(real_gdp(sol_leontief), 2), label = "Leontief", linestyle = :dash)
+	lines!(ax, [0, 100], 100 .* fill(real_gdp(sol_cd), 2), label = "Cobb-Douglas", linestyle = :dash)
+	lines!(ax, [0, 100], 100 .* fill(gdp_effect_simple, 2), label = "Baseline", linestyle = :dot)
+	axislegend(ax, position = :rb, labelsize = 28)
 	save("plots/labor_slack_gradient.png", f)
-end	panel(data,impulses)
+
+	@info real_gdp(sol_cd)
+end
+
 function (@main)(args)
+	data = Data("I-O_DE2019_formatiert.csv")
 	impulses = load_impulses("impulses.csv")
 	sectors = [
 		"Kohle",
@@ -224,14 +231,31 @@ function (@main)(args)
 	]
 
 
-
 	plot_gradients(sectors, data)
 	shocks = impulse_shock(data, impulses)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 
-	panel(data,impulses)
-	sol = solve(Model(data,shocks,cd_options))
+	panel(data, impulses)
+	panel(data, impulses, options = ces_options_ls, name = "panel_ls")
 	simulate(shocks, data, "impulse", gdp_effect_simple)
 	diff_lambda(data, impulses)
+	diff_lambda(data, impulses, options = ces_options_ls, name = "diff_lambda_imp_ls")
 	labor_slack_gradient(data, impulses)
+end
+
+
+function check_hunch(data, impulses)
+	shocks = impulse_shock(data, impulses)
+	model = Model(data, shocks, ces_options)
+	sol = solve(model)
+	q = (data.Ω * sol.prices .^ (1 - sol.model.options.elasticities.θ)) .^ (1 / (1 - sol.model.options.elasticities.θ))
+
+	indices = findall(eachsector(sol)) do x
+		index = findfirst(==(x.name), data.io.Sektoren)
+		x.price > 1.0 && x.quantity / data.λ[index] < 1
+	end
+	for (name, from_mean) in zip(data.io.Sektoren[indices], q[indices] .- mean(q)) |> collect
+		println("Sector: ", name, " | q - mean(q): ", from_mean)
+	end
+	q[setdiff(1:71, indices)] |> mean
 end

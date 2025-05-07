@@ -13,7 +13,7 @@ using XLSX
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor
 
 # Export Data, Models, and Shocks
-export Solution
+export Solution, eachsector
 export Shocks, Data, Model, CBData, read_data_cb
 
 # Export Data Reading and Investment Functions

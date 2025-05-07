@@ -41,8 +41,51 @@ function consumption(sol::Solution)::Vector{Float64}
 	sol.consumption
 end
 
-
 function Base.getindex(sol::Solution, ::Colon, sector::String)
 	index = findfirst(==(sector), sol.model.data.io.Sektoren)
 	return Dict(:prices => sol.prices[index], :quantities => sol.quantities[index], :wages => sol.wages[index], :consumption => sol.consumption[index])
+end
+
+struct SectorData
+	name::String
+    price::Float64
+    quantity::Float64
+    wage::Float64
+    consumption::Float64
+end
+
+function eachsector(sol::Solution)
+    sectors = sol.model.data.io.Sektoren
+    return (SectorData(sectors[i],sol.prices[i], sol.quantities[i], sol.wages[i], sol.consumption[i]) for i in 1:length(sol.prices))
+end
+
+function Base.getindex(sol::Solution, sector_index::Int)
+    sectors = sol.model.data.io.Sektoren
+    return SectorData(
+        sectors[sector_index],
+        sol.prices[sector_index],
+        sol.quantities[sector_index],
+        sol.wages[sector_index],
+        sol.consumption[sector_index]
+    )
+end
+function Base.getindex(sol::Solution, sector_indices::UnitRange{Int})
+    sectors = sol.model.data.io.Sektoren
+    return [SectorData(
+        sectors[i],
+        sol.prices[i],
+        sol.quantities[i],
+        sol.wages[i],
+        sol.consumption[i]
+    ) for i in sector_indices]
+end
+function Base.getindex(sol::Solution, indices::Vector{Int})
+    sectors = sol.model.data.io.Sektoren
+    return [SectorData(
+        sectors[i],
+        sol.prices[i],
+        sol.quantities[i],
+        sol.wages[i],
+        sol.consumption[i]
+    ) for i in indices]
 end

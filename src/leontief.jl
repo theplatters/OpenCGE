@@ -25,9 +25,6 @@ function solve(model::Model{Leontief})
 
 
 	else
-
-		# A = (1 - alpha) Omega^T
-		#Eigentlich müssen wir Omega ja jetzt noch erweitern
 		q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (shock)
 		p = ones(length(q))
 
