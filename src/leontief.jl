@@ -32,7 +32,7 @@ function solve(model::Model{Leontief})
 
 	real_gdp = 1 + q[72] / sum(data.io[findfirst(==("Bruttolöhne und -gehälter"), model.data.io.Sektoren), 2:72])
 	q = [data.λ;0] .+  q ./ sum(data.io[vcat(1:71, 78), "Gesamte Verwendung von Gütern"])
-	return Solution(p, q, ones(length(q)), consumption_share, 1, real_gdp, real_gdp, model)
+	return Solution(p, q, ones(length(q)), shocks.demand_shock + q[72] .* consumption_share, 1, real_gdp, real_gdp, model)
 end
 
 #=

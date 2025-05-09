@@ -14,6 +14,8 @@ const ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
 const ces_options = CES(ces_elasticities, model -> model.data.labor_share, false)
 const ces_options_ls = CES(ces_elasticities, BeyondHulten.full_labor_slack, false)
 const leontief = Leontief()
+const cd_options_ls_empirical = CES(cd_elasticities, BeyondHulten.empircial_labor_slack)
+const ces_options_ls_empirical = CES(ces_elasticities, BeyondHulten.empircial_labor_slack)
 
 
 function axis_change_in_level!(fig, data, impulses; options)
@@ -38,13 +40,13 @@ function axis_change_in_level!(fig, data, impulses; options)
 		repeat(1:length(top5_indices), 4),
 		[
 			100 * (shocks.demand_shock[top5_indices] .- 1);
-			100 * (shocks.demand_shock[top5_indices] .- 1);
+			100 * (sol_leontief.consumption[top5_indices] .- 1);
 			100 * (sol.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1);
 			100 * (sol.prices[top5_indices] .- 1)
 		],
 		dodge = group,
 		color = colors[group])
-	labels = ["Increase in state spending", "Change in consumption Leontief", "Change in consumption CGE", "Diviation of price from Numeraire CGE"]
+	labels = ["Increase in state spending", "Change in consumption Leontief", "Change in consumption CGE", "Deviation of price from Numeraire CGE"]
 	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
 
 	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
@@ -230,16 +232,19 @@ function (@main)(args)
 		#"Sonstige Fahrzeuge",
 	]
 
-
 	plot_gradients(sectors, data)
 	shocks = impulse_shock(data, impulses)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 
 	panel(data, impulses)
 	panel(data, impulses, options = ces_options_ls, name = "panel_ls")
+	panel(data, impulses, options = ces_options_ls_empirical, name = "panel_ls_empirical")
+
 	simulate(shocks, data, "impulse", gdp_effect_simple)
 	diff_lambda(data, impulses)
 	diff_lambda(data, impulses, options = ces_options_ls, name = "diff_lambda_imp_ls")
+	diff_lambda(data, impulses, options = ces_options_ls, name = "diff_lambda_imp_lsl")
+	diff_lambda(data, impulses, options = ces_options_ls_empirical, name = "diff_lambda_imp_ls_empirical")
 	labor_slack_gradient(data, impulses)
 end
 

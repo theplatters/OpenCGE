@@ -42,9 +42,9 @@ end
 
 Returns the labor vector adjusted, so that labor can be freely reallocated, but with employment constraints to accomodate for demand shocks
 """
-function empircial_labor_slack(model::Model)
-  (; data, shocks) = model
-  inv(I - diagm(1 .- data.factor_share) * data.Ω) * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
+function empircial_labor_slack(model::Model, unemployment_rate::Float64 = 0.031)
+  (;data, shocks) = model
+  (1 + unemployment_rate) * data.labor_share
 end
 
 """
