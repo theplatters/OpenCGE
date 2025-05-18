@@ -74,7 +74,7 @@ function plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims
 	ax = [Axis(ga[1, 1], ylabel = "Real GDP", ytickformat = "{:.2f}%", title = "0.9"),
 		Axis(ga[1, 2], xlabel = "Elasticity", ytickformat = "{:.2f}%", title = "0.5"),
 		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "0.2"),
-		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.05")]
+		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "0.1")]
 
 	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x), x))
 	linkaxes!(ax[1], ax[2], ax[3], ax[4])

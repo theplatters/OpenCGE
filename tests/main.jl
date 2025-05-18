@@ -31,33 +31,94 @@ function axis_change_in_level!(fig, data, impulses; options)
 	model_leontief = Model(data, shocks, Leontief())
 	sol_leontief = solve(model_leontief)
 
+	# Error bar calculations
+	model_low = Model(data, shocks, CES(CESElasticities(0.05, 0.05, 0.6), options.labor_slack, false))
+	sol_low = solve(model_low)
+
+	model_high = Model(data, shocks, CES(CESElasticities(0.99, 0.99, 0.99), options.labor_slack, false))
+	sol_high = solve(model_high)
+
 	ax = Axis(fig[1, 1], xlabel = "Sector",
 		xticks = (1:length(top5_indices), data.io.Sektoren[top5_indices]),
 		xticklabelrotation = -1 * pi / 4,
 		ytickformat = "{:.2f}%")
+
 	group = sort(repeat(1:4, length(top5_indices)))
+
+	# Prepare the values for barplot
+	consumption_values = 100 * (sol.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1)
+	price_values = 100 * (sol.prices[top5_indices] .- 1)
+
+	# Prepare error ranges
+	consumption_low = 100 * (sol_low.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1)
+	consumption_high = 100 * (sol_high.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1)
+
+	price_low = 100 * (sol_low.prices[top5_indices] .- 1)
+	price_high = 100 * (sol_high.prices[top5_indices] .- 1)
+
 	barplot!(ax,
 		repeat(1:length(top5_indices), 4),
 		[
 			100 * (shocks.demand_shock[top5_indices] .- 1);
 			100 * (sol_leontief.consumption[top5_indices] .- 1);
-			100 * (sol.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1);
-			100 * (sol.prices[top5_indices] .- 1)
+			consumption_values;
+			price_values
 		],
 		dodge = group,
 		color = colors[group])
+
+	# Add error bars for the last two sets of bars (consumption and prices)
+	for i in 1:length(top5_indices)
+		# Position for consumption bars (3rd group)
+		consumption_pos = i + (3 - 1) * 0.25 - 0.4
+		# Position for price bars (4th group)
+		price_pos = i + (4 - 1) * 0.25 - 0.45
+
+		# Add error bars for consumption
+		errorbars!(ax, [consumption_pos], [consumption_values[i]],
+			[consumption_values[i] - consumption_low[i]],
+			[consumption_high[i] - consumption_values[i]],
+			whiskerwidth = 15, color = :black)
+
+		# Add error bars for prices
+		errorbars!(ax, [price_pos], [price_values[i]],
+			[price_values[i] - price_low[i]],
+			[price_high[i] - price_values[i]],
+			whiskerwidth = 15, color = :black)
+	end
+
 	labels = ["Increase in state spending", "Change in consumption Leontief", "Change in consumption CGE", "Deviation of price from Numeraire CGE"]
 	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
-
 	axislegend(ax, elements, labels, position = :rt, labelsize = 20)
 end
 
+function get_color(data, shocks)
+	colors = Makie.wong_colors()
+	model = Model(data, shocks, ces_options)
+	sol = solve(model)
+
+	c = ones(Int, length(sol.prices))
+	indices1 = findall(eachsector(sol)) do x
+		index = findfirst(==(x.name), data.io.Sektoren)
+		x.price > 1.0 && x.quantity / data.λ[index] < 1
+	end
+
+	indices2 = findall(eachsector(sol)) do x
+		index = findfirst(==(x.name), data.io.Sektoren)
+		x.price > 1.0 && x.quantity / data.λ[index] >= 1
+	end
+	c[indices1] .= 2
+	c[indices2] .= 3
+	c .+ 3
+end
 function axis_change_in_price!(fig, data, impulse; options)
 	shocks = impulse_shock(data, impulse)
 	model = Model(data, shocks, options)
 	sol = solve(model)
+	top5_indices = sortperm(abs.(sol.quantities ./ data.λ .- 1), rev = true)[1:5]
 
-
+	colors = Makie.wong_colors()
+	c = get_color(data, shocks)
 	ax = Axis(fig[1, 2],
 		xlabel = "Change in quantities",
 		ylabel = "Change in prices",
@@ -65,8 +126,8 @@ function axis_change_in_price!(fig, data, impulse; options)
 		xtickformat = "{:.2f}%")
 	for (i, label) in enumerate(data.io.Sektoren[1:71])
 		p = Point2f(100 * (sol.quantities[i] / data.λ[i] - 1), 100 * (sol.prices[i] - 1))
-		scatter!(p, markersize = 20, color = :black)
-		if (sol.prices[i] - 1 > 0.04)
+		scatter!(p, markersize = 20, color = colors[c[i]])
+		if (i in top5_indices)
 			text!(p, text = label, color = :gray70, offset = (0, 20),
 				align = (:center, :bottom))
 		end
@@ -80,7 +141,6 @@ function panel(data, impulses; options = ces_options, name = "panel")
 	save("plots/$(name).png", fig)
 end
 
-
 function diff_lambda(data, impulses; options = ces_options, name = "diff_lambda_imp")
 	colors = Makie.wong_colors()
 	f = Figure(size = (1980, 1000))
@@ -92,7 +152,7 @@ function diff_lambda(data, impulses; options = ces_options, name = "diff_lambda_
 	sol_leontief = solve(Model(data, shocks, leontief))
 	grp = sort(repeat(1:2, 71))
 	barplot!(ax,
-		repeat(1:71,2),
+		repeat(1:71, 2),
 		[100 .* (sol.quantities ./ data.λ .- 1); 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)],
 		dodge = grp,
 		color = colors[grp])
@@ -103,77 +163,27 @@ function diff_lambda(data, impulses; options = ces_options, name = "diff_lambda_
 	save("plots/$(name).png", f)
 end
 
-
-function simulate(shocks, data, title, gdp_effect_simple)
+function simulate(shocks, data, gdp_effect_simple; labor_slack_function = full_labor_slack, name = "eg")
 	a, b, c, d =
 		ThreadsX.map([fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)]) do elasticity
-			BeyondHulten.elasticity_gradient(data, shocks, BeyondHulten.full_labor_slack, false, elasticity)
+			BeyondHulten.elasticity_gradient(data, shocks, labor_slack_function, false, elasticity)
 		end
 
-	e, f, g, h =
-		ThreadsX.map([fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)]) do elasticity
-			BeyondHulten.elasticity_gradient(data, shocks, model -> data.labor_share, false, elasticity)
-		end
 
-	sol_cd_ls = solve(Model(data, shocks, cd_options_ls))
-
-	sol_cd = solve(Model(data, shocks, cd_options))
-
+	sol_cd = solve(Model(data, shocks, CES(cd_elasticities, labor_slack_function)))
 	model_leontief = Model(data, shocks, leontief)
 	sol_leontief = solve(model_leontief)
 
 	p1 = plot_real_gdp_gradient([a, b, c, d],
 		title = "Effect of different elasticities on GDP with labour slack ",
-		cd = real_gdp(sol_cd_ls),
-		leontief = gdp(sol_leontief, model_leontief),
-		initial = gdp_effect_simple)
-
-	p2 = plot_real_gdp_gradient([e, f, g, h],
-		title = "Effect of different elasticities on GDP, without labour slack ",
 		cd = real_gdp(sol_cd),
 		leontief = real_gdp(sol_leontief),
 		initial = gdp_effect_simple)
 
-
-	p1_nominal = plot_nominal_gdp_gradient([a, b, c, d],
-		title = "Effect of different elasticities on GDP with labour slack ",
-		cd = nominal_gdp(sol_cd_ls),
-		leontief = nominal_gdp(sol_leontief),
-		initial = gdp_effect_simple)
-
-	p2_nominal = plot_nominal_gdp_gradient([e, f, g, h],
-		title = "Effect of different elasticities on GDP, without labour slack ",
-		cd = nominal_gdp(sol_cd),
-		leontief = nominal_gdp(sol_leontief),
-		initial = gdp_effect_simple)
-
-	p1_wages = plot_wages([a, b, c, d],
-		title = "Effect of different elasticities on wages with labour slack ",
-		cd = real_gdp(sol_cd_ls))
-
-	p2_wages = plot_wages([e, f, g, h],
-		title = "Effect of different elasticities on wages without labour slack ",
-		cd = real_gdp(sol_cd))
-
-	p1_consumption = plot_consumption([a, b, c, d],
-		title = "Effect of different elasticities on consumption without labour slack ",
-		cd = real_gdp(sol_cd))
-	p2_consumption = plot_consumption([e, f, g, h],
-		title = "Effect of different elasticities on consumption without labour slack ",
-		cd = real_gdp(sol_cd))
-
-
-	save("plots/eg_$(title)_ls_rgdp.png", p1)
-	save("plots/eg_$(title)_no_ls_rgdp.png", p2)
-
-	save("plots/eg_$(title)_ls_ngdp.png", p1_nominal)
-	save("plots/eg_$(title)_no_ls_ngdp.png", p2_nominal)
-
-	save("plots/eg_$(title)_wages_ls.png", p1_wages)
-	save("plots/eg_$(title)_wages_no_ls.png", p2_wages)
-
-	save("plots/eg_$(title)_cons_ls.png", p1_consumption)
-	save("plots/eg_$(title)_cons_no_ls.png", p2_consumption)
+	@info gdp_effect_simple
+	@info real_gdp(sol_cd)
+	@info real_gdp(sol_leontief)
+	save("plots/$(name).png", p1)
 end
 
 function plot_gradients(sectors, data)
@@ -232,7 +242,6 @@ function (@main)(args)
 		#"Sonstige Fahrzeuge",
 	]
 
-	plot_gradients(sectors, data)
 	shocks = impulse_shock(data, impulses)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 
@@ -240,9 +249,10 @@ function (@main)(args)
 	panel(data, impulses, options = ces_options_ls, name = "panel_ls")
 	panel(data, impulses, options = ces_options_ls_empirical, name = "panel_ls_empirical")
 
-	simulate(shocks, data, "impulse", gdp_effect_simple)
+	simulate(shocks, data, gdp_effect_simple, labor_slack_function = (model -> model.data.labor_share), name = "impulse")
+	simulate(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.full_labor_slack, name = "impulse_ls")
+	simulate(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.empircial_labor_slack, name = "impulse_ls_empirical")
 	diff_lambda(data, impulses)
-	diff_lambda(data, impulses, options = ces_options_ls, name = "diff_lambda_imp_ls")
 	diff_lambda(data, impulses, options = ces_options_ls, name = "diff_lambda_imp_lsl")
 	diff_lambda(data, impulses, options = ces_options_ls_empirical, name = "diff_lambda_imp_ls_empirical")
 	labor_slack_gradient(data, impulses)
