@@ -6,6 +6,7 @@ using GLMakie
 using StatsBase
 using ThreadsX
 using ProgressMeter
+using Statistics
 
 const cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
 const cd_options = CES(cd_elasticities, model -> model.data.labor_share)
@@ -17,13 +18,12 @@ const leontief = Leontief()
 const cd_options_ls_empirical = CES(cd_elasticities, BeyondHulten.empircial_labor_slack)
 const ces_options_ls_empirical = CES(ces_elasticities, BeyondHulten.empircial_labor_slack)
 
-
 function axis_change_in_level!(fig, data, impulses; options)
 	shocks = impulse_shock(data, impulses)
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev = true)  # Sort indices in descending order
 	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
-	top5_indices = sorted_shocks[1:5]
+	top5_indices = sorted_shocks[1:7]
 
 	model = Model(data, shocks, options)
 	sol = solve(model)
@@ -32,7 +32,7 @@ function axis_change_in_level!(fig, data, impulses; options)
 	sol_leontief = solve(model_leontief)
 
 	# Error bar calculations
-	model_low = Model(data, shocks, CES(CESElasticities(0.05, 0.05, 0.6), options.labor_slack, false))
+	model_low = Model(data, shocks, CES(CESElasticities(0.001, 0.05, 0.6), options.labor_slack, false))
 	sol_low = solve(model_low)
 
 	model_high = Model(data, shocks, CES(CESElasticities(0.99, 0.99, 0.99), options.labor_slack, false))
@@ -103,19 +103,22 @@ function get_color(data, shocks)
 		x.price > 1.0 && x.quantity / data.λ[index] < 1
 	end
 
+	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
 	indices2 = findall(eachsector(sol)) do x
 		index = findfirst(==(x.name), data.io.Sektoren)
 		x.price > 1.0 && x.quantity / data.λ[index] >= 1
 	end
 	c[indices1] .= 2
 	c[indices2] .= 3
+	c[top7_indices] .= 3
 	c .+ 3
 end
+
 function axis_change_in_price!(fig, data, impulse; options)
 	shocks = impulse_shock(data, impulse)
 	model = Model(data, shocks, options)
 	sol = solve(model)
-	top5_indices = sortperm(abs.(sol.quantities ./ data.λ .- 1), rev = true)[1:5]
+	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
 
 	colors = Makie.wong_colors()
 	c = get_color(data, shocks)
@@ -127,7 +130,7 @@ function axis_change_in_price!(fig, data, impulse; options)
 	for (i, label) in enumerate(data.io.Sektoren[1:71])
 		p = Point2f(100 * (sol.quantities[i] / data.λ[i] - 1), 100 * (sol.prices[i] - 1))
 		scatter!(p, markersize = 20, color = colors[c[i]])
-		if (i in top5_indices)
+		if (i in top7_indices)
 			text!(p, text = label, color = :gray70, offset = (0, 20),
 				align = (:center, :bottom))
 		end
@@ -144,28 +147,79 @@ end
 function diff_lambda(data, impulses; options = ces_options, name = "diff_lambda_imp")
 	colors = Makie.wong_colors()
 	f = Figure(size = (1980, 1000))
-	ax = Axis(f[1, 1], ytickformat = "{:.2f}%")
+	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", xticks = ([], []))
 	shocks = impulse_shock(data, impulses)
-
 	model = Model(data, shocks, options)
 	sol = solve(model)
 	sol_leontief = solve(Model(data, shocks, leontief))
-	grp = sort(repeat(1:2, 71))
-	barplot!(ax,
-		repeat(1:71, 2),
-		[100 .* (sol.quantities ./ data.λ .- 1); 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)],
-		dodge = grp,
-		color = colors[grp])
-	labels = ["CGE", "Leontief"]
-	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
 
-	axislegend(ax, elements, labels, position = :rt, labelsize = 28)
+	# Find top 7 shocked sectors
+	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
+
+	# Create alpha (transparency) array for highlighting
+	alphas = fill(1.0, 71)
+	# Highlight top 7 shocked sectors with different alpha
+	for i in 1:71
+		if !(i in top7_indices)
+			alphas[i] = 0.6  # More transparent for non-top sectors
+		end
+	end
+
+	# Calculate components
+	consumption_component = 100 .* data.consumption_share ./ data.λ .* (sol.consumption ./ data.consumption_share .- 1)
+	intermediate_component = 100 .* (data.λ .- data.consumption_share) ./ data.λ .* ((sol.quantities - sol.consumption) ./ (data.λ .- data.consumption_share) .- 1)
+	leontief_total = 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)
+
+	positions_leontief = 4 * range(1, 71)
+	positions_cge = 4 * range(1, 71) .- 2
+	# Create stacked bars for CGE model
+	barplot!(ax,
+		positions_cge,
+		consumption_component,
+		width = 1.8,
+		color = [RGBAf(colors[1].r, colors[1].g, colors[1].b, alphas[i]) for i in 1:71],
+		label = "CGE Consumption",
+	)
+
+	barplot!(ax,
+		positions_cge,
+		intermediate_component,
+		offset = consumption_component,
+		width = 1.8,
+		color = [RGBAf(colors[2].r, colors[2].g, colors[2].b, alphas[i]) for i in 1:71],
+		label = "CGE Intermediates",
+	)
+
+	# Add Leontief bars
+	barplot!(ax,
+		positions_leontief,  # Offset to the right
+		leontief_total,
+		width = 1.8,
+		color = [RGBAf(colors[3].r, colors[3].g, colors[3].b, alphas[i]) for i in 1:71],
+		label = "Leontief Total",
+	)
+
+	# Add sector labels for top 7
+	for i in top7_indices
+		y_val = leontief_total[i]
+		text!(ax, positions_cge[i] + 0.4, y_val + 0.1;
+			text = data.io.Sektoren[i],
+			align = (:center, :bottom),
+			fontsize = 14,
+			rotation = π / 6,  # 30 degrees
+		)
+	end
+
+	# Create legend
+	labels = ["CGE Consumption", "CGE Intermediates", "Leontief Total"]
+	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
+	axislegend(ax, elements, labels, position = :rt, labelsize = 38)
 	save("plots/$(name).png", f)
 end
 
 function simulate(shocks, data, gdp_effect_simple; labor_slack_function = full_labor_slack, name = "eg")
 	a, b, c, d =
-		ThreadsX.map([fill(0.99, 3), fill(0.7, 3), fill(0.2, 3), fill(0.1, 3)]) do elasticity
+		ThreadsX.map([fill(0.99, 3), fill(0.5, 3), fill(0.2, 3), fill(0.1, 3)]) do elasticity
 			BeyondHulten.elasticity_gradient(data, shocks, labor_slack_function, false, elasticity)
 		end
 
@@ -196,9 +250,6 @@ function plot_gradients(sectors, data)
 	end
 end
 
-#=============================================================================
-Simulating labour slack effect
-===============================================================================#
 
 function labor_slack_gradient(data, impulse)
 	shocks = BeyondHulten.impulse_shock(data, impulse)
@@ -245,6 +296,10 @@ function (@main)(args)
 	shocks = impulse_shock(data, impulses)
 	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
 
+	sol_leontief = solve(Model(data, shocks, leontief))
+	multiplier = (1 - sol_leontief.real_gdp) / (1 - gdp_effect_simple)
+
+	@info "Multiplier: ", multiplier
 	panel(data, impulses)
 	panel(data, impulses, options = ces_options_ls, name = "panel_ls")
 	panel(data, impulses, options = ces_options_ls_empirical, name = "panel_ls_empirical")
@@ -253,18 +308,110 @@ function (@main)(args)
 	simulate(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.full_labor_slack, name = "impulse_ls")
 	simulate(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.empircial_labor_slack, name = "impulse_ls_empirical")
 	diff_lambda(data, impulses)
-	diff_lambda(data, impulses, options = ces_options_ls, name = "diff_lambda_imp_lsl")
+	diff_lambda(data, impulses, options = ces_options_ls, name = "diff_lambda_imp_ls")
 	diff_lambda(data, impulses, options = ces_options_ls_empirical, name = "diff_lambda_imp_ls_empirical")
 	labor_slack_gradient(data, impulses)
 end
 
 
+function check_hunch_intermediates_glass(data, impulses)
+	shocks = impulse_shock(data, impulses)
+	model = Model(data, shocks, ces_options_ls)
+	sol = solve(model)
+
+	f = Figure(size = (1000, 800))
+	ax = Axis(f[1, 1], ylabel = "p", xlabel = "Additional labour")
+
+	indices = findall(eachsector(sol)) do x
+		index = findfirst(==(x.name), data.io.Sektoren)
+		x.price > 1.0 && x.quantity / data.λ[index] < 1
+	end
+
+	for (i, label) in enumerate(data.io.Sektoren[1:71])
+		p = Point2f(100 * (BeyondHulten.full_labor_slack(model)[i] - data.labor_share[i]), sol.prices[i])
+		scatter!(ax, p, markersize = 20)
+	end
+	f
+end
+function check_hunch_intermediates_glass_labor(data, impulses)
+	shocks = impulse_shock(data, impulses)
+	model = Model(data, shocks, ces_options_ls)
+	sol = solve(model)
+
+	sorted_shocks = sortperm(shocks.demand_shock, rev = true)  # Sort indices in descending order
+	corr_matrix = cor(data.Ω[sorted_shocks[1:7], 1:71]')
+
+	f = Figure(size = (1200, 800))
+	ax = Axis(f[1, 1], xlabel = "Sector", ylabel = "Top 7 Shocked Sectors")
+
+	heatmap!(ax, corr_matrix, colormap = :RdBu, colorrange = (-1, 1))
+
+	# Add sector labels
+	ax.xticks = (1:7, data.io.Sektoren[sorted_shocks[1:7]])
+	ax.yticks = (1:7, data.io.Sektoren[sorted_shocks[1:7]])
+	ax.xticklabelrotation = -π / 2
+
+	Colorbar(f[1, 2], limits = (-1, 1), colormap = :RdBu, label = "Correlation")
+	f
+	f = Figure(size = (1000, 800))
+	ax = Axis(f[1, 1], xlabel = "Sector", ylabel = "Additional labour")
+	barplot!(ax, 1:71, BeyondHulten.full_labor_slack(model), color = :steelblue, bar_labels = data.io.Sektoren[1:71],
+		label_rotation = -π / 2)
+
+	barplot!(ax, 1:71, data.labor_share, color = :orange)
+	f
+end
+
+function check_hunch_omega(data, impulses)
+	shocks = impulse_shock(data, impulses)
+	model = Model(data, shocks, ces_options_ls)
+	sol = solve(model)
+
+	f = Figure(size = (1000, 800))
+	ax = Axis(f[1, 1], ylabel = "Omega", xlabel = "Sector")
+	ax2 = Axis(f[1, 2], ylabel = "Omega", xlabel = "Sector")
+
+	slider = Slider(f[2, 1], range = 1:71, startvalue = 1)
+	sector_idx = slider.value
+
+	sector_name = lift(i -> data.io.Sektoren[i], sector_idx)
+	omega_values = lift(i -> data.Ω[i, 1:71], sector_idx)
+	omega_values2 = lift(i -> data.Ω[1:71, i], sector_idx)
+
+	barplot!(ax, 1:71, omega_values, color = :steelblue)
+	barplot!(ax2, 1:71, omega_values2, color = :steelblue)
+
+	ax2.xticks = (1:71, data.io.Sektoren[1:71])
+	ax2.xticklabelrotation = -π / 2
+	ax2.xticklabelsize = 8
+	# Add sector labels on x-axis (rotated for readability)
+	ax.xticks = (1:71, data.io.Sektoren[1:71])
+	ax.xticklabelrotation = -π / 2
+	ax.xticklabelsize = 8
+
+	# Update title with current sector
+	ax.ylabel = "Ω value"
+	ax.xlabel = "All sectors"
+	linkaxes!(ax, ax2)
+	# Use on() to update the title when sector_name changes
+	on(sector_name) do name
+		ax.title = "Selected sector: $name"
+	end
+
+	# Set initial title
+	ax.title = "Selected sector: $(data.io.Sektoren[1])"
+
+	# Save as HTML
+	save("plots/omega_analysis.html", f)
+	f
+end
+
 function check_hunch(data, impulses)
 	shocks = impulse_shock(data, impulses)
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
-	q = (data.Ω * sol.prices .^ (1 - sol.model.options.elasticities.θ)) .^ (1 / (1 - sol.model.options.elasticities.θ))
 
+	q = (data.Ω * sol.prices .^ (1 - sol.model.options.elasticities.θ)) .^ (1 / (1 - sol.model.options.elasticities.θ))
 	indices = findall(eachsector(sol)) do x
 		index = findfirst(==(x.name), data.io.Sektoren)
 		x.price > 1.0 && x.quantity / data.λ[index] < 1
@@ -274,3 +421,51 @@ function check_hunch(data, impulses)
 	end
 	q[setdiff(1:71, indices)] |> mean
 end
+
+function expansion_of_intermediates(data, impulses)
+	shocks = impulse_shock(data, impulses)
+	model_ls = Model(data, shocks, ces_options_ls)
+	sol_ls = solve(model_ls)
+
+	model_ls_emp = Model(data, shocks, ces_options_ls_empirical)
+	sol_ls_emp = solve(model_ls_emp)
+	(; θ, ϵ, σ) = sol_ls_emp.model.options.elasticities
+
+	q = (data.Ω * sol_ls.prices_raw .^ (1 - θ)) .^ (1 / (1 - θ))
+	q_emp = (data.Ω * sol_ls_emp.prices_raw .^ (1 - sol_ls_emp.model.options.elasticities.θ)) .^ (1 / (1 - sol_ls_emp.model.options.elasticities.θ))
+	int = ones(71) .^ (-θ) .* (data.Ω' * (ones(71) .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* ones(71) .^ (θ - ϵ) .* (1 .- data.factor_share) .* data.λ))
+	int_ls = sol_ls.prices_raw .^ (-θ) .* (data.Ω' * (sol_ls.prices_raw .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- data.factor_share) .* sol_ls.quantities))
+	int_ls_emp = sol_ls_emp.prices_raw .^ (-θ) .* (data.Ω' * (sol_ls_emp.prices_raw .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* q_emp .^ (θ - ϵ) .* (1 .- data.factor_share) .* sol_ls_emp.quantities))
+
+	@info mean(int_ls ./ int)
+	@info mean(int_ls_emp ./ int)
+
+	sol_ls.consumption ./ data.consumption_share + (int_ls ./ (data.λ - data.consumption_share)) - sol_ls.quantities ./ data.λ
+end
+using Tables, CSV, DataFrames, LinearAlgebra
+Omega_R = CSV.File("data/omega_R.csv") |> Tables.matrix
+Omega_R = Float64.(Omega_R[[1:71; 73], [2:72; 74]])
+
+consumption_share = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78, 2:73])
+consumption = data.io[1:length(data.consumption_share), 75]
+
+shock = (shocks.demand_shock .- 1) .* consumption
+
+wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
+
+A = vcat(hcat(Matrix(data.io[1:71, 2:72]) ./ (data.grossy'), consumption_share),
+	hcat(wages', 0))
+
+
+q = inv(I - A) * (vcat(shock, 0))
+p = ones(length(q))
+
+
+sol_leontief.quantities[72] ./ sum(mean(col) for col in eachcol(impulses[:, 2:end-2]))
+sol_leontief.real_gdp
+sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (q[1:71])) 
+Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72]) .- data.io[1:71, "Gesamte Verwendung von Gütern"]
+sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (sol_leontief.quantities[1:71])) 
+sum(mean(col) for col in eachcol(impulses[:, 2:end-2]))
+
+writedlm("data/A.csv", A, ',')

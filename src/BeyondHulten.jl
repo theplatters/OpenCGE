@@ -8,7 +8,7 @@ using LinearAlgebra
 using StatsBase
 using GLMakie
 using XLSX
-
+using DelimitedFiles
 # Export Elasticity Types
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor
 

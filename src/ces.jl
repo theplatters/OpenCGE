@@ -44,7 +44,7 @@ Returns the labor vector adjusted, so that labor can be freely reallocated, but 
 """
 function empircial_labor_slack(model::Model, unemployment_rate::Float64 = 0.031)
   (;data, shocks) = model
-  (1 + unemployment_rate) * data.labor_share
+  (1 / (1 - unemployment_rate)) * data.labor_share
 end
 
 """
