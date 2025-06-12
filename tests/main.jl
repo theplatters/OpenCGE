@@ -442,9 +442,30 @@ function expansion_of_intermediates(data, impulses)
 
 	sol_ls.consumption ./ data.consumption_share + (int_ls ./ (data.λ - data.consumption_share)) - sol_ls.quantities ./ data.λ
 end
+using Tables, CSV, DataFrames, LinearAlgebra
+Omega_R = CSV.File("data/omega_R.csv") |> Tables.matrix
+Omega_R = Float64.(Omega_R[[1:71; 73], [2:72; 74]])
+
+consumption_share = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78, 2:73])
+consumption = data.io[1:length(data.consumption_share), 75]
+
+shock = [mean(col) for col in eachcol(impulses[:, 2:end-2])]
+
+
+wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
+
+A = vcat(hcat(Matrix(data.io[1:71, 2:72]) ./ (data.grossy'), consumption_share),
+	hcat(wages', 0))
 
 
 1 + sum(shocks.demand_shock_raw) ./ sum(Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])) .* 1.15 
 sol_leontief.real_gdp
+sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (sol_leontief.quantities[1:71])) 
+Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72]) .- data.io[1:71, "Gesamte Verwendung von Gütern"]
+sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (sol_leontief.quantities[1:71])) 
+sum(mean(col) for col in eachcol(impulses[:, 2:end-2]))
 
- 
+writedlm("data/A.csv", A, ',')
+
+diff = shock - (shocks.demand_shock .- 1) .* data.io[1:71, "Letzte Verwendung von Gütern zusammen"]
+diff[diff .< 0]

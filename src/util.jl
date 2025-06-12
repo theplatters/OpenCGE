@@ -15,7 +15,7 @@ function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,
 	demand_shock = ones(71)
 	supply_shock = ones(71)
 	supply_shock[findfirst(==(sector), data.io.Sektoren)] = 1.2
-	Shocks(supply_shock, demand_shock)
+	Shocks(supply_shock, demand_shock,zeros(71))
 end
 
 function impulse_shock(data, impulses)
