@@ -15,14 +15,14 @@ function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,
 	demand_shock = ones(71)
 	supply_shock = ones(71)
 	supply_shock[findfirst(==(sector), data.io.Sektoren)] = 1.2
-	Shocks(supply_shock, demand_shock)
+	Shocks(supply_shock, demand_shock,zeros(71))
 end
 
 function impulse_shock(data, impulses)
 	effect = 1 .+ impulses[:, 2:end-2] ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
 	demand_shock = [mean(col) for col in eachcol(effect[1:2, :])]
 	supply_shock = ones(71)
-	Shocks(supply_shock, demand_shock)
+	Shocks(supply_shock, demand_shock, [mean(col) for col in eachcol(impulses[:, 2:end-2])])
 end
 struct ElasticityGradientSolution
 	ϵ::Vector{Solution}

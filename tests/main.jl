@@ -294,12 +294,9 @@ function (@main)(args)
 	]
 
 	shocks = impulse_shock(data, impulses)
-	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
+	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2])) ./ sum(data.io[findfirst(==("Bruttowertschöpfung"),data.io.Sektoren),2:72])
+	sol_leontief = solve(Model(data,shocks,leontief))
 
-	sol_leontief = solve(Model(data, shocks, leontief))
-	multiplier = (1 - sol_leontief.real_gdp) / (1 - gdp_effect_simple)
-
-	@info "Multiplier: ", multiplier
 	panel(data, impulses)
 	panel(data, impulses, options = ces_options_ls, name = "panel_ls")
 	panel(data, impulses, options = ces_options_ls_empirical, name = "panel_ls_empirical")
@@ -449,7 +446,8 @@ Omega_R = Float64.(Omega_R[[1:71; 73], [2:72; 74]])
 consumption_share = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78, 2:73])
 consumption = data.io[1:length(data.consumption_share), 75]
 
-shock = (shocks.demand_shock .- 1) .* consumption
+shock = [mean(col) for col in eachcol(impulses[:, 2:end-2])]
+
 
 wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
 
@@ -463,9 +461,12 @@ p = ones(length(q))
 
 sol_leontief.quantities[72] ./ sum(mean(col) for col in eachcol(impulses[:, 2:end-2]))
 sol_leontief.real_gdp
-sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (q[1:71])) 
+sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (sol_leontief.quantities[1:71])) 
 Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72]) .- data.io[1:71, "Gesamte Verwendung von Gütern"]
 sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (sol_leontief.quantities[1:71])) 
 sum(mean(col) for col in eachcol(impulses[:, 2:end-2]))
 
 writedlm("data/A.csv", A, ',')
+
+diff = shock - (shocks.demand_shock .- 1) .* data.io[1:71, "Letzte Verwendung von Gütern zusammen"]
+diff[diff .< 0]
