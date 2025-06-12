@@ -294,12 +294,12 @@ function (@main)(args)
 	]
 
 	shocks = impulse_shock(data, impulses)
-	gdp_effect_simple = 1 + sum(mean(col) for col in eachcol(impulses[:, 2:end-2] ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"]')))
+	gdp_effect_simple = 1 + sum(shocks.demand_shock_raw) ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+
 
 	sol_leontief = solve(Model(data, shocks, leontief))
-	multiplier = (1 - sol_leontief.real_gdp) / (1 - gdp_effect_simple)
 
-	@info "Multiplier: ", multiplier
+	@info "Multiplier: ", multiplier(sol_leontief)
 	panel(data, impulses)
 	panel(data, impulses, options = ces_options_ls, name = "panel_ls")
 	panel(data, impulses, options = ces_options_ls_empirical, name = "panel_ls_empirical")
@@ -442,30 +442,9 @@ function expansion_of_intermediates(data, impulses)
 
 	sol_ls.consumption ./ data.consumption_share + (int_ls ./ (data.λ - data.consumption_share)) - sol_ls.quantities ./ data.λ
 end
-using Tables, CSV, DataFrames, LinearAlgebra
-Omega_R = CSV.File("data/omega_R.csv") |> Tables.matrix
-Omega_R = Float64.(Omega_R[[1:71; 73], [2:72; 74]])
-
-consumption_share = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78, 2:73])
-consumption = data.io[1:length(data.consumption_share), 75]
-
-shock = (shocks.demand_shock .- 1) .* consumption
-
-wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
-
-A = vcat(hcat(Matrix(data.io[1:71, 2:72]) ./ (data.grossy'), consumption_share),
-	hcat(wages', 0))
 
 
-q = inv(I - A) * (vcat(shock, 0))
-p = ones(length(q))
-
-
-sol_leontief.quantities[72] ./ sum(mean(col) for col in eachcol(impulses[:, 2:end-2]))
+1 + sum(shocks.demand_shock_raw) ./ sum(Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])) .* 1.15 
 sol_leontief.real_gdp
-sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (q[1:71])) 
-Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72]) .- data.io[1:71, "Gesamte Verwendung von Gütern"]
-sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (sol_leontief.quantities[1:71])) 
-sum(mean(col) for col in eachcol(impulses[:, 2:end-2]))
 
-writedlm("data/A.csv", A, ',')
+ 

@@ -5,15 +5,15 @@ Alters the shock vector, so that the shock in the given sector reflects the inve
 """
 function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Vector{<:Number}, sector)
 
-  consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-                sum |>
-                x -> getindex(x, 1:71)
+	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
+				  sum |>
+				  x -> getindex(x, 1:71)
 
-  for i in eachindex(sector)
-    sector_number = findfirst(==(sector[i]), data.io.Sektoren)
-    shocks.demand_shock[sector_number] = 1 + investment[i] / consumption[sector_number]
-    println("Demand shock to sector $(sector[i]): $(shocks.demand_shock[sector_number])")
-  end
+	for i in eachindex(sector)
+		sector_number = findfirst(==(sector[i]), data.io.Sektoren)
+		shocks.demand_shock[sector_number] = 1 + investment[i] / consumption[sector_number]
+		println("Demand shock to sector $(sector[i]): $(shocks.demand_shock[sector_number])")
+	end
 end
 
 """
@@ -21,10 +21,10 @@ end
 
 Alters the shock vector, so that the shock in the given sector reflects the investment in thousend €
 """
-function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Dict{String,Number})
-  for (sector, investment) in investment
-    calculate_investment!(shocks, data, [investment], [sector])
-  end
+function calculate_investment!(shocks::Shocks, data::AbstractData, investment::Dict{String, Number})
+	for (sector, investment) in investment
+		calculate_investment!(shocks, data, [investment], [sector])
+	end
 end
 
 """
@@ -33,18 +33,17 @@ end
 Returns the labor vector adjusted, so that labor can be freely reallocated to accomodate for demand shocks
 """
 function full_labor_slack(model::Model)
-  (; data, shocks) = model
-  inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) + data.labor_share
+	(; data, shocks) = model
+
+	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * shocks.demand_shock_raw
+	data.labor_share + (q ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* (Vector(data.io[findfirst(==("Arbeitnehmerentgelt im Inland"), data.io.Sektoren), 2:72]) ./ data.grossy))
+	#data.labor_share + inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) 
 end
 
-"""
-	empircial_labor_slack(model::Model)
 
-Returns the labor vector adjusted, so that labor can be freely reallocated, but with employment constraints to accomodate for demand shocks
-"""
 function empircial_labor_slack(model::Model, unemployment_rate::Float64 = 0.031)
-  (;data, shocks) = model
-  (1 / (1 - unemployment_rate)) * data.labor_share
+	(; data, shocks) = model
+	(1 / (1 - unemployment_rate)) * data.labor_share
 end
 
 """
@@ -55,30 +54,30 @@ data contains the parameters and labor_reallocation is a function that specifies
 """
 function problem(out::Vector, X::Vector, model::Model{CES})
 
-  (; data, options, shocks) = model
-  N = length(data.factor_share)
-  p = max.(X[1:N], 0)
-  y = max.(X[N+1:end], 0)
+	(; data, options, shocks) = model
+	N = length(data.factor_share)
+	p = max.(X[1:N], 0)
+	y = max.(X[N+1:end], 0)
 
-  (; supply_shock, demand_shock) = shocks
-  (; consumption_share, Ω, factor_share) = data
-  (; ϵ, θ, σ) = options.elasticities
-  labor = options.labor_slack(model)
+	(; supply_shock, demand_shock) = shocks
+	(; consumption_share, Ω, factor_share) = data
+	(; ϵ, θ, σ) = options.elasticities
+	labor = options.labor_slack(model)
 
 
-  consumption_share = (demand_shock .* consumption_share)
+	consumption_share = (demand_shock .* consumption_share)
 
-  q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+	q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
 
-  w = options.labor_reallocation ?
-      ones(Float64, length(p)) :
-      p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+	w = options.labor_reallocation ?
+		ones(Float64, length(p)) :
+		p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
-  C = w' * labor
+	C = w' * labor
 
-  out[1:N] .= p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
-  out[N+1:end] .= y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* consumption_share
-  nothing
+	out[1:N] .= p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+	out[N+1:end] .= y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* consumption_share
+	nothing
 end
 
 
@@ -89,30 +88,30 @@ starting vectors and get back the simulated adapted prices and quantities
 
 """
 function solve(
-  model::Model{CES};
-  init=[ones(length(model.data.λ)); model.data.λ],
+	model::Model{CES};
+	init = [ones(length(model.data.λ)); model.data.λ],
 )
-  (; data, options, shocks) = model
+	(; data, options, shocks) = model
 
 
-  #defines the function:
-  #defines the concrete problem to be solved (i.e. with inserted parameter values):
-  ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
-  x = NonlinearSolve.solve(ProbN, reltol=1e-8, abstol=1e-8).u
+	#defines the function:
+	#defines the concrete problem to be solved (i.e. with inserted parameter values):
+	ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
+	x = NonlinearSolve.solve(ProbN, reltol = 1e-8, abstol = 1e-8).u
 
 
-  p = x[1:length(data.consumption_share)]
-  q = x[(length(data.consumption_share)+1):end]
+	p = x[1:length(data.consumption_share)]
+	q = x[(length(data.consumption_share)+1):end]
 
 
-  labor = options.labor_slack(model)
-  (; ϵ, θ, σ) = options.elasticities
-  wages = p .* (shocks.supply_shock .^ ((ϵ - 1) / ϵ)) .* (data.factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
-  consumption_share = shocks.demand_shock .* data.consumption_share
-  consumption = wages' * labor .* consumption_share .* p .^ (-σ)
-  laspeyres_index = sum(consumption) / sum(data.consumption_share)
-  numeraire = mean(p, weights(consumption))
+	labor = options.labor_slack(model)
+	(; ϵ, θ, σ) = options.elasticities
+	wages = p .* (shocks.supply_shock .^ ((ϵ - 1) / ϵ)) .* (data.factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+	consumption_share = shocks.demand_shock .* data.consumption_share
+	consumption = wages' * labor .* consumption_share .* p .^ (-σ)
+	laspeyres_index = sum(consumption) / sum(data.consumption_share)
+	numeraire = mean(p, weights(consumption))
 
-  return Solution(p, q, wages, consumption, numeraire, laspeyres_index, (wages' * labor) / numeraire, model)
+	return Solution(p, q, wages, consumption, numeraire, laspeyres_index, (wages' * labor) / numeraire, model)
 end
 

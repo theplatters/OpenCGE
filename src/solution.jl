@@ -48,44 +48,50 @@ end
 
 struct SectorData
 	name::String
-    price::Float64
-    quantity::Float64
-    wage::Float64
-    consumption::Float64
+	price::Float64
+	quantity::Float64
+	wage::Float64
+	consumption::Float64
 end
 
 function eachsector(sol::Solution)
-    sectors = sol.model.data.io.Sektoren
-    return (SectorData(sectors[i],sol.prices[i], sol.quantities[i], sol.wages[i], sol.consumption[i]) for i in 1:length(sol.prices))
+	sectors = sol.model.data.io.Sektoren
+	return (SectorData(sectors[i], sol.prices[i], sol.quantities[i], sol.wages[i], sol.consumption[i]) for i in 1:length(sol.prices))
 end
 
 function Base.getindex(sol::Solution, sector_index::Int)
-    sectors = sol.model.data.io.Sektoren
-    return SectorData(
-        sectors[sector_index],
-        sol.prices[sector_index],
-        sol.quantities[sector_index],
-        sol.wages[sector_index],
-        sol.consumption[sector_index]
-    )
+	sectors = sol.model.data.io.Sektoren
+	return SectorData(
+		sectors[sector_index],
+		sol.prices[sector_index],
+		sol.quantities[sector_index],
+		sol.wages[sector_index],
+		sol.consumption[sector_index],
+	)
 end
 function Base.getindex(sol::Solution, sector_indices::UnitRange{Int})
-    sectors = sol.model.data.io.Sektoren
-    return [SectorData(
-        sectors[i],
-        sol.prices[i],
-        sol.quantities[i],
-        sol.wages[i],
-        sol.consumption[i]
-    ) for i in sector_indices]
+	sectors = sol.model.data.io.Sektoren
+	return [SectorData(
+		sectors[i],
+		sol.prices[i],
+		sol.quantities[i],
+		sol.wages[i],
+		sol.consumption[i],
+	) for i in sector_indices]
 end
 function Base.getindex(sol::Solution, indices::Vector{Int})
-    sectors = sol.model.data.io.Sektoren
-    return [SectorData(
-        sectors[i],
-        sol.prices[i],
-        sol.quantities[i],
-        sol.wages[i],
-        sol.consumption[i]
-    ) for i in indices]
+	sectors = sol.model.data.io.Sektoren
+	return [SectorData(
+		sectors[i],
+		sol.prices[i],
+		sol.quantities[i],
+		sol.wages[i],
+		sol.consumption[i],
+	) for i in indices]
+end
+
+function multiplier(sol::Solution)::Float64
+	(; data, shocks) = sol.model
+	simple_effect = sum(shocks.demand_shock_raw) ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
+	(1 .- sol.real_gdp) ./ simple_effect
 end

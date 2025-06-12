@@ -104,6 +104,7 @@ julia> Shocks(ones(76),ones(76))
 struct Shocks
     supply_shock::Vector{Float64}
     demand_shock::Vector{Float64}
+    demand_shock_raw::Vector{Float64}
 end
 
 

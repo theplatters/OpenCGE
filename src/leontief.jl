@@ -7,11 +7,8 @@ function solve(model::Model{Leontief})
 
 	(; data, shocks) = model
 	consumption_share = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78, 2:73])
-	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
-				  sum |>
-				  x -> getindex(x, 1:71)
 
-	shock = (shocks.demand_shock .- 1) .* consumption
+	shock = (shocks.demand_shock_raw)
 
 	if model.options.labor_effect
 		wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
@@ -22,19 +19,19 @@ function solve(model::Model{Leontief})
 
 		q = inv(I - A) * (vcat(shock, 0))
 		p = ones(length(q))
-
-
 	else
 		q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (shock)
 		p = ones(length(q))
 
 	end
 
-	real_gdp =
-		1 +
-		sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* (q[1:71])) ./
-		sum(Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]))
-
+	old_gdp = sum(Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]))
+	@info q[72] ./ old_gdp 
+	@info sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* q[1:71]) ./ sum(shocks.demand_shock_raw)
+	ΔGDP = sum((Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])) .* q[1:71]) / old_gdp
+	real_gdp = 1 + ΔGDP
+	@info "Real GDP: $real_gdp"
+	q = [data.λ; 0] .+ q ./ sum(data.io[vcat(1:71, 78), "Gesamte Verwendung von Gütern"])
 	return Solution(p, q, ones(length(q)), shocks.demand_shock + q[72] .* consumption_share, 1, real_gdp, real_gdp, model)
 end
 

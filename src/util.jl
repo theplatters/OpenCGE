@@ -6,7 +6,7 @@ function standard_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausba
 	demand_shock = ones(71)
 	supply_shock = ones(71)
 	demand_shock[findfirst(==(sector), data.io.Sektoren)] = 1.8097957577943152
-	shocks = Shocks(supply_shock, demand_shock)
+	shocks = Shocks(supply_shock, demand_shock, zeros(71))
 	return shocks
 end
 
@@ -22,7 +22,7 @@ function impulse_shock(data, impulses)
 	effect = 1 .+ impulses[:, 2:end-2] ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
 	demand_shock = [mean(col) for col in eachcol(effect[1:2, :])]
 	supply_shock = ones(71)
-	Shocks(supply_shock, demand_shock)
+	Shocks(supply_shock, demand_shock, [mean(col) for col in eachcol(impulses[:, 2:end-2])])
 end
 struct ElasticityGradientSolution
 	ϵ::Vector{Solution}
@@ -86,7 +86,7 @@ function plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims
 	for (i, el) in enumerate(results)
 		# Shade area between Leontief and Cobb Douglas
 		band!(ax[i], [0.015, 0.9], 100 .* fill(min(leontief, cd), 2), 100 .* fill(max(leontief, cd), 2),
-			alpha = 0.2)
+			alpha = 0.2, color = :gray80)
 
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.ϵ), label = "Elasticity between goods", linewidth = 3)
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods", linewidth = 3)
