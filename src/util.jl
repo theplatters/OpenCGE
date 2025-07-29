@@ -19,10 +19,11 @@ function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,
 end
 
 function impulse_shock(data, impulses)
-	effect = 1 .+ impulses[:, 2:end-2] ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
+	impules_2019_prices = impulses[:, 2:end-2] ./ inflator
+	effect = 1 .+  impules_2019_prices ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
 	demand_shock = [mean(col) for col in eachcol(effect[1:2, :])]
 	supply_shock = ones(71)
-	Shocks(supply_shock, demand_shock, [mean(col) for col in eachcol(impulses[:, 2:end-2])])
+	Shocks(supply_shock, demand_shock, [mean(col) for col in eachcol(impules_2019_prices)])
 end
 struct ElasticityGradientSolution
 	ϵ::Vector{Solution}
@@ -76,13 +77,17 @@ function plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims
 	f = Figure(size = (1980, 1000), title = title, color = Makie.wong_colors())
 
 	ga = f[1, 1] = GridLayout()
-	ax = [Axis(ga[1, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.9", xgridvisible = false, titlesize = 30),
-		Axis(ga[1, 2], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.5", xgridvisible = false, titlesize = 30),
-		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.2", xgridvisible = false, titlesize = 30),
-		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30)]
-
+	ax = [
+		Axis(ga[1, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.9", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[1, 2], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.5", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.2", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24)
+		]
+	ylims!(ax[1], 98, 104)
+	ylims!(ax[2], 98, 104)
+	ylims!(ax[3], 98, 104)
+	ylims!(ax[4], 98, 104)
 	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x), x))
-	linkaxes!(ax[1], ax[2], ax[3], ax[4])
 	for (i, el) in enumerate(results)
 		# Shade area between Leontief and Cobb Douglas
 		band!(ax[i], [0.015, 0.9], 100 .* fill(min(leontief, cd), 2), 100 .* fill(max(leontief, cd), 2),
@@ -92,11 +97,11 @@ function plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods", linewidth = 3)
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption", linewidth = 3)
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief, 2), label = "Leontief model", linewidth = 3)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Baseline Effect", linewidth = 3)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Initial stimulus", linewidth = 3)
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd, 2), label = "Cobb Douglas", linewidth = 3)
 	end
 
-	f[2, 1] = Legend(f, ax[1], labelsize = 29, tellwidth = false, orientation = :horizontal)
+	f[2, 1] = Legend(f, ax[1], labelsize = 29, tellwidth = false, orientation = :horizontal, nbanks = 2)
 
 	f
 end
@@ -117,7 +122,7 @@ function plot_nominal_gdp_gradient(results; title = "Nominal GDP", cd, leontief,
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods")
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption")
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief, 2), label = "Leontief model", linestyle = :dash)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Baseline Effect", linestyle = :dot)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Initial stimulus", linestyle = :dot)
 		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd, 2), label = "Cobb Douglas", linestyle = :dash)
 	end
 

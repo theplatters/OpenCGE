@@ -28,6 +28,18 @@ function calculate_investment!(shocks::Shocks, data::AbstractData, investment::D
 end
 
 """
+	full_labor_slack_alt(model::Model)
+
+Returns the labor vector adjusted, so that labor can be freely reallocated to accomodate for demand shocks
+"""
+function full_labor_slack_alt(model::Model)
+	(; data, shocks) = model
+
+	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * shocks.demand_shock_raw
+	data.labor_share + (q ./ sum(data.value_added)) .* (Vector(data.io[findfirst(==("Arbeitnehmerentgelt im Inland"), data.io.Sektoren), 2:72]) ./ data.grossy)
+end
+
+"""
 	full_labor_slack(model::Model)
 
 Returns the labor vector adjusted, so that labor can be freely reallocated to accomodate for demand shocks
@@ -36,8 +48,7 @@ function full_labor_slack(model::Model)
 	(; data, shocks) = model
 
 	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * shocks.demand_shock_raw
-	data.labor_share + (q ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72]) .* (Vector(data.io[findfirst(==("Arbeitnehmerentgelt im Inland"), data.io.Sektoren), 2:72]) ./ data.grossy))
-	#data.labor_share + inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) 
+	data.labor_share + inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) 
 end
 
 

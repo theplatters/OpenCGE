@@ -92,6 +92,6 @@ end
 
 function multiplier(sol::Solution)::Float64
 	(; data, shocks) = sol.model
-	simple_effect = sum(shocks.demand_shock_raw) ./ sum(data.io[1:71, "Letzte Verwendung von Gütern zusammen"])
-	(1 .- sol.real_gdp) ./ simple_effect
+	simple_effect = 1 + sum(shocks.demand_shock_raw) ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
+	(1 .- sol.real_gdp) ./ (1 .- simple_effect)
 end
