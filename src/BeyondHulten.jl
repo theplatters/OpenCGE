@@ -29,8 +29,8 @@ export CES, Leontief, CobbDouglas, Solution
 
 
 # Export Visualization and Utility Functions
-export elasticities_gradient, plot_real_gdp_gradient,plot_nominal_gdp_gradient, standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock, plot_consumption, load_impulses, multiplier, full_labor_slack_alt, inflator
-
+export elasticities_gradient,  standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock, plot_consumption, load_impulses, multiplier, full_labor_slack_alt, inflator,cpi
+export plot_real_gdp_gradient,plot_nominal_gdp_gradient, panel, diff_lambda, comparison_between_labor_slacks,effect_of_different_elasticities
 const inflator = 1.46
 
 include("interface.jl")
@@ -40,5 +40,6 @@ include("leontief.jl")
 include("ces.jl")
 include("util.jl")
 include("impulses.jl")
+include("plots.jl")
 
 end

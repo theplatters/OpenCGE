@@ -48,7 +48,7 @@ function full_labor_slack(model::Model)
 	(; data, shocks) = model
 
 	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * shocks.demand_shock_raw
-	data.labor_share + inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share)) 
+	data.labor_share + inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share))
 end
 
 
@@ -76,18 +76,19 @@ function problem(out::Vector, X::Vector, model::Model{CES})
 	labor = options.labor_slack(model)
 
 
-	consumption_share = (demand_shock .* consumption_share)
 
-	q = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+	intermediate_price = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
 
+	cpi = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
 	w = options.labor_reallocation ?
 		ones(Float64, length(p)) :
 		p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
 	C = w' * labor
-
-	out[1:N] .= p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* q .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
-	out[N+1:end] .= y - p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* q .^ (θ - ϵ) .* (1 .- factor_share) .* y)) - C * p .^ (-σ) .* consumption_share
+	final_demand = (C * p .^ (-σ) .* demand_shock .* consumption_share) ./ cpi .^ (-σ)
+	intermediary_demand = p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+	out[1:N] .= p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+	out[N+1:end] .= y - intermediary_demand - final_demand
 	nothing
 end
 
@@ -121,7 +122,8 @@ function solve(
 	consumption_share = shocks.demand_shock .* data.consumption_share
 	consumption = wages' * labor .* consumption_share .* p .^ (-σ)
 	laspeyres_index = sum(consumption) / sum(data.consumption_share)
-	numeraire = mean(p, weights(consumption))
+	numeraire = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
+
 
 	return Solution(p, q, wages, consumption, numeraire, laspeyres_index, (wages' * labor) / numeraire, model)
 end
