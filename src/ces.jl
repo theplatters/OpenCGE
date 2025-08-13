@@ -120,9 +120,10 @@ function solve(
 	(; ϵ, θ, σ) = options.elasticities
 	wages = p .* (shocks.supply_shock .^ ((ϵ - 1) / ϵ)) .* (data.factor_share .^ (1 / ϵ)) .* (q .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 	consumption_share = shocks.demand_shock .* data.consumption_share
-	consumption = wages' * labor .* consumption_share .* p .^ (-σ)
-	laspeyres_index = sum(consumption) / sum(data.consumption_share)
+
 	numeraire = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
+	consumption = wages' * labor .* consumption_share .* (p / numeraire) .^ (-σ)
+	laspeyres_index = sum(consumption) / sum(data.consumption_share)
 
 
 	return Solution(p, q, wages, consumption, numeraire, laspeyres_index, (wages' * labor) / numeraire, model)

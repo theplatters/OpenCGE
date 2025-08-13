@@ -309,10 +309,10 @@ function plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims
 		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.2", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
 		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24)
 		]
-	ylims!(ax[1], 98, 104)
-	ylims!(ax[2], 98, 104)
-	ylims!(ax[3], 98, 104)
-	ylims!(ax[4], 98, 104)
+	ylims!(ax[1], 98, 105)
+	ylims!(ax[2], 98, 105)
+	ylims!(ax[3], 98, 105)
+	ylims!(ax[4], 98, 105)
 	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x), x))
 	for (i, el) in enumerate(results)
 		# Shade area between Leontief and Cobb Douglas

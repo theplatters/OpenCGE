@@ -20,6 +20,7 @@ const cd_options_ls_empirical = CES(cd_elasticities, BeyondHulten.empircial_labo
 const ces_options_ls_empirical = CES(ces_elasticities, BeyondHulten.empircial_labor_slack)
 
 
+
 function (@main)(args)
 	data = Data("I-O_DE2019_formatiert.csv")
 	impulses = load_impulses("impulses.csv")
@@ -34,6 +35,8 @@ function (@main)(args)
 	]
 
 	shocks = impulse_shock(data, impulses)
+
+	sol_cd = solve(Model(data,shocks,cd_options))
 	gdp_effect_simple = 1 + sum(shocks.demand_shock_raw) ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
 
 	@info "Multiplier: ", multiplier(sol_leontief)
@@ -44,7 +47,7 @@ function (@main)(args)
 
 	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = (model -> model.data.labor_share), name = "impulse")
 	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.full_labor_slack, name = "impulse_ls")
-	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.full_labor_slack_alt, name = "impulse_ls_alt")
+	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.empircial_labor_slack, name = "impulse_ls_empirical")
 
 	comparison_between_labor_slacks(data, shocks, gdp_effect_simple, "")
 
