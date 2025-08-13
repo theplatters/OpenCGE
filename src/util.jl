@@ -65,9 +65,6 @@ function elasticity_gradient(data,
 	model = Model(data, shocks, ces)
 	sol_original = solve(model)
 	sols_ϵ, sols_θ, sols_σ = fetch.(Threads.@spawn(gradient($data, $shocks, $labor_slack, $labor_reallocation, i, $sol_original, $starting_elasticities, $nominal)) for i in 1:3)
-	writedlm("epsilon_$(starting_elasticities[1]).csv", map(x -> x.real_gdp, sols_ϵ), ',')
-	writedlm("theta_$(starting_elasticities[1]).csv", map(x -> x.real_gdp, sols_θ), ',')
-	writedlm("sigma_$(starting_elasticities[1]).csv", map(x -> x.real_gdp, sols_σ), ',')
 
 	return ElasticityGradientSolution(sols_ϵ, sols_θ, sols_σ, labor_reallocation, nominal)
 end
