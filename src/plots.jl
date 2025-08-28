@@ -20,7 +20,7 @@ function axis_change_in_level!(fig, data, impulses; options)
 	sol_high = solve(model_high)
 
 	ax = Axis(fig[1, 1], xlabel = "Sector",
-		xticks = (1:length(top5_indices), data.io.Sektoren[top5_indices]),
+		xticks = (1:length(top5_indices),  names(impulses)[2:72][top5_indices]),
 		xticklabelrotation = -1 * pi / 4,
 		ytickformat = "{:.2f}%",
 		ylabelsize = 24,
@@ -141,15 +141,21 @@ function diff_lambda(data, impulses; options, name = "diff_lambda_imp")
 	positions_cge = 4 * range(1, 71) .- 2
 	ax = Axis(f[1, 1],
 		ytickformat = "{:.2f}%",
-		xticks = (positions_cge .+ 1, string.(1:71)),
+		xticks = (positions_cge[1:5:end] .+ 1, string.(1:5:71)),
+		xminorticks = positions_cge .+ 1,  # Explicitly set minor tick positions
+		xminorticksvisible = true,
+		xminorgridvisible = true,
 		xlabelsize = 24,
 		ylabelsize = 24,
 		xticklabelsize = 20,
 		yticklabelsize = 20)
+
+	xlims!(ax,(0, maximum(positions_cge) + 4))
 	shocks = impulse_shock(data, impulses)
 	model = Model(data, shocks, options)
 	sol = solve(model)
 	sol_leontief = solve(Model(data, shocks, Leontief()))
+
 
 	# Find top 7 shocked sectors
 	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
@@ -168,8 +174,6 @@ function diff_lambda(data, impulses; options, name = "diff_lambda_imp")
 	intermediate_component = 100 .* (data.λ .- data.consumption_share) ./ data.λ .* ((sol.quantities - sol.consumption) ./ (data.λ .- data.consumption_share) .- 1)
 	leontief_total = 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)
 
-	@info consumption_component[33]
-	@info intermediate_component[33]
 	positions_leontief = 4 * range(1, 71)
 	# Create stacked bars for CGE model
 	barplot!(ax,

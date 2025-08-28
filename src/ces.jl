@@ -79,10 +79,8 @@ function problem(out::Vector, X::Vector, model::Model{CES})
 
 	intermediate_price = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
 
-	cpi = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
-	w = options.labor_reallocation ?
-		ones(Float64, length(p)) :
-		p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
+	cpi = sum(data.consumption_share .* p .^ (1 - σ))^(1 / (1 - σ))
+	w = p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
 	C = w' * labor
 	final_demand = (C * p .^ (-σ) .* demand_shock .* consumption_share) ./ cpi .^ (-σ)
@@ -125,7 +123,7 @@ function solve(
 	consumption = wages' * labor .* consumption_share .* (p / numeraire) .^ (-σ)
 	laspeyres_index = sum(consumption) / sum(data.consumption_share)
 
-
-	return Solution(p, q, wages, consumption, numeraire, laspeyres_index, (wages' * labor) / numeraire, model)
+	nominal_gdp = (wages' * labor) / numeraire
+	return Solution(p, q, wages, consumption, numeraire, laspeyres_index, nominal_gdp , model)
 end
 

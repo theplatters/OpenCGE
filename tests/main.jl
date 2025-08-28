@@ -36,10 +36,8 @@ function (@main)(args)
 
 	shocks = impulse_shock(data, impulses)
 
-	sol_cd = solve(Model(data,shocks,cd_options))
 	gdp_effect_simple = 1 + sum(shocks.demand_shock_raw) ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
 
-	@info "Multiplier: ", multiplier(sol_leontief)
 	panel(data, impulses, options = ces_options)
 	panel(data, impulses, options = ces_options_ls, name = "panel_ls")
 	panel(data, impulses, options = ces_options_ls_alt, name = "panel_ls_alt")
