@@ -246,7 +246,7 @@ end
 
 function comparison_between_labor_slacks(data, shocks, gdp_effect_simple, title)
 	no_ls, ls, ls_emp =
-		ThreadsX.map([model -> model.data.labor_share, BeyondHulten.full_labor_slack, BeyondHulten.empircial_labor_slack]) do labor_slack_function
+		ThreadsX.map([model -> model.data.labor_share, BeyondHulten.full_labor_slack, BeyondHulten.empirical_labor_slack]) do labor_slack_function
 			BeyondHulten.elasticity_gradient(data, shocks, labor_slack_function, false, fill(0.1, 3))
 		end
 
@@ -259,7 +259,7 @@ function comparison_between_labor_slacks(data, shocks, gdp_effect_simple, title)
 	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x), x))
 
 
-	for (i, (el, linestyle, slack_type)) in enumerate(zip([no_ls, ls, ls_emp], [:solid, :dash, :dot], ["no labor slack", "calibrated labor slack", "empircial labor slack"]))
+	for (i, (el, linestyle, slack_type)) in enumerate(zip([no_ls, ls, ls_emp], [:solid, :dash, :dot], ["no labor slack", "calibrated labor slack", "empirical labor slack"]))
 		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.ϵ), label = "Elasticity between goods -  $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[1])
 		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods -  $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[2])
 		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption - $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[3])

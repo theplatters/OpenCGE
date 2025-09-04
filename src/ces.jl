@@ -52,7 +52,7 @@ function full_labor_slack(model::Model)
 end
 
 
-function empircial_labor_slack(model::Model, unemployment_rate::Float64 = 0.031)
+function empirical_labor_slack(model::Model, unemployment_rate::Float64 = 0.031)
 	(; data, shocks) = model
 	(1 / (1 - unemployment_rate)) * data.labor_share
 end

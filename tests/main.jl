@@ -16,8 +16,8 @@ const ces_options = CES(ces_elasticities, model -> model.data.labor_share, false
 const ces_options_ls = CES(ces_elasticities, BeyondHulten.full_labor_slack, false)
 const ces_options_ls_alt = CES(ces_elasticities, BeyondHulten.full_labor_slack_alt, false)
 const leontief = Leontief()
-const cd_options_ls_empirical = CES(cd_elasticities, BeyondHulten.empircial_labor_slack)
-const ces_options_ls_empirical = CES(ces_elasticities, BeyondHulten.empircial_labor_slack)
+const cd_options_ls_empirical = CES(cd_elasticities, BeyondHulten.empirical_labor_slack)
+const ces_options_ls_empirical = CES(ces_elasticities, BeyondHulten.empirical_labor_slack)
 
 
 
@@ -45,7 +45,7 @@ function (@main)(args)
 
 	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = (model -> model.data.labor_share), name = "impulse")
 	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.full_labor_slack, name = "impulse_ls")
-	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.empircial_labor_slack, name = "impulse_ls_empirical")
+	effect_of_different_elasticities(shocks, data, gdp_effect_simple, labor_slack_function = BeyondHulten.empirical_labor_slack, name = "impulse_ls_empirical")
 
 	comparison_between_labor_slacks(data, shocks, gdp_effect_simple, "")
 
@@ -54,6 +54,11 @@ function (@main)(args)
 	diff_lambda(data, impulses, options = ces_options_ls_alt, name = "diff_lambda_imp_ls_alt")
 	diff_lambda(data, impulses, options = ces_options_ls_empirical, name = "diff_lambda_imp_ls_empirical")
 	labor_slack_gradient(data, impulses)
+	open("sector_names.txt", "w") do file
+		for name in names(impulses)[2:72]
+			println(file, name)
+		end
+	end
 end
 
 function check_hunch_intermediates_glass(data, impulses)
