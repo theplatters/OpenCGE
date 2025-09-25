@@ -20,7 +20,7 @@ function axis_change_in_level!(fig, data, impulses; options)
 	sol_high = solve(model_high)
 
 	ax = Axis(fig[1, 1], xlabel = "Sector",
-		xticks = (1:length(top5_indices),  names(impulses)[2:72][top5_indices]),
+		xticks = (1:length(top5_indices), names(impulses)[2:72][top5_indices]),
 		xticklabelrotation = -1 * pi / 4,
 		ytickformat = "{:.2f}%",
 		ylabelsize = 24,
@@ -79,8 +79,8 @@ end
 
 function get_color(data, shocks)
 	colors = Makie.wong_colors()
-    ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
-    ces_options = CES(ces_elasticities, model -> model.data.labor_share, false)
+	ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
+	ces_options = CES(ces_elasticities, model -> model.data.labor_share, false)
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
 
@@ -95,8 +95,8 @@ function get_color(data, shocks)
 		index = findfirst(==(x.name), data.io.Sektoren)
 		x.price > 1.0 && x.quantity / data.λ[index] >= 1
 	end
-	c[indices1] .= 2
-	c[indices2] .= 3
+	c[indices1] .= 1
+	c[indices2] .= 1
 	c[top7_indices] .= 3
 	c .+ 3
 end
@@ -122,10 +122,14 @@ function axis_change_in_price!(fig, data, impulse; options)
 		p = Point2f(100 * (sol.quantities[i] / data.λ[i] - 1), 100 * (sol.prices[i] - 1))
 		scatter!(p, markersize = 20, color = colors[c[i]])
 		if (i in top7_indices)
-			text!(p, text = label, color = :gray70, offset = (0, 10),
+			text!(p, text = label, color = :gray70, offset = (0, 20),
 				align = (:center, :bottom))
 		end
 	end
+
+	labels = ["Shocked sectors", "Unshocked sectors"]
+	elements = [MarkerElement(marker = :circle, color = colors[i]) for i in [6, 4]]
+	axislegend(ax, elements, labels, position = :rb, labelsize = 24)
 end
 
 function panel(data, impulses; options, name = "panel")
@@ -150,7 +154,7 @@ function diff_lambda(data, impulses; options, name = "diff_lambda_imp")
 		xticklabelsize = 20,
 		yticklabelsize = 20)
 
-	xlims!(ax,(0, maximum(positions_cge) + 4))
+	xlims!(ax, (0, maximum(positions_cge) + 4))
 	shocks = impulse_shock(data, impulses)
 	model = Model(data, shocks, options)
 	sol = solve(model)
@@ -227,7 +231,7 @@ function effect_of_different_elasticities(shocks, data, gdp_effect_simple; labor
 		end
 
 
-    cd_elasticities = CESElasticities(0.99,0.99,0.99)
+	cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
 	sol_cd = solve(Model(data, shocks, CES(cd_elasticities, labor_slack_function)))
 	model_leontief = Model(data, shocks, Leontief())
 	sol_leontief = solve(model_leontief)
@@ -252,11 +256,11 @@ function comparison_between_labor_slacks(data, shocks, gdp_effect_simple, title)
 
 	c = Makie.wong_colors()
 	f = Figure(size = (1980, 1000), title = title, color = c)
-	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24)
+	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24)
 
 	sol_leontief = solve(Model(data, shocks, Leontief()))
 
-	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x), x))
+	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x) .- 1, x))
 
 
 	for (i, (el, linestyle, slack_type)) in enumerate(zip([no_ls, ls, ls_emp], [:solid, :dash, :dot], ["no labor slack", "calibrated labor slack", "empirical labor slack"]))
@@ -265,8 +269,8 @@ function comparison_between_labor_slacks(data, shocks, gdp_effect_simple, title)
 		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption - $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[3])
 	end
 
-	lines!(ax, [0.9, 0.015], 100 .* fill(real_gdp(sol_leontief), 2), label = "Leontief model", linewidth = 3, color = c[4])
-	lines!(ax, [0.9, 0.015], 100 .* fill(gdp_effect_simple, 2), label = "Initial stimulus", linewidth = 3, color = c[5])
+	lines!(ax, [0.9, 0.015], 100 .* fill(real_gdp(sol_leontief) .- 1, 2), label = "Leontief model", linewidth = 3, color = c[4])
+	lines!(ax, [0.9, 0.015], 100 .* fill(gdp_effect_simple .- 1, 2), label = "Initial stimulus", linewidth = 3, color = c[5])
 	f[2, 1] = Legend(f, ax, labelsize = 24, tellwidth = false, orientation = :horizontal, nbanks = 4)
 
 
@@ -308,16 +312,16 @@ function plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims
 
 	ga = f[1, 1] = GridLayout()
 	ax = [
-		Axis(ga[1, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.9", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
-		Axis(ga[1, 2], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.5", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
-		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.2", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
-		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "Developement of GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24)
-		]
-	ylims!(ax[1], 98, 105)
-	ylims!(ax[2], 98, 105)
-	ylims!(ax[3], 98, 105)
-	ylims!(ax[4], 98, 105)
-	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x), x))
+		Axis(ga[1, 1], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.9", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[1, 2], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.5", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.2", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+	]
+	ylims!(ax[1], -2, 5)
+	ylims!(ax[2], -2, 5)
+	ylims!(ax[3], -2, 5)
+	ylims!(ax[4], -2, 5)
+	map_to_gdp(x) = 100 .* reverse(map(x -> real_gdp(x) .- 1, x))
 	for (i, el) in enumerate(results)
 		# Shade area between Leontief and Cobb Douglas
 		band!(ax[i], [0.015, 0.9], 100 .* fill(min(leontief, cd), 2), 100 .* fill(max(leontief, cd), 2),
@@ -326,9 +330,9 @@ function plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.ϵ), label = "Elasticity between goods", linewidth = 3)
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods", linewidth = 3)
 		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption", linewidth = 3)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief, 2), label = "Leontief model", linewidth = 3)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial, 2), label = "Initial stimulus", linewidth = 3)
-		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd, 2), label = "Cobb Douglas", linewidth = 3)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief .- 1, 2), label = "Leontief model", linewidth = 3)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial .- 1, 2), label = "Initial stimulus", linewidth = 3)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd .- 1, 2), label = "Cobb Douglas", linewidth = 3)
 	end
 
 	f[2, 1] = Legend(f, ax[1], labelsize = 29, tellwidth = false, orientation = :horizontal, nbanks = 2)
