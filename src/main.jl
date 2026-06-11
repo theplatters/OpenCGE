@@ -2,11 +2,6 @@
 Imports
 ===============================================================================#
 using BeyondHulten
-using GLMakie
-using StatsBase
-using ThreadsX
-using ProgressMeter
-using Statistics
 
 const cd_elasticities = CESElasticities(0.99, 0.99, 0.99)
 const cd_options = CES(cd_elasticities, model -> model.data.labor_share)

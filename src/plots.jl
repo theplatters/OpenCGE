@@ -78,27 +78,10 @@ function axis_change_in_level!(fig, data, impulses; options)
 end
 
 function get_color(data, shocks)
-	colors = Makie.wong_colors()
-	ces_elasticities = CESElasticities(0.001, 0.5, 0.9)
-	ces_options = CES(ces_elasticities, model -> model.data.labor_share, false)
-	model = Model(data, shocks, ces_options)
-	sol = solve(model)
-
-	c = ones(Int, length(sol.prices))
-	indices1 = findall(eachsector(sol)) do x
-		index = findfirst(==(x.name), data.io.Sektoren)
-		x.price > 1.0 && x.quantity / data.λ[index] < 1
-	end
-
+	c = ones(Int, length(data.λ))
 	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
-	indices2 = findall(eachsector(sol)) do x
-		index = findfirst(==(x.name), data.io.Sektoren)
-		x.price > 1.0 && x.quantity / data.λ[index] >= 1
-	end
-	c[indices1] .= 1
-	c[indices2] .= 1
-	c[top7_indices] .= 3
-	c .+ 3
+	c[top7_indices] .= 2
+	c 
 end
 
 function axis_change_in_price!(fig, data, impulse; options)
@@ -118,17 +101,14 @@ function axis_change_in_price!(fig, data, impulse; options)
 		ylabelsize = 24,
 		xticklabelsize = 20,
 		yticklabelsize = 20)
-	for (i, label) in enumerate(names(impulse)[2:72])
-		p = Point2f(100 * (sol.quantities[i] / data.λ[i] - 1), 100 * (sol.prices[i] - 1))
-		scatter!(p, markersize = 20, color = colors[c[i]])
-		if (i in top7_indices)
-			text!(p, text = label, color = :gray70, offset = (0, 20),
-				align = (:center, :bottom))
-		end
-	end
+	p = [Point2f(100 * (sol.quantities[i] / data.λ[i] - 1), 100 * (sol.prices[i] - 1)) for i in 1:71]
+	scatter!(ax, p, markersize = 20, color = colors[c[1:71]])
+	annotation!(ax,
+		p[top7_indices],
+		text = names(impulse)[2:72][top7_indices])
 
 	labels = ["Shocked sectors", "Unshocked sectors"]
-	elements = [MarkerElement(marker = :circle, color = colors[i]) for i in [6, 4]]
+	elements = [MarkerElement(marker = :circle, color = colors[i]) for i in [2, 1]]
 	axislegend(ax, elements, labels, position = :rb, labelsize = 24)
 end
 
