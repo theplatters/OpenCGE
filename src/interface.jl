@@ -46,6 +46,8 @@ end
 
 struct Data <: AbstractData
 	io::DataFrame
+	# Conditional intermediate-input shares in B&F orientation:
+	# rows are using sectors and columns are supplying sectors.
 	Ω::Matrix{Float64}
 	consumption_share::Vector{Float64}
 	factor_share::Vector{Float64}
@@ -54,6 +56,26 @@ struct Data <: AbstractData
 	consumption_share_gross_output::Vector{Float64}
 	grossy::Vector{Float64}
 	value_added::Vector{Float64}
+end
+
+"""
+	conditional_input_shares(intermediate_use)
+
+Convert an input-output block from the Destatis convention to the conditional
+intermediate-input share matrix used in the Baqaee--Farhi replication code.
+
+`intermediate_use[s, u]` is the value supplied by sector `s` to using sector
+`u`. The returned matrix is oriented as user-by-supplier and has elements
+`Ω[u, s] = intermediate_use[s, u] / sum_r(intermediate_use[r, u])`, so every
+row sums to one. The outer intermediate share `(1 - factor_share[u])` is
+applied separately by the model.
+"""
+function conditional_input_shares(intermediate_use::AbstractMatrix{<:Real})
+	user_by_supplier = permutedims(intermediate_use)
+	intermediate_totals = sum(user_by_supplier, dims = 2)
+	any(iszero, intermediate_totals) &&
+		throw(ArgumentError("every using sector must have positive intermediate use"))
+	return user_by_supplier ./ intermediate_totals
 end
 
 function Data(filename::String)
@@ -71,8 +93,11 @@ julia> Ω, consumption_share, factor_share, λ, labor_share, consumption_share_g
 """
 function generate_data(io::DataFrames.DataFrame)
 	number_sectors = 71
-	Ω = Matrix(coalesce.(io[1:number_sectors, 2:number_sectors+1], 0.0))
-	Ω = Ω ./ sum(Ω, dims = 2)
+	# Destatis reports supplied products in rows and using production sectors in
+	# columns. B&F's IO matrix uses the opposite orientation before normalizing
+	# every using sector's intermediate bundle to one.
+	intermediate_use = Matrix(coalesce.(io[1:number_sectors, 2:number_sectors+1], 0.0))
+	Ω = conditional_input_shares(intermediate_use)
 
 	grossy = io[1:number_sectors, "Gesamte Verwendung von Gütern"]
 	consumption = eachcol(io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
@@ -133,4 +158,3 @@ function read_data(filename::String)::Data
 	#return a mutable structure element (see above):	
 	return Data(io, Ω, consumption_share, factor_share, λ, labor_share, consumption_share_go, grossy, value_added)
 end
-
