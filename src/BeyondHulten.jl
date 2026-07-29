@@ -10,7 +10,7 @@ using GLMakie
 using XLSX
 using DelimitedFiles
 # Export Elasticity Types
-export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor
+export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor, MobileLaborCESElasticities
 
 # Export Data, Models, and Shocks
 export Solution, eachsector
@@ -25,12 +25,15 @@ export cobb_douglas_costfun, cobb_douglas_consumption, cobb_douglas_intermediary
 
 # Export Model Constructors & Solver
 export solve
-export CES, Leontief, CobbDouglas, Solution
+export CES, Leontief, CobbDouglas, Solution, MobileLaborCES, mobile_labor_model
+export sectoral_labor_demand, economy_wide_wage
 
 
 # Export Visualization and Utility Functions
 export elasticities_gradient,  standard_shock, standard_tech_shock, ElasticityGradientSolution, plot_wages, impulse_shock, plot_consumption, load_impulses, multiplier, full_labor_slack_alt, inflator,cpi
 export plot_real_gdp_gradient,plot_nominal_gdp_gradient, panel, diff_lambda, comparison_between_labor_slacks,effect_of_different_elasticities
+export eta_sweep, eta_sweep_full, EtaSweepResult, real_gdp_sweep, nominal_gdp_sweep, sectoral_quantities, sectoral_prices
+export variance_decomposition, VarianceDecompositionResult, summary_table, pilot_eta_sweep
 const inflator = 1.46
 
 include("interface.jl")
@@ -38,8 +41,10 @@ include("solution.jl")
 include("cobbdouglas.jl")
 include("leontief.jl")
 include("ces.jl")
+include("mobile_labor.jl")
 include("util.jl")
 include("impulses.jl")
 include("plots.jl")
+include("variance_decomposition.jl")
 
 end
