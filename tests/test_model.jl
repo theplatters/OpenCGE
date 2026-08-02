@@ -22,3 +22,19 @@ end
 	@test length(shocks.demand_shock_raw) == 71
 	@test_throws DimensionMismatch BeyondHulten.impulse_shock(data, DataFrame(zeros(2, 72), :auto))
 end
+
+@testset "Törnqvist real-GDP quantity index" begin
+	base_prices = [1.0, 1.0]
+	base_quantities = [1.0, 1.0]
+	prices = [1.0, 2.0]
+	quantities = [2.0, 1.0]
+
+	index = tornqvist_quantity_index(prices, quantities, base_prices, base_quantities)
+	@test index ≈ sqrt(2)
+	@test tornqvist_quantity_index(3 .* prices, quantities, base_prices, base_quantities) ≈ index
+	@test tornqvist_quantity_index(prices, quantities, base_prices, base_quantities) ≈
+		tornqvist_quantity_index(base_prices, base_quantities, prices, quantities)^-1
+	@test tornqvist_quantity_index([1.0, 2.0], [2.0, 0.0], [1.0, 1.0], [1.0, 0.0]) ≈ 2.0
+	@test_throws DimensionMismatch tornqvist_quantity_index([1.0], [1.0, 2.0], [1.0], [1.0])
+	@test_throws DomainError tornqvist_quantity_index([1.0, 1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 1.0])
+end

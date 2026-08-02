@@ -66,11 +66,15 @@ function solve(
   wages = cobb_douglas_wages(p,q,model)
   labor = model.options.labor_slack(model)
   consumption = cobb_douglas_consumption(p,q,model)
-  laspeyres_index = sum(consumption) / sum(data.consumption_share)
+  real_gdp = tornqvist_quantity_index(
+    p,
+    consumption,
+    ones(length(p)),
+    data.consumption_share,
+  )
   numeraire = mean(p, weights(consumption))
   grossy = Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
 
-  return Solution(p, q, wages, consumption, numeraire, laspeyres_index, (wages' * labor) / numeraire, model)
+  return Solution(p, q, wages, consumption, numeraire, real_gdp, (wages' * labor) / numeraire, model)
 
 end
-
