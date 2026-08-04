@@ -121,9 +121,13 @@ function solve(
 
 	numeraire = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
 	consumption = wages' * labor .* consumption_share .* (p / numeraire) .^ (-σ)
-	laspeyres_index = sum(consumption) / sum(data.consumption_share)
+	real_gdp = tornqvist_quantity_index(
+		p,
+		consumption,
+		ones(length(p)),
+		data.consumption_share,
+	)
 
 	nominal_gdp = (wages' * labor) / numeraire
-	return Solution(p, q, wages, consumption, numeraire, laspeyres_index, nominal_gdp , model)
+	return Solution(p, q, wages, consumption, numeraire, real_gdp, nominal_gdp, model)
 end
-

@@ -19,7 +19,11 @@ function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,
 end
 
 function impulse_shock(data, impulses)
-	impules_2019_prices = impulses[:, 2:end-2] ./ inflator
+	# `impulses` contains year, 71 goods sectors, and wages. Retain every goods
+	# sector while excluding the non-sector columns at either end.
+	impules_2019_prices = impulses[:, 2:end-1] ./ inflator
+	size(impules_2019_prices, 2) == length(data.grossy) ||
+		throw(DimensionMismatch("the impulse table must contain one column per modeled sector"))
 	effect = 1 .+  impules_2019_prices ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
 	demand_shock = [mean(col) for col in eachcol(effect[1:2, :])]
 	supply_shock = ones(71)

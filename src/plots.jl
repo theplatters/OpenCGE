@@ -261,6 +261,10 @@ end
 function labor_slack_gradient(data, impulse)
 	shocks = BeyondHulten.impulse_shock(data, impulse)
 	gdp_effect_simple = 1 + sum(shocks.demand_shock_raw) ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
+	no_labor_slack(model) = model.data.labor_share
+	ces_options = CES(CESElasticities(0.001, 0.5, 0.9), no_labor_slack, false)
+	cd_options = CES(CESElasticities(0.99, 0.99, 0.99), no_labor_slack, false)
+	leontief = Leontief()
 	model = Model(data, shocks, ces_options)
 	sol = solve(model)
 	sol_cd = solve(Model(data, shocks, cd_options))

@@ -18,7 +18,7 @@ export Shocks, Data, Model, CBData, read_data_cb
 
 # Export Data Reading and Investment Functions
 export read_data, calculate_investment!
-export gross_increase, nominal_increase, real_gdp, nominal_gdp, full_labor_slack, gdp
+export gross_increase, nominal_increase, real_gdp, nominal_gdp, tornqvist_quantity_index, full_labor_slack, gdp
 
 # Export Cobb–Douglas Specific Functions
 export cobb_douglas_costfun, cobb_douglas_consumption, cobb_douglas_intermediary_demand, cobb_douglas_prices!

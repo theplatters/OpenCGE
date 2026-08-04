@@ -37,5 +37,8 @@ ThreadsX = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
 XLSX = "fdbf4ff8-1666-58a4-91e7-1b58723a45e0"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
-[compat]
-julia = "~1.12"
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
