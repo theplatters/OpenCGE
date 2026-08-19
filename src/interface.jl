@@ -131,7 +131,18 @@ struct Shocks
 	supply_shock::Vector{Float64}
 	demand_shock::Vector{Float64}
 	demand_shock_raw::Vector{Float64}
+	# Autonomous (extra-household) final demand, e.g. exports or government
+	# spending. Exogenous real quantity = autonomous_demand_i * data.lambda_i.
+	autonomous_demand::Vector{Float64}
+	# Investment demand financed by debt (Venue 1 layer). Same form as
+	# autonomous_demand; the gap to wage income is the financing record.
+	investment_shock::Vector{Float64}
 end
+
+# Backward-compatible 3-arg constructor: no autonomous / investment demand.
+Shocks(supply_shock, demand_shock, demand_shock_raw) =
+	Shocks(supply_shock, demand_shock, demand_shock_raw,
+	       zeros(length(supply_shock)), zeros(length(supply_shock)))
 
 
 mutable struct Model{T <: ModelType}

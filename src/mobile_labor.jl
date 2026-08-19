@@ -46,11 +46,16 @@ Model type for CES with mobile labor and endogenous labor supply elasticity.
 struct MobileLaborCES <: ModelType
     elasticities::MobileLaborCESElasticities
     labor_bar::Float64
+    closure::Symbol   # :mobile = market-clearing (eta free); :fixed = sticky wage (B&F 2022 unemployment closure)
+end
+
+function MobileLaborCES(elasticities::MobileLaborCESElasticities, labor_bar::Float64)
+    MobileLaborCES(elasticities, labor_bar, :mobile)
 end
 
 function MobileLaborCES(elasticities::MobileLaborCESElasticities, data::Data)
     labor_bar = sum(data.labor_share)
-    MobileLaborCES(elasticities, labor_bar)
+    MobileLaborCES(elasticities, labor_bar, :mobile)
 end
 
 # ─────────────────────────────────────────────────────────────────────────────────
@@ -73,12 +78,21 @@ Derived by inverting the marginal-product-of-labor condition.
 """
 function sectoral_labor_demand(p, y, w, model::Model{MobileLaborCES})
     (; data, options, shocks) = model
-    (; ϵ) = options.elasticities
+    (; ϵ, η) = options.elasticities
     (; supply_shock) = shocks
-    (; factor_share) = data
+    (; factor_share, labor_share) = data
 
-    # L_i = [ p_i · A_i^((ε-1)/ε) · α_i^(1/ε) · y_i^(1/ε) / w ]^ε
-    return (p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) ./ w) .^ ϵ
+    # Cost-minimizing labor demand given the common wage (mobile limit, eta=1):
+    #   L_i = [ p_i · A_i^((ε-1)/ε) · α_i^(1/ε) · y_i^(1/ε) / w ]^ε
+    L_costmin = (p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) ./ w) .^ ϵ
+    # Baseline (immobile) labor allocation, fixed in sector (eta=0). Uses
+    # labor_share so that sum(L_fixed) == labor_bar exactly (labor market clears
+    # trivially for eta=0 and the system stays square/solvable).
+    L_fixed = labor_share
+    # Repurpose eta as B&F (2019) labor-reallocation parameter beta:
+    #   eta = 0 -> immobile (labor fixed at baseline shares, no reallocation)
+    #   eta = 1 -> mobile   (full cost-minimizing reallocation across sectors)
+    return L_fixed .^ (1 - η) .* L_costmin .^ η
 end
 
 """
@@ -146,23 +160,75 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     L_i = sectoral_labor_demand(p, y, w, model)
 
     # ── Final demand ──
+    # Budget-consistent CES demand: consumption weights are β̃_i = cs_i·ds_i,
+    # normalized through the aggregator `agg = Σ cs_j·ds_j·p_j^(1-σ)` so that
+    # Σ p_i·c_i = total_income exactly (Walras closes; no spurious overspend).
+    # Previously `demand_shock` was applied unnormalized, inflating household
+    # expenditure above income and breaking the budget identity.
     total_income = w * sum(L_i)
-    final_demand = (total_income * p .^ (-σ) .* demand_shock .* consumption_share) ./ cpi .^ (-σ)
+    agg = sum(consumption_share .* demand_shock .* p .^ (1 - σ))
+    final_demand = (consumption_share .* demand_shock .* total_income .* p .^ (-σ)) ./ agg
+
+    # ── Autonomous & investment (extra-household) final demand (Milestone E) ──
+    # Expansive: they raise total final demand above wage income, so the economy
+    # must scale employment to meet them. With mobile labor (eta>0) this expands
+    # at ~constant wage (large real response); with eta=0 the wage must rise,
+    # muting the response -- the mobile-labor bridge. The gap to wage income is
+    # the financing record (debt / external deficit), not a constraining equation.
+    # Base the autonomous / investment demand on baseline household consumption
+    # (same units as `final_demand`), so the shock is a moderate, well-scaled
+    # additive boost rather than a gross-output multiple.
+    cons_base = sum(data.labor_share)
+    A = shocks.autonomous_demand .* data.consumption_share .* cons_base
+    G = shocks.investment_shock .* data.consumption_share .* cons_base
+    total_final_demand = final_demand .+ A .+ G
 
     # ── Intermediary demand ──
     intermediary_demand = p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
 
-    # ── Cost function ──
-    cost = (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) .+ (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+    # ── B&F (2019) labor-reallocation wedge ──
+    # L_opt is the cost-minimizing (mobile) labor demand; L_base is the
+    # baseline (immobile, fixed) allocation. When labor cannot reallocate toward
+    # its shocked optimum (eta < 1), there is a second-order allocative
+    # inefficiency that raises effective cost / lowers TFP. The wedge vanishes
+    # for eta=1 (mobile) and at baseline (L_opt == L_base).
+    L_opt = (p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) ./ w) .^ ϵ
+    L_base = factor_share .* data.λ  # baseline (immobile, fixed) labor allocation
+    mis = 1 - η
+    log_ratio = log.((L_base .+ 1e-12) ./ (L_opt .+ 1e-12))
+    penalty = 0.5 .* factor_share .* (1 .- factor_share) .* ((ϵ - 1) / ϵ) .* (mis .* log_ratio) .^ 2
+    alloc_wedge = exp.(-penalty)
 
-    # ── Equation 1: Price equations for sectors 2..N (N-1 equations) ──
-    out[1:N-1] .= p[2:N] .- cost[2:N]
+    # ── Cost function (effective TFP includes the reallocation wedge) ──
+    cost = ((supply_shock .* alloc_wedge) .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) .+ (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
 
-    # ── Equation 2: Market clearing (N equations) ──
-    out[N:2N-1] .= y .- intermediary_demand .- final_demand
+    # ── Equation 1: Zero-profit for ALL N sectors (including sector 1) ──
+    # Under CRTS the price level is pinned by the numeraire (Eq. 4), so all N
+    # zero-profit conditions are independent and must be enforced. The previous
+    # code omitted sector 1's condition, leaving a material non-equilibrium
+    # (residual ≈ 10.9 in the 71-sector diagnostic).
+    out[1:N] .= p .- cost
 
-    # ── Equation 3: Labor market clearing (1 equation) ──
-    out[2N] = sum(L_i) - options.labor_bar * w^η
+    # ── Equation 2: Market clearing for sectors 1..N-1 (N-1 equations) ──
+    # The LAST sector's market-clearing equation is the redundant one under
+    # Walras' law and is dropped; it clears automatically given the other N-1
+    # markets, all N zero-profit conditions, the labor market (Eq. 3) and the
+    # numeraire (Eq. 4). We drop the LAST (not the first) sector so that a shock
+    # to sector 1 (construction) remains enforced.
+    out[N+1:2N-1] .= y[1:N-1] .- intermediary_demand[1:N-1] .- total_final_demand[1:N-1]
+
+    if options.closure == :fixed
+        # Sticky-wage / unemployment closure (B&F 2022 style): hold the wage at
+        # its baseline (numeraire) value. The labor market no longer clears, so
+        # employment is labor demand and absorbs the shock; the gap
+        # L_bar - sum(L_i) is unemployment (recorded, not enforced).
+        out[2N] = w - 1.0
+    else
+        # Labor-market clearing: total labor demand equals the (fixed) labor
+        # supply L_bar. The reallocation across sectors is governed by eta (B&F
+        # beta); the wage w adjusts here to clear the market when eta > 0.
+        out[2N] = sum(L_i) - options.labor_bar
+    end
 
     # ── Equation 4: Numeraire constraint — CPI = 1 ──
     out[2N+1] = cpi - 1.0
@@ -195,7 +261,14 @@ function solve(model::Model{MobileLaborCES};
     end
 
     ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
-    x = NonlinearSolve.solve(ProbN, reltol=1e-8, abstol=1e-8).u
+    res = NonlinearSolve.solve(ProbN, reltol=1e-8, abstol=1e-8)
+    # Fail loudly instead of silently returning a non-equilibrium. The earlier
+    # false "GO" certifications came from trusting .u without checking retcode.
+    # `retcode` may be the symbol :Success or the string "Success" depending on
+    # the NonlinearSolve version; normalize to a string before comparing.
+    string(res.retcode) == "Success" ||
+        error("MobileLaborCES.solve did not converge: retcode = $(res.retcode)")
+    x = res.u
 
     p = x[1:N]
     q = x[N+1:2N]
@@ -209,17 +282,30 @@ function solve(model::Model{MobileLaborCES};
     # Wages vector (all equal to w — mobile labor)
     wages = fill(w, N)
 
-    # Consumption
-    consumption_share_adj = shocks.demand_shock .* data.consumption_share
+    # Consumption — must match the budget-consistent demand used inside `problem`
+    # so the reported allocation is the actual equilibrium allocation.
     numeraire = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
     total_income = w * sum(L_i)
-    consumption = total_income .* consumption_share_adj .* (p / numeraire) .^ (-σ)
+    agg = sum(data.consumption_share .* shocks.demand_shock .* p .^ (1 - σ))
+    consumption = (data.consumption_share .* shocks.demand_shock .* total_income .* p .^ (-σ)) ./ agg
 
-    # GDP measures
-    laspeyres_index = sum(consumption) / sum(data.consumption_share)
+    # Real GDP: Tornqvist (Divisia) quantity index of FINAL CONSUMPTION (value-added)
+    # — not gross output. In B&F (2019), real GDP is a Divisia index of real final
+    # demand / value added. Using gross output confounds intermediate flows with
+    # welfare-relevant final output and dilutes the reallocation bridge. The
+    # consumption (final-demand) Tornqvist isolates the welfare-relevant change.
+    # Baseline consumption quantities are cs_i * total_income_base (p=1, numeraire).
+    base_income = sum(data.labor_share)
+    base_consumption = data.consumption_share .* base_income
+    real_gdp_index = tornqvist_quantity_index(
+        p,
+        consumption,
+        ones(N),
+        base_consumption,
+    )
     nominal_gdp = (w * sum(L_i)) / numeraire
 
-    return Solution(p, q, wages, consumption, numeraire, laspeyres_index, nominal_gdp, model)
+    return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model)
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -231,9 +317,9 @@ end
 
 Convenience constructor for a MobileLaborCES model.
 """
-function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Float64, Nothing}=nothing)
+function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Float64, Nothing}=nothing, closure::Symbol=:mobile)
     el = MobileLaborCESElasticities(θ, ϵ, σ, η)
     lb = labor_bar === nothing ? sum(data.labor_share) : labor_bar
-    model = Model(data, shocks, MobileLaborCES(el, lb))
+    model = Model(data, shocks, MobileLaborCES(el, lb, closure))
     return model
 end
