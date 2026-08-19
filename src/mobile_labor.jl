@@ -219,9 +219,14 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
 
     if options.closure == :fixed
         # Sticky-wage / unemployment closure (B&F 2022 style): hold the wage at
-        # its baseline (numeraire) value. The labor market no longer clears, so
-        # employment is labor demand and absorbs the shock; the gap
+        # its baseline (numeraire) value w = 1.0. The labor market no longer
+        # clears, so employment is labor demand and absorbs the shock; the gap
         # L_bar - sum(L_i) is unemployment (recorded, not enforced).
+        # In this closure we do NOT treat w as an unknown — it is fixed at 1.0.
+        # The equation system is 2N (prices + quantities) with the numeraire
+        # replacing a redundant market-clearing equation, and the labor eq is
+        # dropped entirely. The wage is hard-coded at 1.0 in `problem_fixed`.
+        # The `solve` function handles this by calling a specialized path.
         out[2N] = w - 1.0
     else
         # Labor-market clearing: total labor demand equals the (fixed) labor
@@ -241,6 +246,126 @@ end
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
+    problem_fixed(out, X, model)
+
+Specialized equilibrium system for the :fixed (sticky-wage) closure.
+w = 1.0 is hard-coded; unknowns are p(1:N) and y(1:N) only (2N).
+Equations:
+  1. N zero-profit conditions:  p_i = cost_i(p, w=1.0)
+  2. N-1 market-clearing:       y_i = intermed_i + final_i  (drop last sector)
+  3. 1 numeraire:               CPI = 1  (replaces the redundant market equation)
+Total: 2N equations, 2N unknowns.
+Employment L_i is computed post-solve (not enforced as an equilibrium condition).
+"""
+function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
+    (; data, options, shocks) = model
+    N = length(data.factor_share)
+    w = 1.0  # sticky wage
+
+    p = max.(X[1:N], 0)
+    y = max.(X[N+1:2N], 0)
+
+    (; supply_shock, demand_shock) = shocks
+    (; consumption_share, Ω, factor_share, labor_share) = data
+    (; θ, ϵ, σ, η) = options.elasticities
+
+    # Intermediate goods price index
+    intermediate_price = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+
+    # CPI
+    cpi = sum(consumption_share .* p .^ (1 - σ))^(1 / (1 - σ))
+
+    # Sectoral labor demand at w=1.0
+    L_i = sectoral_labor_demand(p, y, w, model)
+
+    # Final demand (budget-consistent)
+    total_income = w * sum(L_i)
+    agg = sum(consumption_share .* demand_shock .* p .^ (1 - σ))
+    final_demand = (consumption_share .* demand_shock .* total_income .* p .^ (-σ)) ./ agg
+
+    # Autonomous & investment final demand
+    cons_base = sum(labor_share)
+    A = shocks.autonomous_demand .* consumption_share .* cons_base
+    G = shocks.investment_shock .* consumption_share .* cons_base
+    total_final_demand = final_demand .+ A .+ G
+
+    # Intermediary demand
+    intermediary_demand = p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+
+    # Cost function (w=1.0)
+    cost = (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) .+ (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
+
+    # 1. Zero-profit (all N sectors)
+    out[1:N] .= p .- cost
+
+    # 2. Market clearing (N-1 equations, drop last)
+    out[N+1:2N-1] .= y[1:N-1] .- intermediary_demand[1:N-1] .- total_final_demand[1:N-1]
+
+    # 3. Numeraire: CPI = 1 (2N-th equation)
+    out[2N] = cpi - 1.0
+
+    nothing
+end
+
+
+"""
+    _solve_fixed(model; init)
+
+Solve the sticky-wage (w=1.0) system. Returns a `Solution` with equilibrium
+prices, quantities, wage=1.0, consumption, and Tornqvist real GDP computed
+from consumption (B&F metric). Employment (sum L_i) is a post-solve residual.
+"""
+function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
+    (; data, options, shocks) = model
+    N = length(data.factor_share)
+
+    if init === nothing
+        init = [ones(N); data.λ]
+    elseif length(init) == 2N + 1
+        # Drop the wage component if a :mobile init was provided
+        init = init[1:2N]
+    end
+
+    ProbN = NonlinearSolve.NonlinearProblem(problem_fixed, init, model)
+    res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=1000)
+    string(res.retcode) == "Success" ||
+        error("MobileLaborCES._solve_fixed did not converge: retcode = $(res.retcode)")
+    x = res.u
+
+    p = x[1:N]
+    q = x[N+1:2N]
+    w = 1.0  # sticky wage
+
+    (; θ, ϵ, σ, η) = options.elasticities
+
+    # Sectoral labor demand at equilibrium
+    L_i = sectoral_labor_demand(p, q, w, model)
+
+    # Wages vector (all 1.0 — sticky)
+    wages = fill(w, N)
+
+    # Consumption (budget-consistent)
+    numeraire = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
+    total_income = w * sum(L_i)
+    agg = sum(data.consumption_share .* shocks.demand_shock .* p .^ (1 - σ))
+    consumption = (data.consumption_share .* shocks.demand_shock .* total_income .* p .^ (-σ)) ./ agg
+
+    # Real GDP: consumption Tornqvist (B&F metric)
+    base_income = sum(data.labor_share)
+    base_consumption = data.consumption_share .* base_income
+    real_gdp_index = tornqvist_quantity_index(
+        p,
+        consumption,
+        ones(N),
+        base_consumption,
+    )
+    nominal_gdp = (w * sum(L_i)) / numeraire
+
+    return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model)
+end
+
+
+"""
     solve(model::Model{MobileLaborCES}; init)
 
 Solve the mobile-labor CES model. Returns a `Solution` with the equilibrium
@@ -255,6 +380,14 @@ function solve(model::Model{MobileLaborCES};
     (; data, options, shocks) = model
     N = length(data.factor_share)
 
+    # ── Sticky-wage / unemployment path (:fixed closure) ──
+    # w = 1.0 is hard-coded; solve a 2N system (prices + quantities only).
+    # Employment is computed post-solve.
+    if options.closure == :fixed
+        return _solve_fixed(model; init=init)
+    end
+
+    # ── Standard :mobile path (2N+1 with wage as unknown) ──
     if init === nothing
         # Default initialization: p=1, y=λ, w=1
         init = [ones(N); data.λ; 1.0]
