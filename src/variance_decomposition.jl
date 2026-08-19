@@ -1,20 +1,22 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Variance Decomposition & η Sweep Infrastructure
+# Variance Decomposition — Sobol Indices on a Full Factorial Grid
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # Implements:
-#   1. η sweep — run the mobile-labor CES model across a grid of η values
-#   2. Variance decomposition — factorial design over (η, ε, θ, σ) with
-#      partial R² to quantify each elasticity's contribution to output variance
+#   1. η sweep — run the mobile-labor CES model across a vector of η values
+#   2. Sobol variance decomposition — factorial design over (η, ε, θ, σ) with
+#      first-order and total-order Sobol indices
 #
-# The variance decomposition answers: "How much of the variation in GDP (or
-# sectoral output) is driven by the labor supply elasticity η vs. the
-# technology elasticities (ε, θ, σ)?"
-#
-# Method: ANOVA-style decomposition on a full factorial grid.
-#   - For each factor f, partial R²(f) = SS(f) / SS(total)
-#   - SS(f) = sum over all levels of f of [mean(y|f=level) - mean(y)]² · n_level
-#   - This gives the share of total variance attributable to each factor.
+# Method:
+#   Sobol (1993) decomposition on a balanced full factorial grid.
+#   - First-order index S_f = SS_f / SS_total
+#     (variance attributable to factor f alone)
+#   - Total-order index ST_f = 1 − SS_{-f} / SS_total
+#     (variance that requires factor f in any form — main effect or interaction)
+#   - Interaction share = ST_f − S_f
+#     (variance only explained by f interacting with other factors)
+#   - Unexplained = 1 − sum(S_f)  (should be zero in a full factorial;
+#     any positive value indicates missing grid points)
 #
 # Author: calculato (AI research assistant)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -22,6 +24,8 @@
 using ProgressMeter
 using Printf
 using Statistics
+using CSV
+using DataFrames
 
 """
     eta_sweep(data, shocks, θ, ϵ, σ, η_values; labor_bar=nothing)
@@ -118,22 +122,32 @@ end
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-    VarianceDecompositionResult
+    SobolResult
 
-Results of a variance decomposition.
+Results of a Sobol variance decomposition on a full factorial grid.
 
 - `factors`: names of the factors (e.g., ["η", "ϵ", "θ", "σ"])
-- `partial_r2`: partial R² for each factor (sums to ≤ 1; residual = interactions)
-- `grid`: the factorial grid used
-- `values`: the output values at each grid point
+- `S_f`: first-order Sobol index for each factor (main effect, S_f = SS_f / SS_total)
+- `ST_f`: total-order Sobol index for each factor (ST_f = 1 − SS_{-f} / SS_total)
+- `grid`: the full factorial grid used
+- `values`: the output values at each grid point (NaN where solver failed)
+- `n_failed`: number of grid points with NaN (solver failure)
 - `output_name`: name of the output variable decomposed
+- `ss_total`: total sum of squares
+- `ss_explained`: sum of main-effect SS (sum(S_f) × SS_total)
+- `frac_unexplained`: 1 − sum(S_f) (= interaction share in balanced data)
 """
-struct VarianceDecompositionResult
+struct SobolResult
     factors::Vector{String}
-    partial_r2::Dict{String, Float64}
+    S_f::Dict{String, Float64}
+    ST_f::Dict{String, Float64}
     grid::DataFrame
     values::Vector{Float64}
+    n_failed::Int
     output_name::String
+    ss_total::Float64
+    ss_explained::Float64
+    frac_unexplained::Float64
 end
 
 """
@@ -193,8 +207,8 @@ function variance_decomposition(
 
     # ── Run the model for each grid point ──
     N = length(data.factor_share)
-    values = Vector{Float64}(undef, n)
-    sectoral_values = output in (:sectoral_q, :sectoral_p) ? zeros(N, n) : nothing
+    y_vals = Vector{Float64}(undef, n)
+    sectoral_y_vals = output in (:sectoral_q, :sectoral_p) ? zeros(N, n) : nothing
 
     init = [ones(N); data.λ; 1.0]
 
@@ -220,101 +234,193 @@ function variance_decomposition(
             init = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
 
             if output == :real_gdp
-                values[i] = real_gdp(sol)
+                y_vals[i] = real_gdp(sol)
             elseif output == :nominal_gdp
-                values[i] = nominal_gdp(sol)
+                y_vals[i] = nominal_gdp(sol)
             elseif output == :sectoral_q
-                sectoral_values[:, i] = sol.quantities
+                sectoral_y_vals[:, i] = sol.quantities
             elseif output == :sectoral_p
-                sectoral_values[:, i] = sol.prices
+                sectoral_y_vals[:, i] = sol.prices
             end
         catch e
             @warn "Solve failed at grid point $i (η=$η, ϵ=$ϵ, θ=$θ, σ=$σ): $e"
-            values[i] = NaN
-            if sectoral_values !== nothing
-                sectoral_values[:, i] .= NaN
+            y_vals[i] = NaN
+            if sectoral_y_vals !== nothing
+                sectoral_y_vals[:, i] .= NaN
             end
         end
     end
 
-    # ── Compute partial R² ──
+    # ── Compute Sobol indices ──
     output_name = String(output)
 
     if output in (:real_gdp, :nominal_gdp)
-        result = _compute_partial_r2(["η", "ϵ", "θ", "σ"], grid, values, output_name)
+        result = _compute_sobol_indices(["η", "ϵ", "θ", "σ"], grid, y_vals, output_name)
         return result
     else
-        # Per-sector decomposition
-        results = Vector{VarianceDecompositionResult}(undef, N)
+        # Per-sector decomposition (kept for backward compatibility)
+        results = Vector{SobolResult}(undef, N)
         for s in 1:N
-            results[s] = _compute_partial_r2(["η", "ϵ", "θ", "σ"], grid, sectoral_values[s, :], "$(output_name)_sector_$(s)")
+            results[s] = _compute_sobol_indices(["η", "ϵ", "θ", "σ"], grid, sectoral_y_vals[s, :], "$(output_name)_sector_$(s)")
         end
         return results
     end
 end
 
-"""
-    _compute_partial_r2(factor_names, grid, values, output_name)
 
-Internal helper: compute partial R² for each factor using ANOVA-style decomposition.
 """
-function _compute_partial_r2(factor_names::Vector{String}, grid::DataFrame, values::Vector{Float64}, output_name::String)
-    # Remove NaN values
-    valid = .!isnan.(values)
+    _compute_sobol_indices(factor_names, grid, values, output_name)
+
+Compute first-order (S_f) and total-order (ST_f) Sobol indices on a
+balanced full factorial grid using ANOVA sum-of-squares decomposition.
+
+First-order:   S_f = SS_f / SS_total
+Total-order:   ST_f = 1 − SS_{-f} / SS_total
+
+where SS_{-f} is the sum of squares explained by all factors EXCEPT f.
+
+NaN values (from solver failures) are dropped; `n_failed` records how many
+points were lost. The total-order index is biased if grid points are missing,
+so `n_failed` should be reported.
+"""
+function _compute_sobol_indices(factor_names::Vector{String}, grid::DataFrame, output_vals::Vector{Float64}, output_name::String)
+    n_total = length(output_vals)
+    valid = .!isnan.(output_vals)
     n_valid = sum(valid)
+    n_failed = n_total - n_valid
 
     if n_valid == 0
-        return VarianceDecompositionResult(factor_names, Dict(f => NaN for f in factor_names), grid, values, output_name)
-    end
+        S_f = Dict(f => NaN for f in factor_names)
+        ST_f = Dict(f => NaN for f in factor_names)
+        return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, 0.0, 0.0, NaN)
+            end
 
-    v = values[valid]
-    grand_mean = mean(v)
-    ss_total = sum((v .- grand_mean) .^ 2)
+            v = output_vals[valid]
+            grand_mean = mean(v)
+            ss_total = sum((v .- grand_mean) .^ 2)
 
-    if ss_total ≈ 0
-        # No variation — all factors contribute nothing
-        pr2 = Dict(f => 0.0 for f in factor_names)
-        return VarianceDecompositionResult(factor_names, pr2, grid, values, output_name)
-    end
+            if ss_total ≈ 0
+                S_f = Dict(f => 0.0 for f in factor_names)
+                ST_f = Dict(f => 0.0 for f in factor_names)
+                return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, ss_total, 0.0, NaN)
+            end
 
-    pr2 = Dict{String, Float64}()
-    for f in factor_names
-        col = grid[!, f][valid]
-        levels = unique(col)
-        ss_between = 0.0
-        for lvl in levels
-            mask = col .== lvl
-            group_mean = mean(v[mask])
-            n_group = sum(mask)
-            ss_between += n_group * (group_mean - grand_mean)^2
-        end
-        pr2[f] = ss_between / ss_total
-    end
+            # ── First-order indices S_f ──
+            S_f = Dict{String, Float64}()
+            for f in factor_names
+                col = grid[!, f][valid]
+                levels = unique(col)
+                ss_between = 0.0
+                for lvl in levels
+                    mask = col .== lvl
+                    group_mean = mean(v[mask])
+                    n_group = sum(mask)
+                    ss_between += n_group * (group_mean - grand_mean)^2
+                end
+                S_f[f] = ss_between / ss_total
+            end
 
-    return VarianceDecompositionResult(factor_names, pr2, grid, values, output_name)
+            # ── Total-order indices ST_f = 1 − SS_{-f} / SS_total ──
+            # SS_{-f} = variance explained by all factors EXCEPT f.
+            # On a balanced full factorial, for each combination of levels of all
+            # other factors, we take the mean of y across f's levels, and sum the
+            # squared deviations weighted by the number of f levels.
+            ST_f = Dict{String, Float64}()
+            for f in factor_names
+                other = setdiff(factor_names, [f])
+                # Group by all other factors
+                other_cols = [grid[!, f_name][valid] for f_name in other]
+                # Unique level combinations of the other factors
+                combos = unique([Tuple([c[i] for c in other_cols]) for i in 1:n_valid])
+                n_levels_f = length(unique(grid[!, f][valid]))
+                ss_except_f = 0.0
+                for combo in combos
+                    mask = trues(n_valid)
+                    for (j, f_name) in enumerate(other)
+                        mask = mask .& (other_cols[j] .== combo[j])
+                    end
+                    n_in_mask = sum(mask)
+                    if n_in_mask > 0
+                        group_mean = mean(v[mask])
+                        # Weight by number of f levels (what we'd expect in a balanced design)
+                        ss_except_f += n_levels_f * (group_mean - grand_mean)^2
+                    end
+                end
+                ST_f[f] = 1.0 - ss_except_f / ss_total
+            end
+
+            # Clip to [0, 1] for numerical safety
+            for f in factor_names
+                S_f[f] = max(0.0, min(1.0, S_f[f]))
+                ST_f[f] = max(0.0, min(1.0, ST_f[f]))
+            end
+
+            ss_explained = sum(Base.values(S_f)) * ss_total
+            frac_unexplained = 1.0 - sum(Base.values(S_f))
+
+            return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, ss_total, ss_explained, frac_unexplained)
 end
 
-"""
-    summary_table(vd::VarianceDecompositionResult)
 
-Print a formatted summary of the variance decomposition.
 """
-function summary_table(vd::VarianceDecompositionResult)
-    println("\n═ Variance Decomposition: $(vd.output_name) ═")
-    println("─" ^ 45)
-    @printf("%-10s %12s %8s\n", "Factor", "Partial R²", "% Share")
-    println("─" ^ 45)
+    summary_table(vd::SobolResult; save_csv=nothing)
 
-    total_explained = sum(values(vd.partial_r2))
-    for f in vd.factors
-        val = vd.partial_r2[f]
-        pct = total_explained > 0 ? 100 * val / total_explained : 0.0
-        @printf("%-10s %12.4f %7.1f%%\n", f, val, pct)
+Print a formatted summary of the Sobol variance decomposition.
+Reports first-order (S_f) and total-order (ST_f) indices as absolute
+shares (no renormalization). Also reports the interaction strength
+ST_f − S_f and the unexplained fraction.
+
+If `save_csv` is a file path, writes the results to CSV.
+"""
+function summary_table(vd::SobolResult; save_csv=nothing)
+    println("\n═ Sobol Variance Decomposition: $(vd.output_name) ═")
+    println("Grid: $(nrow(vd.grid)) points, $(vd.n_failed) failed (NaN) = $(round(100*vd.n_failed/nrow(vd.grid), digits=1))%")
+    if vd.n_failed > 0
+        println("⚠  Total-order indices are biased by missing grid points — interpret with caution")
     end
-    println("─" ^ 45)
-    @printf("%-10s %12.4f\n", "Total", total_explained)
-    @printf("%-10s %12.4f\n", "Residual", 1.0 - total_explained)
-    println("═" ^ 45)
+    println("─" ^ 62)
+    @printf("%-10s %12s %12s %12s\n", "Factor", "S_f", "ST_f", "ST_f−S_f")
+    @printf("         %12s %12s %12s\n", "(first-order)", "(total-order)", "(interaction)")
+    println("─" ^ 62)
+
+    for f in vd.factors
+        sf = vd.S_f[f]
+        st = vd.ST_f[f]
+        inter = st - sf
+        @printf("%-10s %12.4f %12.4f %12.4f\n", f, sf, st, inter)
+    end
+    println("─" ^ 62)
+    @printf("%-10s %12.4f\n", "Sum S_f", sum(values(vd.S_f)))
+    @printf("%-10s %12.4f\n", "1−Sum S_f", vd.frac_unexplained)
+    @printf("%-10s %12.4f\n", "SS_total", vd.ss_total)
+    println("═" ^ 62)
+
+    # Interpretation guide
+    if vd.n_failed == 0
+        println("Interpretation: 1−Sum S_f = interaction share (balanced factorial).")
+    else
+        println("Interpretation: 1−Sum S_f partly includes missing-data bias.")
+    end
+    dom = argmax([vd.S_f[f] for f in vd.factors])
+    @printf("Dominant factor: %s (S_f=%.4f)\n", vd.factors[dom], vd.S_f[vd.factors[dom]])
+
+    # ── Save CSV ──
+    if save_csv !== nothing
+        df = DataFrame(
+            Factor = vd.factors,
+            S_f = [vd.S_f[f] for f in vd.factors],
+            ST_f = [vd.ST_f[f] for f in vd.factors],
+            Interaction = [vd.ST_f[f] - vd.S_f[f] for f in vd.factors],
+        )
+        push!(df, ("Sum", sum(values(vd.S_f)), sum(values(vd.ST_f)), sum(values(vd.ST_f)) - sum(values(vd.S_f))))
+        push!(df, ("1−Sum_S_f", vd.frac_unexplained, NaN, NaN))
+        push!(df, ("SS_total", vd.ss_total, NaN, NaN))
+        push!(df, ("n_failed", Float64(vd.n_failed), NaN, NaN))
+        push!(df, ("n_grid", Float64(nrow(vd.grid)), NaN, NaN))
+        CSV.write(save_csv, df)
+        @printf("Results saved to %s\n", save_csv)
+    end
+    println()
 end
 
 """
@@ -383,8 +489,8 @@ function pilot_eta_sweep(data::Data, shocks::Shocks; θ::Float64=0.5, ϵ::Float6
     summary_table(vd)
 
     # ── Go/No-Go assessment ──
-    η_share = vd.partial_r2["η"]
-    other_share = sum([vd.partial_r2["ϵ"], vd.partial_r2["θ"], vd.partial_r2["σ"]])
+    η_share = vd.S_f["η"]
+    other_share = sum([vd.S_f["ϵ"], vd.S_f["θ"], vd.S_f["σ"]])
 
     println("\n" * "="^70)
     println("  ASSESSMENT")

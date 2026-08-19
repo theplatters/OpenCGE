@@ -261,7 +261,7 @@ function solve(model::Model{MobileLaborCES};
     end
 
     ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
-    res = NonlinearSolve.solve(ProbN, reltol=1e-8, abstol=1e-8)
+    res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=1000)
     # Fail loudly instead of silently returning a non-equilibrium. The earlier
     # false "GO" certifications came from trusting .u without checking retcode.
     # `retcode` may be the symbol :Success or the string "Success" depending on
