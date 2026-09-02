@@ -35,7 +35,7 @@ Returns the labor vector adjusted, so that labor can be freely reallocated to ac
 function full_labor_slack_alt(model::Model)
 	(; data, shocks) = model
 
-	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * shocks.demand_shock_raw
+	q = inv(I - diagm(1 .- data.factor_share) * data.Ω_raw)' * shocks.demand_shock_raw
 	data.labor_share + (q ./ sum(data.value_added)) .* (Vector(data.io[findfirst(==("Arbeitnehmerentgelt im Inland"), data.io.Sektoren), 2:72]) ./ data.grossy)
 end
 
@@ -47,8 +47,8 @@ Returns the labor vector adjusted, so that labor can be freely reallocated to ac
 function full_labor_slack(model::Model)
 	(; data, shocks) = model
 
-	q = inv(I - diagm(1 .- data.factor_share) * data.Ω)' * shocks.demand_shock_raw
-	data.labor_share + inv(I - diagm(1 .- data.factor_share) * data.Ω)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share))
+	q = inv(I - diagm(1 .- data.factor_share) * data.Ω_raw)' * shocks.demand_shock_raw
+	data.labor_share + inv(I - diagm(1 .- data.factor_share) * data.Ω_raw)' * (data.consumption_share_gross_output .* ((shocks.demand_shock .* data.labor_share) - data.labor_share))
 end
 
 
@@ -71,20 +71,20 @@ function problem(out::Vector, X::Vector, model::Model{CES})
 	y = max.(X[N+1:end], 0)
 
 	(; supply_shock, demand_shock) = shocks
-	(; consumption_share, Ω, factor_share) = data
+	(; consumption_share, Ω_raw, factor_share) = data
 	(; ϵ, θ, σ) = options.elasticities
 	labor = options.labor_slack(model)
 
 
 
-	intermediate_price = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+	intermediate_price = (Ω_raw * p .^ (1 - θ)) .^ (1 / (1 - θ))
 
 	cpi = sum(data.consumption_share .* p .^ (1 - σ))^(1 / (1 - σ))
 	w = p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* labor .^ (-1 / ϵ)
 
 	C = w' * labor
 	final_demand = (C * p .^ (-σ) .* demand_shock .* consumption_share) ./ cpi .^ (-σ)
-	intermediary_demand = p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+	intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
 	out[1:N] .= p - (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) + (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
 	out[N+1:end] .= y - intermediary_demand - final_demand
 	nothing

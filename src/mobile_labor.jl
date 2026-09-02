@@ -162,11 +162,11 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     w = max(X[2N+1], 1e-10)  # scalar wage, keep positive
 
     (; supply_shock, demand_shock) = shocks
-    (; consumption_share, Ω, factor_share, labor_share) = data
+    (; consumption_share, Ω_raw, factor_share, labor_share) = data
     (; θ, ϵ, σ, η) = options.elasticities
 
     # ── Intermediate goods price index ──
-    intermediate_price = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+    intermediate_price = (Ω_raw * p .^ (1 - θ)) .^ (1 / (1 - θ))
 
     # ── CPI (consumption price index) ──
     cpi = sum(consumption_share .* p .^ (1 - σ))^(1 / (1 - σ))
@@ -199,7 +199,7 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     total_final_demand = final_demand .+ A .+ G
 
     # ── Intermediary demand ──
-    intermediary_demand = p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
 
     # ── B&F (2019) labor-reallocation wedge ──
     # L_opt is the cost-minimizing (mobile) labor demand; L_base is the
@@ -289,11 +289,11 @@ function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     y = max.(X[N+1:2N], 0)
 
     (; supply_shock, demand_shock) = shocks
-    (; consumption_share, Ω, factor_share, labor_share) = data
+    (; consumption_share, Ω_raw, factor_share, labor_share) = data
     (; θ, ϵ, σ, η) = options.elasticities
 
     # Intermediate goods price index
-    intermediate_price = (Ω * p .^ (1 - θ)) .^ (1 / (1 - θ))
+    intermediate_price = (Ω_raw * p .^ (1 - θ)) .^ (1 / (1 - θ))
 
     # CPI
     cpi = sum(consumption_share .* p .^ (1 - σ))^(1 / (1 - σ))
@@ -313,7 +313,7 @@ function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     total_final_demand = final_demand .+ A .+ G
 
     # Intermediary demand
-    intermediary_demand = p .^ (-θ) .* (Ω' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
 
     # Cost function (w=1.0)
     cost = (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) .+ (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
