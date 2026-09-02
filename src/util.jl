@@ -8,14 +8,18 @@ function standard_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausba
 	demand_shock[findfirst(==(sector), data.io.Sektoren)] = 1.8097957577943152
 	shocks = Shocks(supply_shock, demand_shock, zeros(71))
 	return shocks
-	end
+end
 
 
-	# Autonomous (extra-household) final-demand shock for Milestone E (Venue 2).
-	# The bumped sector receives `autonomous_mult` *its baseline gross output* as
-	# extra export/government demand; all other sectors get zero. `investment_mult`
-	# layers the Venue-1 debt-financed investment component on the same sector.
-	function autonomous_shock(data;
+"""
+	autonomous_shock(data; sector, autonomous_mult, investment_mult)
+
+Construct additive autonomous and investment-demand multipliers for `sector`.
+Inside `MobileLaborCES`, each multiplier is scaled by that sector's consumption
+share and baseline aggregate labor income. Other sectors receive zero additive
+demand.
+"""
+function autonomous_shock(data;
 	sector = "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten",
 	autonomous_mult = 1.8097957577943152,
 	investment_mult = 0.0)
@@ -24,7 +28,7 @@ function standard_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausba
 	inv = zeros(71)
 	inv[findfirst(==(sector), data.io.Sektoren)] = investment_mult
 	Shocks(ones(71), ones(71), zeros(71), aut, inv)
-	end
+end
 
 
 function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten")
