@@ -35,7 +35,7 @@ Returns a vector of `Solution` objects.
 
 # Example
 ```julia
-η_grid = [0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, Inf]
+η_grid = [0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0]
 sols = eta_sweep(data, shocks, 0.5, 0.5, 0.9, η_grid)
 ```
 """
@@ -150,6 +150,9 @@ struct SobolResult
     frac_unexplained::Float64
 end
 
+"Deprecated compatibility alias. Use `SobolResult`."
+const VarianceDecompositionResult = SobolResult
+
 """
     variance_decomposition(data, shocks; η_values, ϵ_values, θ_values, σ_values,
                            output=:real_gdp, labor_bar=nothing)
@@ -168,7 +171,7 @@ of the output variable into contributions from each elasticity.
     - `:sectoral_p` — sectoral prices (returns per-sector decomposition)
 
 # Returns
-- `VarianceDecompositionResult` with partial R² for each factor
+- `SobolResult` with first-order and total-order indices for each factor
 
 # Method
 Uses ANOVA-style one-at-a-time decomposition:
@@ -218,10 +221,10 @@ function variance_decomposition(
         θ = grid.θ[i]
         σ = grid.σ[i]
 
-        # Handle η = Inf (perfectly elastic labor → use full labor slack logic)
+        # Preserve the historical finite approximation for an infinite
+        # extrapolation request. This is not an elastic-labor-supply limit.
         if isinf(η)
-            # For η → ∞, w is pinned at the reservation wage (w=1 in real terms)
-            # We approximate with a large finite η
+            # Approximate the geometric reallocation exponent with a large value.
             η_eff = 1e6
         else
             η_eff = η
@@ -426,10 +429,10 @@ end
 """
     eta_sweep_full(data, shocks; θ=0.5, ϵ=0.5, σ=0.9, labor_bar=nothing)
 
-Run a comprehensive η sweep from perfectly inelastic to perfectly elastic labor.
+Run a comprehensive sweep over the intersectoral reallocation parameter η.
 Returns an `EtaSweepResult` with solutions at each η value.
 
-This is the pilot sweep for the go/no-go decision.
+This is a descriptive sweep; it does not make a go/no-go claim.
 """
 function eta_sweep_full(data::Data, shocks::Shocks; θ=0.5, ϵ=0.5, σ=0.9, labor_bar::Union{Float64, Nothing}=nothing)
     η_values = [0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0]
@@ -437,18 +440,25 @@ function eta_sweep_full(data::Data, shocks::Shocks; θ=0.5, ϵ=0.5, σ=0.9, labo
     return EtaSweepResult(η_values, sols)
 end
 
+"""Run the sweep and return descriptive diagnostics, without a binary decision."""
+function eta_sweep_diagnostics(data::Data, shocks::Shocks; θ::Float64=0.5, ϵ::Float64=0.5, σ::Float64=0.9, labor_bar::Union{Float64, Nothing}=nothing)
+    esr = eta_sweep_full(data, shocks; θ=θ, ϵ=ϵ, σ=σ, labor_bar=labor_bar)
+    variation = vec(std(sectoral_quantities(esr), dims=2))
+    vd = variance_decomposition(data, shocks; η_values=[0.0, 0.5, 1.0, 5.0, 50.0],
+        ϵ_values=[0.1, 0.5, 0.99], θ_values=[0.5], σ_values=[0.5], output=:real_gdp,
+        labor_bar=labor_bar, verbose=false)
+    (sweep=esr, decomposition=vd, sectoral_variation=variation,
+     max_variation=maximum(variation), eta_share=vd.S_f["η"],
+     other_share=sum(vd.S_f[f] for f in ("ϵ", "θ", "σ")))
+end
+
 """
     pilot_eta_sweep(data, shocks; kwargs...)
 
-Run the pilot η sweep and produce a diagnostic summary.
-
-This implements the go/no-go decision criterion from the workplan:
-- Check whether sectoral results show interesting variation across η
-- Check whether η dominates (ε, θ, σ) in the variance decomposition
-
-Prints diagnostics and returns both the sweep results and a recommendation.
+Deprecated compatibility wrapper for the former pilot/go-no-go report.
 """
 function pilot_eta_sweep(data::Data, shocks::Shocks; θ::Float64=0.5, ϵ::Float64=0.5, σ::Float64=0.9)
+    Base.depwarn("pilot_eta_sweep is deprecated; use eta_sweep_diagnostics", :pilot_eta_sweep)
     println("\n" * "="^70)
     println("  PILOT η SWEEP — Go/No-Go Decision")
     println("="^70)
