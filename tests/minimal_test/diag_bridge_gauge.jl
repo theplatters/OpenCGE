@@ -1,33 +1,7 @@
 # Comprehensive bridge gauge: test consumption-Törnqvist under multiple shocks.
 # Uses proper no-shock baseline for all Δ% calculations.
-using Printf
-module GLMakie end
-module XLSX end
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve
-using CSV: CSV
-using DataFrames
-using LineSearches: LineSearches
-using LinearAlgebra
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
-export CESElasticities, MobileLaborCESElasticities, Solution, Shocks, Data, Model
-export read_data, standard_shock, autonomous_shock, solve, CES, MobileLaborCES, mobile_labor_model
-export sectoral_labor_demand, real_gdp, nominal_gdp, tornqvist_quantity_index
-const inflator = 1.46
-include("interface.jl")
-include("solution.jl")
-include("ces.jl")
-include("mobile_labor.jl")
-include("variance_decomposition.jl")
-include("util.jl")
-include("impulses.jl")
-end
-using .BeyondHulten
-cd("/workspace/BFrep/(3)BeyondHulten")
+include("bootstrap.jl")
+
 data = Data("I-O_DE2019_formatiert.csv")
 N = 71
 SEC = 35  # construction
@@ -45,11 +19,8 @@ function bridge(model_fn, label)
     for η in etas
         m = model_fn(η)
         s = solve(m)
-        X = [s.prices; s.quantities; s.wages[1]]
-        out = similar(X)
-        BeyondHulten.problem(out, X, m)
         push!(gdps, real_gdp(s))
-        push!(resids, maximum(abs.(out)))
+        push!(resids, maximum(abs, equilibrium_residuals(s)))
     end
     d0 = 100*(gdps[1]/ref_gdp - 1)
     d1 = 100*(gdps[end]/ref_gdp - 1)

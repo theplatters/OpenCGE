@@ -1,46 +1,7 @@
 # Milestone D — Honest Variance Decomposition with Sobol indices.
 # Reduced grid (5×2×2×2 = 40 pts) to fit memory constraints.
-using CSV: CSV
-using DataFrames
-using LinearAlgebra
-using NonlinearSolve: NonlinearSolve
-using LineSearches: LineSearches
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
+include("bootstrap.jl")
 
-module GLMakie end
-module XLSX end
-
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve
-using CSV: CSV
-using DataFrames
-using LineSearches: LineSearches
-using LinearAlgebra
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
-export CESElasticities, MobileLaborCESElasticities, Solution, Shocks, Data, Model
-export read_data, standard_shock, solve, CES, MobileLaborCES, mobile_labor_model
-export sectoral_labor_demand, real_gdp, nominal_gdp
-export variance_decomposition, summary_table, SobolResult
-const inflator = 1.46
-include("interface.jl")
-include("solution.jl")
-include("ces.jl")
-include("mobile_labor.jl")
-include("variance_decomposition.jl")
-include("util.jl")
-include("impulses.jl")
-end
-
-using .BeyondHulten
-cd("/workspace/BFrep/(3)BeyondHulten")
 
 println("═" ^ 72)
 println("  Milestone D — Honest Variance Decomposition (Sobol indices)")
@@ -53,7 +14,8 @@ SEC = 35
 ss = ones(N); ss[SEC] *= 1.30
 shocks = Shocks(ss, ones(N), zeros(N))
 
-csv_path = "output/variance_decomposition_sobol.csv"
+mkpath(joinpath(REPO_ROOT, "output"))
+csv_path = joinpath(REPO_ROOT, "output", "variance_decomposition_sobol.csv")
 
 println("\nReduced grid: η×ε×θ×σ")
 println("  η: [0.0, 0.5, 1.0, 2.0]   (4 levels — immobile to mobile)")

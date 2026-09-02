@@ -1,61 +1,24 @@
 # Milestone E verification (Venue 2, then Venue 2+1 layer): an EXPANSIVE
 # autonomous export-demand shock should engage the labor channel so that the
-# real-GDP response is eta-dependent (eta->infinity > eta=0).
-using Printf
-module GLMakie end
-module XLSX end
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve
-using CSV: CSV
-using DataFrames
-using LineSearches: LineSearches
-using LinearAlgebra
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
-export CESElasticities, MobileLaborCESElasticities, Solution, Shocks, Data, Model
-export read_data, standard_shock, autonomous_shock, solve, CES, MobileLaborCES, mobile_labor_model
-export sectoral_labor_demand, real_gdp, nominal_gdp, tornqvist_quantity_index
-const inflator = 1.46
-include("interface.jl")
-include("solution.jl")
-include("ces.jl")
-include("mobile_labor.jl")
-include("variance_decomposition.jl")
-include("util.jl")
-include("impulses.jl")
-end
-using .BeyondHulten
-cd("/workspace/BFrep/(3)BeyondHulten")
+# real-GDP response varies with the intersectoral-reallocation parameter η.
+include("bootstrap.jl")
+
 data = Data("I-O_DE2019_formatiert.csv")
 
 # Reconstruct the FULL corrected residual vector (incl. autonomous/investment).
 function full_res(model, sol)
     N = length(model.data.factor_share)
-    p = sol.prices; q = sol.quantities; w = sol.wages[1]
-    (; θ,ϵ,σ,η) = model.options.elasticities
-    cs = model.data.consumption_share; Ω=model.data.Ω; fs=model.data.factor_share
-    ds = model.shocks.demand_shock; ss = model.shocks.supply_shock; lb = model.options.labor_bar
-    ax = model.shocks.autonomous_demand; gv = model.shocks.investment_shock
-    intermediate_price = (Ω * p .^ (1-θ)) .^ (1/(1-θ))
-    cpi = sum(cs .* p .^ (1-σ))^(1/(1-σ))
-    L_i = sectoral_labor_demand(p, q, w, model)
-    total_income = w * sum(L_i)
-    agg = sum(cs .* ds .* p .^ (1-σ))
-    c = (cs .* ds .* total_income .* p .^ (-σ)) ./ agg
+    p = sol.prices_raw
+    residuals = equilibrium_residuals(sol)
+    L_i = sectoral_labor_demand(p, sol.quantities, sol.wages_raw[1], model)
+    total_income = sol.wages_raw[1] * sum(L_i)
+    ax = model.shocks.autonomous_demand
+    gv = model.shocks.investment_shock
     cons_base = sum(data.labor_share)
     A = ax .* data.consumption_share .* cons_base; G = gv .* data.consumption_share .* cons_base
-    total_fd = c .+ A .+ G
-    intermediary = p .^ (-θ) .* (Ω' * (p .^ ϵ .* ss .^ (ϵ-1) .* intermediate_price .^ (θ-ϵ) .* (1 .- fs) .* q))
-    cost = (ss .^ (ϵ-1) .* (fs .* w .^ (1-ϵ) .+ (1 .- fs) .* intermediate_price .^ (1-ϵ))) .^ (1/(1-ϵ))
-    zp = p .- cost
-    mc = q[1:N-1] .- intermediary[1:N-1] .- total_fd[1:N-1]
-    labor = sum(L_i) - lb * (w/1.0)^η
-    num = cpi - 1.0
-    debt = sum(p .* total_fd) - total_income   # financing gap = Σ p_i(A+G)
-    return (zp=zp, mc=mc, labor=labor, num=num, debt=debt)
+    debt = sum(p .* (sol.consumption .+ A .+ G)) - total_income
+    return (zp=residuals[1:N], mc=residuals[N+1:2N-1],
+        labor=residuals[2N], num=residuals[2N+1], debt=debt)
 end
 
 # True no-shock baseline (all shocks = 1 / 0).

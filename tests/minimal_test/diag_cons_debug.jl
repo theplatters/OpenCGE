@@ -1,32 +1,6 @@
 # Debug: check what's happening with consumption and Törnqvist at η=0 under supply shock
-using Printf
-module GLMakie end
-module XLSX end
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve
-using CSV: CSV
-using DataFrames
-using LineSearches: LineSearches
-using LinearAlgebra
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
-export CESElasticities, MobileLaborCESElasticities, Solution, Shocks, Data, Model
-export read_data, standard_shock, autonomous_shock, solve, CES, MobileLaborCES, mobile_labor_model
-export sectoral_labor_demand, real_gdp, nominal_gdp, tornqvist_quantity_index
-const inflator = 1.46
-include("interface.jl")
-include("solution.jl")
-include("ces.jl")
-include("mobile_labor.jl")
-include("variance_decomposition.jl")
-include("util.jl")
-include("impulses.jl")
-end
-using .BeyondHulten
-cd("/workspace/BFrep/(3)BeyondHulten")
+include("bootstrap.jl")
+
 data = Data("I-O_DE2019_formatiert.csv")
 N = 71
 SEC = 35

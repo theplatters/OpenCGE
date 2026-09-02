@@ -1,19 +1,6 @@
 # Core finding: binary wage regime (:fixed vs :mobile) vs continuous η gradient.
-using Printf
-module GLMakie end; module XLSX end
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve; using CSV: CSV; using DataFrames
-using LineSearches: LineSearches; using LinearAlgebra; using StatsBase
-using Printf; using Statistics; using ProgressMeter; using DelimitedFiles
-export CESElasticities, MobileLaborCESElasticities, Solution, Shocks, Data, Model
-export read_data, standard_shock, autonomous_shock, solve, CES, MobileLaborCES, mobile_labor_model
-export sectoral_labor_demand, real_gdp, nominal_gdp, tornqvist_quantity_index
-const inflator = 1.46
-include("interface.jl"); include("solution.jl"); include("ces.jl")
-include("mobile_labor.jl"); include("variance_decomposition.jl"); include("util.jl"); include("impulses.jl")
-end
-using .BeyondHulten
-cd("/workspace/BFrep/(3)BeyondHulten")
+include("bootstrap.jl")
+
 data = Data("I-O_DE2019_formatiert.csv")
 N = 71; SEC = 35
 
@@ -47,8 +34,7 @@ for mult in [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
     try
         mf = mobile_labor_model(data, shocks, 0.5, 0.5, 0.9, 0.5; closure=:fixed)
         sf = solve(mf)
-        Xf = [sf.prices; sf.quantities]; outf = similar(Xf)
-        BeyondHulten.problem_fixed(outf, Xf, mf); mrf = maximum(abs.(outf))
+        mrf = maximum(abs.(equilibrium_residuals(sf)))
         gf = 100*(real_gdp(sf)/ref_gdp - 1)
         ef = sum(sectoral_labor_demand(sf.prices, sf.quantities, 1.0, mf))
     catch

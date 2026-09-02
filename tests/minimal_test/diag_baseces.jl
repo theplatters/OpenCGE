@@ -1,44 +1,8 @@
 # Diagnostic: does the BASE CES model (sector-specific labor, full_labor_slack)
 # also invert under a positive demand shock? Determines if the bug is
 # specific to mobile_labor or systemic.
-using CSV: CSV
-using DataFrames
-using LinearAlgebra
-using NonlinearSolve: NonlinearSolve
-using LineSearches: LineSearches
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
+include("bootstrap.jl")
 
-module GLMakie end
-module XLSX end
-
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve
-using CSV: CSV
-using DataFrames
-using LineSearches: LineSearches
-using LinearAlgebra
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
-export CESElasticities, Solution, Shocks, Data, Model, read_data, standard_shock
-export solve, CES, full_labor_slack, real_gdp, nominal_gdp, tornqvist_quantity_index
-const inflator = 1.46
-include("interface.jl")
-include("solution.jl")
-include("ces.jl")
-include("util.jl")
-include("impulses.jl")
-end
-
-using .BeyondHulten
-using Printf
-cd("/workspace/BFrep/(3)BeyondHulten")
 
 data = Data("I-O_DE2019_formatiert.csv")
 N = length(data.factor_share)

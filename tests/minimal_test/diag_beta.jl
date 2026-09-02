@@ -1,45 +1,15 @@
 # Milestone E (bridge) diagnostic: repurpose eta as B&F (2019) labor-reallocation
 # parameter beta. Compare immobile (eta=0) vs mobile (eta=1) under a construction
 # (sector 35) productivity (supply) shock. Confirm the mobility bridge appears as a
-# real-GDP difference, and that residuals stay ~0. Uses the model's own `problem()`
-# for the residual check.
-using Printf
-module GLMakie end
-module XLSX end
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve
-using CSV: CSV
-using DataFrames
-using LineSearches: LineSearches
-using LinearAlgebra
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
-export CESElasticities, MobileLaborCESElasticities, Solution, Shocks, Data, Model
-export read_data, standard_shock, solve, CES, MobileLaborCES, mobile_labor_model
-export sectoral_labor_demand, real_gdp, nominal_gdp, tornqvist_quantity_index
-const inflator = 1.46
-include("interface.jl")
-include("solution.jl")
-include("ces.jl")
-include("mobile_labor.jl")
-include("variance_decomposition.jl")
-include("util.jl")
-include("impulses.jl")
-end
-using .BeyondHulten
-cd("/workspace/BFrep/(3)BeyondHulten")
+# real-GDP difference, and that the package residuals stay near zero.
+include("bootstrap.jl")
+
 data = Data("I-O_DE2019_formatiert.csv")
 N = 71
 const SEC = 35   # construction sector
 
 function maxres(model, sol)
-    X = [sol.prices; sol.quantities; sol.wages[1]]
-    out = similar(X)
-    BeyondHulten.problem(out, X, model)
-    return maximum(abs.(out))
+    maximum(abs, equilibrium_residuals(sol))
 end
 
 # B&F bridge case: sector-specific POSITIVE PRODUCTIVITY (supply) shock.
@@ -63,7 +33,8 @@ for η in etas
     sol = solve(model)
     mr = maxres(model, sol)
     g = real_gdp(sol)
-    sl = sum(sectoral_labor_demand(sol.prices, sol.quantities, sol.wages[1], model))
+    sl = sum(sectoral_labor_demand(
+        sol.prices_raw, sol.quantities, sol.wages_raw[1], model))
     push!(gdps, g); push!(resids, mr); push!(wages, sol.wages[1]); push!(sumLs, sl)
     @printf("%5.2f %.2e  %10.6f  %+.6f%%  %.6f  %.6f\n",
         η, mr, g, 100*(g/base_gdp - 1), sol.wages[1], sl)

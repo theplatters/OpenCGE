@@ -1,45 +1,6 @@
-# Diagnostic: run the actual variance_decomposition and pilot on real data.
-using CSV: CSV
-using DataFrames
-using LinearAlgebra
-using NonlinearSolve: NonlinearSolve
-using LineSearches: LineSearches
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
+# Diagnostic: run the package variance decomposition and descriptive η report.
+include("bootstrap.jl")
 
-module GLMakie end
-module XLSX end
-
-module BeyondHulten
-using NonlinearSolve: NonlinearSolve
-using CSV: CSV
-using DataFrames
-using LineSearches: LineSearches
-using LinearAlgebra
-using StatsBase
-using Printf
-using Statistics
-using ProgressMeter
-using DelimitedFiles
-export CESElasticities, MobileLaborCESElasticities, Solution, Shocks, Data, Model
-export read_data, standard_shock, solve, CES, MobileLaborCES, mobile_labor_model
-export sectoral_labor_demand, real_gdp, nominal_gdp
-export variance_decomposition, summary_table, pilot_eta_sweep
-const inflator = 1.46
-include("interface.jl")
-include("solution.jl")
-include("ces.jl")
-include("mobile_labor.jl")
-include("variance_decomposition.jl")
-include("util.jl")
-include("impulses.jl")
-end
-
-using .BeyondHulten
-cd("/workspace/BFrep/(3)BeyondHulten")
 
 data = Data("I-O_DE2019_formatiert.csv")
 shocks = standard_shock(data)
@@ -53,5 +14,8 @@ vd = variance_decomposition(data, shocks;
     output = :real_gdp, verbose=false)
 summary_table(vd)
 
-println("\n=== pilot_eta_sweep (reduced grid) ===")
-pilot_eta_sweep(data, shocks; θ=0.5, ϵ=0.5, σ=0.9)
+println("\n=== eta_sweep_diagnostics (reduced grid) ===")
+diagnostics = eta_sweep_diagnostics(data, shocks; θ=0.5, ϵ=0.5, σ=0.9)
+summary_table(diagnostics.decomposition)
+@printf("Maximum sectoral variation: %.6f\n", diagnostics.max_variation)
+@printf("η first-order share: %.6f\n", diagnostics.eta_share)
