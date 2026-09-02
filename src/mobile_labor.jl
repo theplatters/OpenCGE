@@ -1,19 +1,18 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Mobile Labor with Continuous Labor Supply Elasticity η
+# Mobile Labor with Geometric Intersectoral Reallocation η
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # This file implements the key model extension: replacing sector-specific
-# (immobile) labor with mobile labor that responds to an economy-wide wage
-# through a continuous elasticity parameter η ∈ [0, ∞).
+# (immobile) labor with geometric intersectoral reallocation parameter η.
 #
-#   η = 0     → perfectly inelastic labor (fixed total supply, like Leontief closure)
-#   η → ∞     → perfectly elastic labor (full slack, unlimited workers)
-#   0 < η < ∞ → intermediate: L = L̄ · w^η
+#   η = 0     → immobile baseline allocation
+#   η = 1     → fully cost-minimizing allocation
+#   η outside [0, 1] → extrapolation of the same geometric rule
 #
 # The key change vs. the base CES model:
 #   - The unknown vector gains a scalar wage w: X = [p(1:N); y(1:N); w]
 #   - Labor allocation is endogenous: L_i = (∂Y_i/∂L_i = w) → solved from FOC
-#   - Labor market clearing: Σ L_i(p,y,w) = L̄ · w^η  (the new equation)
+#   - Labor market clearing: total employment equals the fixed labor bar
 #
 # Author: calculato (AI research assistant)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -26,7 +25,7 @@ Elasticity parameters for the mobile-labor CES model.
 - `θ` : elasticity of substitution between intermediate goods
 - `ϵ`  : elasticity of substitution between labor and intermediate composite
 - `σ`  : elasticity of substitution in consumption
-- `η`  : labor supply elasticity (0 = inelastic, ∞ = perfectly elastic)
+- `η`  : intersectoral reallocation parameter; it is not a labor-supply elasticity
 """
 struct MobileLaborCESElasticities <: AbstractElasticities
     θ::Float64
@@ -38,25 +37,39 @@ end
 """
     MobileLaborCES
 
-Model type for CES with mobile labor and endogenous labor supply elasticity.
+Model type for CES with geometric intersectoral labor reallocation and an explicit wage-regime closure.
 
 - `elasticities` : a `MobileLaborCESElasticities` struct
-- `labor_bar`    : baseline total labor supply L̄ (defaults to Σ labor_share)
+- `labor_bar`    : fixed total employment capacity L̄ (defaults to Σ labor_share)
 """
 struct MobileLaborCES <: ModelType
     elasticities::MobileLaborCESElasticities
     labor_bar::Float64
-    closure::Symbol   # :mobile = market-clearing (eta free); :fixed = sticky wage (B&F 2022 unemployment closure)
+    closure::Symbol   # :mobile = flexible wage; :fixed = sticky wage
+    function MobileLaborCES(elasticities::MobileLaborCESElasticities, labor_bar::Float64, closure::Symbol)
+        closure in (:mobile, :fixed) || throw(ArgumentError("unsupported MobileLaborCES closure $closure; use :mobile or :fixed"))
+        new(elasticities, labor_bar, closure)
+    end
 end
 
-function MobileLaborCES(elasticities::MobileLaborCESElasticities, labor_bar::Float64)
-    MobileLaborCES(elasticities, labor_bar, :mobile)
-end
+_closure_symbol(closure::Symbol) = closure
+_closure_symbol(::FlexibleWageClosure) = :mobile
+_closure_symbol(::FixedWageClosure) = :fixed
+_closure_symbol(closure) = throw(ArgumentError(
+    "unsupported MobileLaborCES closure $closure; use :mobile, :fixed, FlexibleWageClosure(), or FixedWageClosure()"))
+
+MobileLaborCES(e::MobileLaborCESElasticities, lb::Real, closure::AbstractLaborClosure) =
+    MobileLaborCES(e, Float64(lb), _closure_symbol(closure))
+MobileLaborCES(e::MobileLaborCESElasticities, lb::Real; closure=:mobile) =
+    MobileLaborCES(e, Float64(lb), _closure_symbol(closure))
+MobileLaborCES(e::MobileLaborCESElasticities, lb::Real, closure::Symbol) = MobileLaborCES(e, Float64(lb), closure)
 
 function MobileLaborCES(elasticities::MobileLaborCESElasticities, data::Data)
     labor_bar = sum(data.labor_share)
     MobileLaborCES(elasticities, labor_bar, :mobile)
 end
+
+labor_closure(options::MobileLaborCES) = options.closure == :mobile ? FlexibleWageClosure() : FixedWageClosure()
 
 # ─────────────────────────────────────────────────────────────────────────────────
 # Sectoral labor demand from the wage (marginal product condition)
@@ -124,18 +137,20 @@ The equilibrium system for the mobile-labor CES model.
 
 Unknowns: X = [p(1:N); y(1:N); w]  — 2N+1 elements
 Equations (2N+1):
-  1. Price equations        (N-1):  p_i = cost_i(p, w)   for i=2..N
-  2. Market clearing        (N):     y_i = intermediary_demand_i + final_demand_i
-  3. Labor market clearing  (1):     Σ L_i(p,y,w) = L̄ · w^η
+  1. Zero-profit equations  (N):     p_i = cost_i(p, w)   for all i=1..N
+  2. Market clearing        (N-1):   y_i = intermediary_demand_i + final_demand_i
+                                      for i=1..N-1 (the last sector's equation is
+                                      dropped under Walras' law)
+  3. Labor market clearing  (1):     Σ L_i(p,y,w) = L̄
   4. Numeraire              (1):     CPI = 1  (Σ β_i · p_i^(1-σ))^(1/(1-σ)) = 1)
 
-Note: The first price equation (i=1) is replaced by the numeraire constraint.
-This breaks the price-level indeterminacy inherent in CRTS models.
+Note: The numeraire constraint (CPI = 1) pins the price level, breaking the
+price-level indeterminacy inherent in CRTS models. All N zero-profit
+conditions are enforced because the numeraire already replaces the price-level
+degree of freedom.
 
-Economic note: Under CRTS + mobile labor, the zero-profit condition pins down
-the wage w and relative prices independent of η. The labor supply elasticity η
-determines the scale of the economy (total employment, GDP) but not relative
-prices. This is a standard result in CGE modeling.
+Economic note: η changes the geometric allocation between baseline and
+cost-minimizing sectoral labor demand. It is not a labor-supply elasticity.
 """
 function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     (; data, options, shocks) = model
@@ -217,28 +232,36 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     # to sector 1 (construction) remains enforced.
     out[N+1:2N-1] .= y[1:N-1] .- intermediary_demand[1:N-1] .- total_final_demand[1:N-1]
 
-    if options.closure == :fixed
-        # Sticky-wage / unemployment closure (B&F 2022 style): hold the wage at
-        # its baseline (numeraire) value w = 1.0. The labor market no longer
-        # clears, so employment is labor demand and absorbs the shock; the gap
-        # L_bar - sum(L_i) is unemployment (recorded, not enforced).
-        # In this closure we do NOT treat w as an unknown — it is fixed at 1.0.
-        # The equation system is 2N (prices + quantities) with the numeraire
-        # replacing a redundant market-clearing equation, and the labor eq is
-        # dropped entirely. The wage is hard-coded at 1.0 in `problem_fixed`.
-        # The `solve` function handles this by calling a specialized path.
-        out[2N] = w - 1.0
-    else
-        # Labor-market clearing: total labor demand equals the (fixed) labor
-        # supply L_bar. The reallocation across sectors is governed by eta (B&F
-        # beta); the wage w adjusts here to clear the market when eta > 0.
-        out[2N] = sum(L_i) - options.labor_bar
-    end
+    # This is exclusively the flexible-wage system; fixed wages are routed to
+    # `problem_fixed` by `solve`.
+    out[2N] = sum(L_i) - options.labor_bar
 
     # ── Equation 4: Numeraire constraint — CPI = 1 ──
     out[2N+1] = cpi - 1.0
 
     nothing
+end
+
+"""Return the exact residual vector for either mobile-labor closure."""
+function equilibrium_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
+    N = length(model.data.factor_share)
+    fixed = labor_closure(model.options) isa FixedWageClosure
+    expected = fixed ? 2N : 2N + 1
+    length(X) == expected || throw(DimensionMismatch("closure expects a $expected element vector"))
+    out = zeros(Float64, expected)
+    if fixed
+        problem_fixed(out, collect(X), model)
+    else
+        problem(out, collect(X), model)
+    end
+    out
+end
+
+function _equilibrium_residuals(model::Model{MobileLaborCES}, sol::Solution)
+    X = labor_closure(model) isa FixedWageClosure ?
+        [sol.prices_raw; sol.quantities] :
+        [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+    equilibrium_residuals(model, X)
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -255,7 +278,7 @@ Equations:
   2. N-1 market-clearing:       y_i = intermed_i + final_i  (drop last sector)
   3. 1 numeraire:               CPI = 1  (replaces the redundant market equation)
 Total: 2N equations, 2N unknowns.
-Employment L_i is computed post-solve (not enforced as an equilibrium condition).
+Employment `L_i` is computed post-solve and is not constrained to `labor_bar`.
 """
 function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     (; data, options, shocks) = model
@@ -313,7 +336,7 @@ end
 
 Solve the sticky-wage (w=1.0) system. Returns a `Solution` with equilibrium
 prices, quantities, wage=1.0, consumption, and Tornqvist real GDP computed
-from consumption (B&F metric). Employment (sum L_i) is a post-solve residual.
+from consumption (B&F metric). Employment (`sum(L_i)`) is a post-solve outcome.
 """
 function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     (; data, options, shocks) = model
@@ -380,10 +403,10 @@ function solve(model::Model{MobileLaborCES};
     (; data, options, shocks) = model
     N = length(data.factor_share)
 
-    # ── Sticky-wage / unemployment path (:fixed closure) ──
+    # ── Sticky-wage path (:fixed closure) ──
     # w = 1.0 is hard-coded; solve a 2N system (prices + quantities only).
     # Employment is computed post-solve.
-    if options.closure == :fixed
+    if labor_closure(options) isa FixedWageClosure
         return _solve_fixed(model; init=init)
     end
 
@@ -450,9 +473,14 @@ end
 
 Convenience constructor for a MobileLaborCES model.
 """
-function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Float64, Nothing}=nothing, closure::Symbol=:mobile)
+function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Real, Nothing}=nothing, closure=:mobile)
     el = MobileLaborCESElasticities(θ, ϵ, σ, η)
-    lb = labor_bar === nothing ? sum(data.labor_share) : labor_bar
-    model = Model(data, shocks, MobileLaborCES(el, lb, closure))
+    lb = labor_bar === nothing ? sum(data.labor_share) : Float64(labor_bar)
+    model = Model(data, shocks, MobileLaborCES(el, lb, _closure_symbol(closure)))
     return model
 end
+
+mobile_labor_model(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η::Real;
+    labor_bar=nothing, closure=:mobile) = mobile_labor_model(data, shocks, Float64(θ), Float64(ϵ), Float64(σ), Float64(η);
+    labor_bar=labor_bar === nothing ? nothing : Float64(labor_bar),
+    closure=_closure_symbol(closure))

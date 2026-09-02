@@ -90,6 +90,17 @@ function problem(out::Vector, X::Vector, model::Model{CES})
 	nothing
 end
 
+"""Return the exact residual vector for a legacy CES equilibrium."""
+function equilibrium_residuals(model::Model{CES}, X::AbstractVector)
+	N = length(model.data.factor_share)
+	length(X) == 2N || throw(DimensionMismatch("CES expects a 2N vector"))
+	out = zeros(Float64, 2N)
+	problem(out, collect(X), model)
+	out
+end
+
+_equilibrium_residuals(::Model{CES}, sol::Solution) =
+	equilibrium_residuals(sol.model, [sol.prices_raw; sol.quantities])
 
 """
 	solve_ces_model(model::Model{CES}; init = [ones(length(model.data.λ)); model.data.λ])

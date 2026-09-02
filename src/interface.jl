@@ -1,6 +1,17 @@
 abstract type AbstractElasticities end
 abstract type AbstractData end
 
+"""Abstract supertype for labor-closure descriptions."""
+abstract type AbstractLaborClosure end
+"""Legacy CES closure, retaining its exogenous labor callback or symbol."""
+struct ExogenousLaborClosure <: AbstractLaborClosure
+	callback::Union{Function, Symbol}
+end
+"""Mobile labor with a flexible, market-clearing wage."""
+struct FlexibleWageClosure <: AbstractLaborClosure end
+"""Mobile labor with a fixed wage and unconstrained employment demand."""
+struct FixedWageClosure <: AbstractLaborClosure end
+
 
 """
 	CESElasticities(θ::Float64, ϵ::Float64, σ::Float64)
@@ -31,8 +42,11 @@ struct CES <: ModelType
 end
 
 CES() = CES(CESElasticities(0.01, 0.5, 0.9), full_labor_slack, false)
-CES(elasticities::CESElasticities) = CES(elasticities, full_labor_slack, false)
 CES(elasticities::CESElasticities, labor_slack) = CES(elasticities, labor_slack, false)
+CES(elasticities::CESElasticities; labor_slack=full_labor_slack, labor_reallocation=false) =
+	CES(elasticities, labor_slack, labor_reallocation)
+CES(e::CESElasticities, c::ExogenousLaborClosure, reallocate::Bool=false) = CES(e, c.callback, reallocate)
+labor_closure(options::CES) = ExogenousLaborClosure(options.labor_slack)
 struct Leontief <: ModelType
 	labor_effect::Bool
 end
@@ -43,6 +57,8 @@ struct CobbDouglas <: ModelType
 	elasticities::CobbDouglasElasticities
 	labor_slack::Union{Function, Symbol}
 end
+
+labor_closure(options::CobbDouglas) = ExogenousLaborClosure(options.labor_slack)
 
 struct Data <: AbstractData
 	io::DataFrame
@@ -116,11 +132,12 @@ function generate_data(io::DataFrames.DataFrame)
 end
 
 
-""" 
-Shocks
+"""
+	Shocks
 
-Two vectors, that have to be the same length as the amount of sectors.
-Each entry that differs from one, represents a percentage shock in that sector on demand/supply.
+Store equal-length sectoral supply, household-demand, raw-demand, autonomous-demand,
+and investment-demand vectors. Use the keyword constructor when the two additive
+final-demand vectors should retain their zero defaults.
 
 # Example
 ```julia-repl
@@ -132,17 +149,51 @@ struct Shocks
 	demand_shock::Vector{Float64}
 	demand_shock_raw::Vector{Float64}
 	# Autonomous (extra-household) final demand, e.g. exports or government
-	# spending. Exogenous real quantity = autonomous_demand_i * data.lambda_i.
+	# spending. The mobile model scales this by the sector's consumption share
+	# and baseline aggregate labor income.
 	autonomous_demand::Vector{Float64}
 	# Investment demand financed by debt (Venue 1 layer). Same form as
 	# autonomous_demand; the gap to wage income is the financing record.
 	investment_shock::Vector{Float64}
+	function Shocks(supply_shock::Vector{Float64}, demand_shock::Vector{Float64},
+			demand_shock_raw::Vector{Float64}, autonomous_demand::Vector{Float64},
+			investment_shock::Vector{Float64})
+		n = length(supply_shock)
+		all(length(v) == n for v in
+			(demand_shock, demand_shock_raw, autonomous_demand, investment_shock)) ||
+			throw(DimensionMismatch("all shock vectors must have the same length"))
+		new(supply_shock, demand_shock, demand_shock_raw,
+			autonomous_demand, investment_shock)
+	end
 end
 
-# Backward-compatible 3-arg constructor: no autonomous / investment demand.
-Shocks(supply_shock, demand_shock, demand_shock_raw) =
+function _shock_vectors(vectors...)
+	n = length(first(vectors))
+	all(length(v) == n for v in vectors) ||
+		throw(DimensionMismatch("all shock vectors must have the same length"))
+	map(v -> Float64.(v), vectors)
+end
+
+# Backward-compatible positional constructors, including the original 3-arg form.
+function Shocks(supply_shock::AbstractVector, demand_shock::AbstractVector,
+		demand_shock_raw::AbstractVector, autonomous_demand::AbstractVector,
+		investment_shock::AbstractVector)
+	a, b, c, d, e = _shock_vectors(supply_shock, demand_shock, demand_shock_raw,
+		autonomous_demand, investment_shock)
+	Shocks(a, b, c, d, e)
+end
+
+Shocks(supply_shock::AbstractVector, demand_shock::AbstractVector,
+		demand_shock_raw::AbstractVector) =
 	Shocks(supply_shock, demand_shock, demand_shock_raw,
-	       zeros(length(supply_shock)), zeros(length(supply_shock)))
+		zeros(length(supply_shock)), zeros(length(supply_shock)))
+
+"""Keyword convenience constructor for optional extra-demand shock vectors."""
+function Shocks(supply_shock::AbstractVector, demand_shock::AbstractVector;
+		demand_shock_raw=zeros(length(supply_shock)), autonomous_demand=zeros(length(supply_shock)),
+		investment_shock=zeros(length(supply_shock)))
+	Shocks(supply_shock, demand_shock, demand_shock_raw, autonomous_demand, investment_shock)
+end
 
 
 mutable struct Model{T <: ModelType}
@@ -150,6 +201,8 @@ mutable struct Model{T <: ModelType}
 	shocks::Shocks
 	options::T
 end
+
+labor_closure(model::Model) = labor_closure(model.options)
 
 """
 	read_data(filenem::String)

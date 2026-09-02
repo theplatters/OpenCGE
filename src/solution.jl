@@ -33,6 +33,14 @@ function nominal_gdp(sol::Solution)::Float64
 	return sol.nominal_gdp
 end
 
+"""Return exact equilibrium residuals at the raw values stored in `sol`."""
+function equilibrium_residuals(sol::Solution)
+	_equilibrium_residuals(sol.model, sol)
+end
+
+_equilibrium_residuals(::Model, ::Solution) =
+	throw(ArgumentError("equilibrium_residuals is not supported for this model type"))
+
 """
 	tornqvist_quantity_index(prices, quantities, base_prices, base_quantities)
 
