@@ -15,8 +15,8 @@
 #     (variance that requires factor f in any form — main effect or interaction)
 #   - Interaction share = ST_f − S_f
 #     (variance only explained by f interacting with other factors)
-#   - Unexplained = 1 − sum(S_f)  (should be zero in a full factorial;
-#     any positive value indicates missing grid points)
+#   - 1 − sum(S_f) is the interaction share for a complete balanced factorial;
+#     it need not be zero.  With failed points it also contains missing-data bias.
 #
 # Author: calculato (AI research assistant)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -28,7 +28,7 @@ using CSV
 using DataFrames
 
 """
-    eta_sweep(data, shocks, θ, ϵ, σ, η_values; labor_bar=nothing)
+    eta_sweep(data, shocks, θ, ϵ, σ, η_values; labor_bar=nothing, verbose=true)
 
 Run the mobile-labor CES model across a vector of η values.
 Returns a vector of `Solution` objects.
@@ -39,19 +39,30 @@ Returns a vector of `Solution` objects.
 sols = eta_sweep(data, shocks, 0.5, 0.5, 0.9, η_grid)
 ```
 """
-function eta_sweep(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η_values::Vector{Float64}; labor_bar::Union{Float64, Nothing}=nothing)
+function eta_sweep(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η_values::AbstractVector{<:Real}; labor_bar::Union{Float64, Nothing}=nothing, verbose::Bool=true)
+    η_values = _validate_grids(η_values; eta=true)[1]
+    for (name, value) in (("θ", θ), ("ϵ", ϵ), ("σ", σ))
+        isfinite(value) || throw(ArgumentError("$name must be finite"))
+    end
     N = length(data.factor_share)
     results = Vector{Solution}(undef, length(η_values))
 
-    # Use previous solution as warm start
-    init = [ones(N); data.λ; 1.0]
-
-    @showprogress "η sweep: " for (idx, η) in enumerate(η_values)
-        model = mobile_labor_model(data, shocks, θ, ϵ, σ, η; labor_bar=labor_bar)
-        sol = solve(model; init=init)
-        results[idx] = sol
-        # Warm start next iteration
-        init = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+    baseline_init = [ones(N); data.λ; 1.0]
+    progress = verbose ? Progress(length(η_values); desc="η sweep: ") : nothing
+    try
+        for (idx, η) in enumerate(η_values)
+            local sol
+            try
+                model = mobile_labor_model(data, shocks, θ, ϵ, σ, η; labor_bar=labor_bar)
+                sol = solve(model; init=copy(baseline_init))
+            catch e
+                throw(ArgumentError("η sweep failed at η=$η, θ=$θ, ϵ=$ϵ, σ=$σ: $(sprint(showerror, e))"))
+            end
+            results[idx] = sol
+            verbose && next!(progress)
+        end
+    finally
+        verbose && finish!(progress)
     end
 
     return results
@@ -130,8 +141,8 @@ Results of a Sobol variance decomposition on a full factorial grid.
 - `S_f`: first-order Sobol index for each factor (main effect, S_f = SS_f / SS_total)
 - `ST_f`: total-order Sobol index for each factor (ST_f = 1 − SS_{-f} / SS_total)
 - `grid`: the full factorial grid used
-- `values`: the output values at each grid point (NaN where solver failed)
-- `n_failed`: number of grid points with NaN (solver failure)
+- `values`: the output values at each grid point (non-finite where solver failed)
+- `n_failed`: number of grid points with non-finite output (solver failure)
 - `output_name`: name of the output variable decomposed
 - `ss_total`: total sum of squares
 - `ss_explained`: sum of main-effect SS (sum(S_f) × SS_total)
@@ -174,11 +185,13 @@ of the output variable into contributions from each elasticity.
 - `SobolResult` with first-order and total-order indices for each factor
 
 # Method
-Uses ANOVA-style one-at-a-time decomposition:
-    SS(f) = Σ_levels [mean(y | f=level) - grand_mean]² × n_level
-    partial_R²(f) = SS(f) / SS_total
-
-This captures the main effects. Interactions are in the residual.
+On a complete balanced factorial, this uses the standard Sobol/ANOVA
+definitions: `S_f = SS_f / SS_total` and `ST_f = 1 - SS_{-f}/SS_total`.
+`1 - sum(S_f)` is the interaction share (and is not generally zero).
+Failed grid points are retained as NaN and the resulting estimates are
+weighted over the valid observations; they should therefore not be treated
+as estimates from a balanced design.
+`verbose` controls the progress and informational messages.
 """
 function variance_decomposition(
     data::Data,
@@ -191,6 +204,11 @@ function variance_decomposition(
     labor_bar::Union{Float64, Nothing} = nothing,
     verbose::Bool = true,
 )
+
+    output in (:real_gdp, :nominal_gdp, :sectoral_q, :sectoral_p) ||
+        throw(ArgumentError("unsupported output=$output; choose :real_gdp, :nominal_gdp, :sectoral_q, or :sectoral_p"))
+    η_values = _validate_grids(η_values; eta=true)[1]
+    ϵ_values, θ_values, σ_values = _validate_grids(ϵ_values, θ_values, σ_values)
 
     # Build the full factorial grid
     grid = DataFrame()
@@ -213,45 +231,39 @@ function variance_decomposition(
     y_vals = Vector{Float64}(undef, n)
     sectoral_y_vals = output in (:sectoral_q, :sectoral_p) ? zeros(N, n) : nothing
 
-    init = [ones(N); data.λ; 1.0]
+    baseline_init = [ones(N); data.λ; 1.0]
+    progress = verbose ? Progress(n; desc="Variance decomposition: ") : nothing
+    try
+        for i in 1:n
+            η = grid.η[i]
+            ϵ = grid.ϵ[i]
+            θ = grid.θ[i]
+            σ = grid.σ[i]
 
-    @showprogress "Variance decomposition: " for i in 1:n
-        η = grid.η[i]
-        ϵ = grid.ϵ[i]
-        θ = grid.θ[i]
-        σ = grid.σ[i]
+            try
+                model = mobile_labor_model(data, shocks, θ, ϵ, σ, η; labor_bar=labor_bar)
+                sol = solve(model; init=copy(baseline_init))
 
-        # Preserve the historical finite approximation for an infinite
-        # extrapolation request. This is not an elastic-labor-supply limit.
-        if isinf(η)
-            # Approximate the geometric reallocation exponent with a large value.
-            η_eff = 1e6
-        else
-            η_eff = η
-        end
-
-        model = mobile_labor_model(data, shocks, θ, ϵ, σ, η_eff; labor_bar=labor_bar)
-
-        try
-            sol = solve(model; init=init)
-            init = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
-
-            if output == :real_gdp
-                y_vals[i] = real_gdp(sol)
-            elseif output == :nominal_gdp
-                y_vals[i] = nominal_gdp(sol)
-            elseif output == :sectoral_q
-                sectoral_y_vals[:, i] = sol.quantities
-            elseif output == :sectoral_p
-                sectoral_y_vals[:, i] = sol.prices
+                if output == :real_gdp
+                    y_vals[i] = real_gdp(sol)
+                elseif output == :nominal_gdp
+                    y_vals[i] = nominal_gdp(sol)
+                elseif output == :sectoral_q
+                    sectoral_y_vals[:, i] = sol.quantities
+                elseif output == :sectoral_p
+                    sectoral_y_vals[:, i] = sol.prices
+                end
+            catch e
+                @warn "Solve failed at grid point $i (η=$η, ϵ=$ϵ, θ=$θ, σ=$σ): $e"
+                y_vals[i] = NaN
+                if sectoral_y_vals !== nothing
+                    sectoral_y_vals[:, i] .= NaN
+                end
             end
-        catch e
-            @warn "Solve failed at grid point $i (η=$η, ϵ=$ϵ, θ=$θ, σ=$σ): $e"
-            y_vals[i] = NaN
-            if sectoral_y_vals !== nothing
-                sectoral_y_vals[:, i] .= NaN
-            end
+            verbose && next!(progress)
         end
+    finally
+        verbose && finish!(progress)
     end
 
     # ── Compute Sobol indices ──
@@ -270,6 +282,20 @@ function variance_decomposition(
     end
 end
 
+function _validate_grids(grids::AbstractVector{<:Real}...; eta=false)
+    checked = Vector{Vector{Float64}}(undef, length(grids))
+    for (i, grid) in enumerate(grids)
+        isempty(grid) && throw(ArgumentError("factor grid $i must be nonempty"))
+        values = Float64.(grid)
+        all(isfinite, values) || throw(ArgumentError("factor grid $i must contain only finite values"))
+        if eta
+            all(abs.(values) .<= 50) || throw(ArgumentError("η values must satisfy finite |η| ≤ 50"))
+        end
+        checked[i] = values
+    end
+    checked
+end
+
 
 """
     _compute_sobol_indices(factor_names, grid, values, output_name)
@@ -282,86 +308,98 @@ Total-order:   ST_f = 1 − SS_{-f} / SS_total
 
 where SS_{-f} is the sum of squares explained by all factors EXCEPT f.
 
-NaN values (from solver failures) are dropped; `n_failed` records how many
-points were lost. The total-order index is biased if grid points are missing,
-so `n_failed` should be reported.
+All non-finite values (from solver failures or invalid model output) are
+dropped; `n_failed` records how many points were lost. The total-order index
+is biased if grid points are missing, so `n_failed` should be reported.
 """
 function _compute_sobol_indices(factor_names::Vector{String}, grid::DataFrame, output_vals::Vector{Float64}, output_name::String)
     n_total = length(output_vals)
-    valid = .!isnan.(output_vals)
+    valid = isfinite.(output_vals)
     n_valid = sum(valid)
     n_failed = n_total - n_valid
+    n_failed > 0 && @warn "Sobol decomposition for $output_name has $n_failed invalid/missing grid values; estimates are not from a complete balanced design"
 
     if n_valid == 0
         S_f = Dict(f => NaN for f in factor_names)
         ST_f = Dict(f => NaN for f in factor_names)
         return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, 0.0, 0.0, NaN)
+    end
+
+    v = output_vals[valid]
+    grand_mean = mean(v)
+    ss_total = sum((v .- grand_mean) .^ 2)
+
+    # Scale-aware tolerance avoids dividing by numerical noise while
+    # preserving variation when outputs are merely small in magnitude.
+    variance_scale = max(1.0, maximum(abs.(v))^2) * max(1, n_valid)
+    zero_tol = 100 * eps(Float64) * variance_scale
+    if ss_total <= zero_tol
+        S_f = Dict(f => 0.0 for f in factor_names)
+        ST_f = Dict(f => 0.0 for f in factor_names)
+        return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, ss_total, 0.0, NaN)
+    end
+
+    # ── First-order indices S_f ──
+    S_f = Dict{String, Float64}()
+    for f in factor_names
+        col = grid[!, f][valid]
+        levels = unique(col)
+        ss_between = 0.0
+        for lvl in levels
+            mask = col .== lvl
+            group_mean = mean(v[mask])
+            n_group = sum(mask)
+            ss_between += n_group * (group_mean - grand_mean)^2
+        end
+        S_f[f] = ss_between / ss_total
+    end
+
+    # ── Total-order indices ST_f = 1 − SS_{-f} / SS_total ──
+    # SS_{-f} = variance explained by all factors EXCEPT f.
+    # For each combination of levels of all other factors, take the mean
+    # of y across the valid observations and weight by its actual count.
+    ST_f = Dict{String, Float64}()
+    for f in factor_names
+        other = setdiff(factor_names, [f])
+        other_cols = [grid[!, f_name][valid] for f_name in other]
+        combos = unique([Tuple([c[i] for c in other_cols]) for i in 1:n_valid])
+        ss_except_f = 0.0
+        for combo in combos
+            mask = trues(n_valid)
+            for (j, f_name) in enumerate(other)
+                mask = mask .& (other_cols[j] .== combo[j])
             end
-
-            v = output_vals[valid]
-            grand_mean = mean(v)
-            ss_total = sum((v .- grand_mean) .^ 2)
-
-            if ss_total ≈ 0
-                S_f = Dict(f => 0.0 for f in factor_names)
-                ST_f = Dict(f => 0.0 for f in factor_names)
-                return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, ss_total, 0.0, NaN)
+            n_in_mask = sum(mask)
+            if n_in_mask > 0
+                group_mean = mean(v[mask])
+                # In an incomplete design use the actual number of valid
+                # observations, not the nominal level count.
+                ss_except_f += n_in_mask * (group_mean - grand_mean)^2
             end
+        end
+        ST_f[f] = 1.0 - ss_except_f / ss_total
+    end
 
-            # ── First-order indices S_f ──
-            S_f = Dict{String, Float64}()
-            for f in factor_names
-                col = grid[!, f][valid]
-                levels = unique(col)
-                ss_between = 0.0
-                for lvl in levels
-                    mask = col .== lvl
-                    group_mean = mean(v[mask])
-                    n_group = sum(mask)
-                    ss_between += n_group * (group_mean - grand_mean)^2
-                end
-                S_f[f] = ss_between / ss_total
-            end
+    # Do not clip substantive out-of-range values: they diagnose an
+    # incomplete/unbalanced design. Only remove insignificant roundoff.
+    for f in factor_names
+        S_f[f] = _normalize_sobol_index(S_f[f], "S_f[$f]")
+        ST_f[f] = _normalize_sobol_index(ST_f[f], "ST_f[$f]")
+    end
 
-            # ── Total-order indices ST_f = 1 − SS_{-f} / SS_total ──
-            # SS_{-f} = variance explained by all factors EXCEPT f.
-            # On a balanced full factorial, for each combination of levels of all
-            # other factors, we take the mean of y across f's levels, and sum the
-            # squared deviations weighted by the number of f levels.
-            ST_f = Dict{String, Float64}()
-            for f in factor_names
-                other = setdiff(factor_names, [f])
-                # Group by all other factors
-                other_cols = [grid[!, f_name][valid] for f_name in other]
-                # Unique level combinations of the other factors
-                combos = unique([Tuple([c[i] for c in other_cols]) for i in 1:n_valid])
-                n_levels_f = length(unique(grid[!, f][valid]))
-                ss_except_f = 0.0
-                for combo in combos
-                    mask = trues(n_valid)
-                    for (j, f_name) in enumerate(other)
-                        mask = mask .& (other_cols[j] .== combo[j])
-                    end
-                    n_in_mask = sum(mask)
-                    if n_in_mask > 0
-                        group_mean = mean(v[mask])
-                        # Weight by number of f levels (what we'd expect in a balanced design)
-                        ss_except_f += n_levels_f * (group_mean - grand_mean)^2
-                    end
-                end
-                ST_f[f] = 1.0 - ss_except_f / ss_total
-            end
+    ss_explained = sum(Base.values(S_f)) * ss_total
+    frac_unexplained = 1.0 - sum(Base.values(S_f))
 
-            # Clip to [0, 1] for numerical safety
-            for f in factor_names
-                S_f[f] = max(0.0, min(1.0, S_f[f]))
-                ST_f[f] = max(0.0, min(1.0, ST_f[f]))
-            end
+    return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, ss_total, ss_explained, frac_unexplained)
+end
 
-            ss_explained = sum(Base.values(S_f)) * ss_total
-            frac_unexplained = 1.0 - sum(Base.values(S_f))
-
-            return SobolResult(factor_names, S_f, ST_f, grid, output_vals, n_failed, output_name, ss_total, ss_explained, frac_unexplained)
+function _normalize_sobol_index(x::Float64, label::String)
+    isfinite(x) || return x
+    tol = 100 * eps(Float64) * max(1.0, abs(x))
+    abs(x) <= tol && return 0.0
+    abs(x - 1.0) <= tol && return 1.0
+    (x < 0.0 || x > 1.0) && @warn "$label=$x is outside [0, 1]; retaining diagnostic value"
+    x
 end
 
 
@@ -377,7 +415,9 @@ If `save_csv` is a file path, writes the results to CSV.
 """
 function summary_table(vd::SobolResult; save_csv=nothing)
     println("\n═ Sobol Variance Decomposition: $(vd.output_name) ═")
-    println("Grid: $(nrow(vd.grid)) points, $(vd.n_failed) failed (NaN) = $(round(100*vd.n_failed/nrow(vd.grid), digits=1))%")
+    n_grid = nrow(vd.grid)
+    failed_pct = n_grid == 0 ? NaN : 100 * vd.n_failed / n_grid
+    println("Grid: $n_grid points, $(vd.n_failed) failed (non-finite) = $(round(failed_pct, digits=1))%")
     if vd.n_failed > 0
         println("⚠  Total-order indices are biased by missing grid points — interpret with caution")
     end
@@ -404,8 +444,13 @@ function summary_table(vd::SobolResult; save_csv=nothing)
     else
         println("Interpretation: 1−Sum S_f partly includes missing-data bias.")
     end
-    dom = argmax([vd.S_f[f] for f in vd.factors])
-    @printf("Dominant factor: %s (S_f=%.4f)\n", vd.factors[dom], vd.S_f[vd.factors[dom]])
+    finite_factors = [f for f in vd.factors if haskey(vd.S_f, f) && isfinite(vd.S_f[f])]
+    if isempty(finite_factors)
+        println("Dominant factor: unavailable (all first-order indices are non-finite)")
+    else
+        dom = argmax([vd.S_f[f] for f in finite_factors])
+        @printf("Dominant factor: %s (S_f=%.4f)\n", finite_factors[dom], vd.S_f[finite_factors[dom]])
+    end
 
     # ── Save CSV ──
     if save_csv !== nothing
@@ -435,7 +480,7 @@ Returns an `EtaSweepResult` with solutions at each η value.
 This is a descriptive sweep; it does not make a go/no-go claim.
 """
 function eta_sweep_full(data::Data, shocks::Shocks; θ=0.5, ϵ=0.5, σ=0.9, labor_bar::Union{Float64, Nothing}=nothing)
-    η_values = [0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0]
+    η_values = [0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0]
     sols = eta_sweep(data, shocks, θ, ϵ, σ, η_values; labor_bar=labor_bar)
     return EtaSweepResult(η_values, sols)
 end

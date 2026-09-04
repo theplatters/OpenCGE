@@ -139,6 +139,6 @@ function solve(
 		data.consumption_share,
 	)
 
-	nominal_gdp = (wages' * labor) / numeraire
+	nominal_gdp = wages' * labor
 	return Solution(p, q, wages, consumption, numeraire, real_gdp, nominal_gdp, model)
 end

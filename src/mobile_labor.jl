@@ -83,6 +83,62 @@ labor_closure(options::MobileLaborCES) = options.closure == :mobile ? FlexibleWa
 # This gives sectoral labor demand as a function of (p, y, w).
 # ─────────────────────────────────────────────────────────────────────────────────
 
+const _ETA_MAX = 50.0
+const _ETA_SCALE_INDETERMINACY_TOL = 1.1e-6
+const _ALLOCATION_LOG_LIMIT = 50.0
+const _WEDGE_MIN = eps(Float64)
+
+function _checked_eta(η)
+    isfinite(η) || throw(ArgumentError("η must be finite"))
+    abs(η) <= _ETA_MAX || throw(DomainError(η, "η must have magnitude at most 50"))
+    Float64(η)
+end
+
+_positive_floor(x) = max.(x, eps(Float64))
+_positive_floor(x::Real) = max(x, eps(Float64))
+
+"""Cost-minimizing labor demand, evaluated in log space for stable η extrapolation."""
+function _cost_minimizing_labor(p, y, w, model::Model{MobileLaborCES})
+    (; data, options, shocks) = model
+    (; ϵ) = options.elasticities
+    (; factor_share) = data
+    p, y, w, A, α = _positive_floor.((p, y, w, shocks.supply_shock, factor_share))
+    log_demand = ϵ .* (log.(p) .+ ((ϵ - 1) / ϵ) .* log.(A) .+ (1 / ϵ) .* log.(α) .+
+        (1 / ϵ) .* log.(y) .- log(w))
+    exp.(clamp.(log_demand, log(floatmin(Float64)), log(floatmax(Float64))))
+end
+
+"""Interpolate fixed and cost-minimizing allocations geometrically in log space."""
+function _interpolated_labor(p, y, w, model::Model{MobileLaborCES})
+    η = _checked_eta(model.options.elasticities.η)
+    fixed = _positive_floor(model.data.labor_share)
+    optimum = _positive_floor(_cost_minimizing_labor(p, y, w, model))
+    log_labor = (1 - η) .* log.(fixed) .+ η .* log.(optimum)
+    exp.(clamp.(log_labor, log(floatmin(Float64)), log(floatmax(Float64))))
+end
+
+"""Return the allocative-efficiency factor (one at the optimum, never above one).
+
+The log allocation ratio is limited to ±50 to keep trial solver iterates finite.
+"""
+function _allocation_efficiency_wedge(labor, optimum, factor_share, ϵ)
+    ϵ > 0 || throw(DomainError(ϵ, "ϵ must be positive for the allocation wedge"))
+    ratio = clamp.(log.(_positive_floor(labor) ./ _positive_floor(optimum)),
+                   -_ALLOCATION_LOG_LIMIT, _ALLOCATION_LOG_LIMIT)
+    curvature = abs(1 - ϵ) / ϵ
+    penalty = 0.5 .* _positive_floor(factor_share) .* max.(1 .- factor_share, 0) .* curvature .* ratio.^2
+    # Keep the wedge strictly positive even when the clamped log ratio makes
+    # the exponential underflow. `max.` remains elementwise AD-compatible.
+    max.(exp.(-penalty), _WEDGE_MIN)
+end
+
+function _allocation_efficiency_wedge(p, y, w, labor, model::Model{MobileLaborCES})
+    (; factor_share) = model.data
+    ϵ = model.options.elasticities.ϵ
+    optimum = _cost_minimizing_labor(p, y, w, model)
+    _allocation_efficiency_wedge(labor, optimum, factor_share, ϵ)
+end
+
 """
     sectoral_labor_demand(p, y, w, model::Model{MobileLaborCES})
 
@@ -90,22 +146,7 @@ Compute sectoral labor demand L_i given prices, quantities, and the economy-wide
 Derived by inverting the marginal-product-of-labor condition.
 """
 function sectoral_labor_demand(p, y, w, model::Model{MobileLaborCES})
-    (; data, options, shocks) = model
-    (; ϵ, η) = options.elasticities
-    (; supply_shock) = shocks
-    (; factor_share, labor_share) = data
-
-    # Cost-minimizing labor demand given the common wage (mobile limit, eta=1):
-    #   L_i = [ p_i · A_i^((ε-1)/ε) · α_i^(1/ε) · y_i^(1/ε) / w ]^ε
-    L_costmin = (p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) ./ w) .^ ϵ
-    # Baseline (immobile) labor allocation, fixed in sector (eta=0). Uses
-    # labor_share so that sum(L_fixed) == labor_bar exactly (labor market clears
-    # trivially for eta=0 and the system stays square/solvable).
-    L_fixed = labor_share
-    # Repurpose eta as B&F (2019) labor-reallocation parameter beta:
-    #   eta = 0 -> immobile (labor fixed at baseline shares, no reallocation)
-    #   eta = 1 -> mobile   (full cost-minimizing reallocation across sectors)
-    return L_fixed .^ (1 - η) .* L_costmin .^ η
+    _interpolated_labor(p, y, w, model)
 end
 
 """
@@ -157,8 +198,8 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     N = length(data.factor_share)
 
     # Unpack unknowns
-    p = max.(X[1:N], 0)
-    y = max.(X[N+1:2N], 0)
+    p = _positive_floor(X[1:N])
+    y = _positive_floor(X[N+1:2N])
     w = max(X[2N+1], 1e-10)  # scalar wage, keep positive
 
     (; supply_shock, demand_shock) = shocks
@@ -207,12 +248,7 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     # its shocked optimum (eta < 1), there is a second-order allocative
     # inefficiency that raises effective cost / lowers TFP. The wedge vanishes
     # for eta=1 (mobile) and at baseline (L_opt == L_base).
-    L_opt = (p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) ./ w) .^ ϵ
-    L_base = factor_share .* data.λ  # baseline (immobile, fixed) labor allocation
-    mis = 1 - η
-    log_ratio = log.((L_base .+ 1e-12) ./ (L_opt .+ 1e-12))
-    penalty = 0.5 .* factor_share .* (1 .- factor_share) .* ((ϵ - 1) / ϵ) .* (mis .* log_ratio) .^ 2
-    alloc_wedge = exp.(-penalty)
+    alloc_wedge = _allocation_efficiency_wedge(p, y, w, L_i, model)
 
     # ── Cost function (effective TFP includes the reallocation wedge) ──
     cost = ((supply_shock .* alloc_wedge) .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) .+ (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
@@ -279,14 +315,17 @@ Equations:
   3. 1 numeraire:               CPI = 1  (replaces the redundant market equation)
 Total: 2N equations, 2N unknowns.
 Employment `L_i` is computed post-solve and is not constrained to `labor_bar`.
+The sticky-wage counterfactual holds the production cost at its direct CES
+form. The mobile-only reallocation-efficiency correction is not added because
+this fixed closure has no labor-market/accounting equation to support it.
 """
 function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     (; data, options, shocks) = model
     N = length(data.factor_share)
     w = 1.0  # sticky wage
 
-    p = max.(X[1:N], 0)
-    y = max.(X[N+1:2N], 0)
+    p = _positive_floor(X[1:N])
+    y = _positive_floor(X[N+1:2N])
 
     (; supply_shock, demand_shock) = shocks
     (; consumption_share, Ω_raw, factor_share, labor_share) = data
@@ -315,7 +354,8 @@ function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     # Intermediary demand
     intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
 
-    # Cost function (w=1.0)
+    # Direct CES cost at the sticky wage; the reallocation correction is
+    # supported only by the mobile closure's labor-market accounting.
     cost = (supply_shock .^ (ϵ - 1) .* (factor_share .* w .^ (1 - ϵ) .+ (1 .- factor_share) .* intermediate_price .^ (1 - ϵ))) .^ (1 / (1 - ϵ))
 
     # 1. Zero-profit (all N sectors)
@@ -342,6 +382,11 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     (; data, options, shocks) = model
     N = length(data.factor_share)
 
+    η = options.elasticities.η
+    isapprox(η, 1.0; rtol=0, atol=_ETA_SCALE_INDETERMINACY_TOL) &&
+        all(iszero, shocks.autonomous_demand) && all(iszero, shocks.investment_shock) &&
+        throw(ArgumentError("fixed-wage η=1 has a homogeneous, scale-indeterminate equilibrium; add autonomous or investment demand as an additive-demand anchor, or use another η"))
+
     if init === nothing
         init = [ones(N); data.λ]
     elseif length(init) == 2N + 1
@@ -349,11 +394,17 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
         init = init[1:2N]
     end
 
-    ProbN = NonlinearSolve.NonlinearProblem(problem_fixed, init, model)
-    res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=1000)
-    string(res.retcode) == "Success" ||
-        error("MobileLaborCES._solve_fixed did not converge: retcode = $(res.retcode)")
-    x = res.u
+    # Avoid asking the nonlinear solver to differentiate an already exact
+    # baseline, which some solver versions report as stalled.
+    x = if maximum(abs, equilibrium_residuals(model, init)) <= 1e-12
+        Float64.(init)
+    else
+        ProbN = NonlinearSolve.NonlinearProblem(problem_fixed, init, model)
+        res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=1000)
+        string(res.retcode) == "Success" ||
+            error("MobileLaborCES._solve_fixed did not converge: retcode = $(res.retcode)")
+        res.u
+    end
 
     p = x[1:N]
     q = x[N+1:2N]
@@ -382,7 +433,7 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
         ones(N),
         base_consumption,
     )
-    nominal_gdp = (w * sum(L_i)) / numeraire
+    nominal_gdp = w * sum(L_i)
 
     return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model)
 end
@@ -416,15 +467,19 @@ function solve(model::Model{MobileLaborCES};
         init = [ones(N); data.λ; 1.0]
     end
 
-    ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
-    res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=1000)
-    # Fail loudly instead of silently returning a non-equilibrium. The earlier
-    # false "GO" certifications came from trusting .u without checking retcode.
-    # `retcode` may be the symbol :Success or the string "Success" depending on
-    # the NonlinearSolve version; normalize to a string before comparing.
-    string(res.retcode) == "Success" ||
-        error("MobileLaborCES.solve did not converge: retcode = $(res.retcode)")
-    x = res.u
+    # As in the fixed-wage path, avoid asking the nonlinear solver to
+    # differentiate an already exact baseline (some versions report this as
+    # stalled). Non-exact guesses still retain retcode checks.
+    x = if maximum(abs, equilibrium_residuals(model, init)) <= 1e-12
+        Float64.(init)
+    else
+        ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
+        res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=1000)
+        # `retcode` may be a symbol or string depending on NonlinearSolve.
+        string(res.retcode) == "Success" ||
+            error("MobileLaborCES.solve did not converge: retcode = $(res.retcode)")
+        res.u
+    end
 
     p = x[1:N]
     q = x[N+1:2N]
@@ -459,7 +514,7 @@ function solve(model::Model{MobileLaborCES};
         ones(N),
         base_consumption,
     )
-    nominal_gdp = (w * sum(L_i)) / numeraire
+    nominal_gdp = w * sum(L_i)
 
     return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model)
 end
@@ -472,11 +527,16 @@ end
     mobile_labor_model(data, shocks, θ, ϵ, σ, η; labor_bar=nothing)
 
 Convenience constructor for a MobileLaborCES model.
+`closure=:mobile` uses a flexible, market-clearing wage; `closure=:fixed` uses a
+sticky wage of one and unconstrained employment demand.
 """
 function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Real, Nothing}=nothing, closure=:mobile)
     el = MobileLaborCESElasticities(θ, ϵ, σ, η)
+    closure_symbol = _closure_symbol(closure)
+    labor_bar !== nothing && closure_symbol == :fixed && throw(ArgumentError(
+        "fixed closure treats employment as an outcome; labor_bar is not used and must not be supplied"))
     lb = labor_bar === nothing ? sum(data.labor_share) : Float64(labor_bar)
-    model = Model(data, shocks, MobileLaborCES(el, lb, _closure_symbol(closure)))
+    model = Model(data, shocks, MobileLaborCES(el, lb, closure_symbol))
     return model
 end
 

@@ -13,14 +13,34 @@ using Test
 end
 
 @testset "Impulse sector selection" begin
-	io = DataFrame("Letzte Verwendung von Gütern zusammen" => fill(100.0, 71))
-	data = (grossy = ones(71), io = io)
-	impulses = DataFrame(zeros(2, 73), :auto) # year, 71 sectors, wages
+    data = tiny_fixture()
+    impulses = DataFrame(zeros(2, 4), :auto) # year, two sectors, wages
 
-	shocks = BeyondHulten.impulse_shock(data, impulses)
-	@test length(shocks.demand_shock) == 71
-	@test length(shocks.demand_shock_raw) == 71
-	@test_throws DimensionMismatch BeyondHulten.impulse_shock(data, DataFrame(zeros(2, 72), :auto))
+    shocks = BeyondHulten.impulse_shock(data, impulses)
+    @test length(shocks.demand_shock) == length(data.grossy)
+    @test length(shocks.demand_shock_raw) == length(data.grossy)
+    @test_throws DimensionMismatch BeyondHulten.impulse_shock(data, DataFrame(zeros(2, 3), :auto))
+end
+
+@testset "shock construction and validation" begin
+    data = tiny_fixture()
+    for (constructor, field) in ((standard_shock, :demand_shock),
+                               (standard_tech_shock, :supply_shock))
+        shock = constructor(data, "b")
+        @test length(getproperty(shock, field)) == 2
+        @test getproperty(shock, field)[2] != 1
+        @test getproperty(shock, field)[1] == 1
+        @test_throws ArgumentError constructor(data, "missing")
+    end
+    shock = autonomous_shock(data; sector="b")
+    @test length(shock.autonomous_demand) == 2
+    @test shock.autonomous_demand == [0., 1.8097957577943152]
+    @test_throws ArgumentError autonomous_shock(data; sector="missing")
+    @test_throws DimensionMismatch Shocks(ones(2), ones(3), zeros(2))
+    @test_throws DimensionMismatch Data(data.io, ones(2, 2), [.5], [.5, .5], [1., 1.],
+        [.5, .5], [.5, .5], [1., 1.], [.5, .5])
+    @test_throws DimensionMismatch Data(data.io, ones(1, 2), [.5, .5], [.5, .5], [1., 1.],
+        [.5, .5], [.5, .5], [1., 1.], [.5, .5])
 end
 
 @testset "Törnqvist real-GDP quantity index" begin

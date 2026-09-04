@@ -109,6 +109,26 @@ function Data(filename::String)
 	read_data(filename)
 end
 
+# Compact constructor retained for small synthetic fixtures and older clients.
+# The accounting-extension fields are immaterial for equilibrium calculations.
+function Data(io::DataFrame, Ω::AbstractMatrix, consumption_share::AbstractVector,
+		factor_share::AbstractVector, λ::AbstractVector, labor_share::AbstractVector,
+		consumption_share_gross_output::AbstractVector, grossy::AbstractVector,
+		value_added::AbstractVector)
+	n = length(grossy)
+	all(length(v) == n for v in (consumption_share, factor_share, λ, labor_share,
+		consumption_share_gross_output, value_added)) ||
+		throw(DimensionMismatch("synthetic Data vectors must have a common length"))
+	size(Ω) == (n, n) ||
+		throw(DimensionMismatch("synthetic Data Ω must have size (n, n)"))
+	Ωf = Matrix{Float64}(Ω)
+	gv = Float64.(grossy)
+	va = Float64.(value_added)
+	Data(io, Ωf, Ωf, Float64.(consumption_share), Float64.(factor_share), Float64.(λ),
+		Float64.(labor_share), Float64.(consumption_share_gross_output), gv, va, gv, DataFrame(),
+		zeros(n), zeros(n), zeros(n), sum(va), sum(va), sum(va))
+end
+
 """
 	generate_data(io::DataFrames.DataFrame)
 
@@ -119,9 +139,9 @@ table and performs the §4.1 accounting-consistency transformation:
 2. decomposes value added into wages / other production taxes / depreciation /
    net operating surplus (never relabelling total VA as "labour");
 3. computes gross output at basic prices and the composite factor share;
-4. reconciles the three GDP sides (production = income = expenditure within 1.5%);
-5. builds the domestic conditional input-share matrix `Ω` and the domestic
-   final-demand vector used for shock incidence.
+4. applies a guard when the three GDP sides differ by 10% or more;
+5. builds the raw conditional input-share matrix `Ω_raw` used by equilibrium
+   technology, while retaining domestic `Ω` for audit and incidence data.
 
 Returns a NamedTuple; `read_data` assembles it into a `Data` object.
 """
@@ -198,7 +218,10 @@ function generate_data(io::DataFrames.DataFrame)
 	@assert res_P_E < 0.10 "production vs expenditure discrepancy > 10% (gross accounting error)"
 
 	# --- Final-demand absorption (B&F orientation) ---
-	consumption_share = (I - Diagonal(1.0 .- factor_share) * Ω_dom)' * grossy
+	# Household absorption is calibrated against the same raw technology matrix
+	# used by equilibrium production. Ω_dom remains available for domestic
+	# incidence/audit calculations.
+	consumption_share = (I - Diagonal(1.0 .- factor_share) * Ω_raw)' * grossy
 	@views consumption_share[consumption_share .< 0] .= 0
 	consumption_share = consumption_share / sum(consumption_share)
 
@@ -260,7 +283,7 @@ final-demand vectors should retain their zero defaults.
 
 # Example
 ```julia-repl
-julia> Shocks(ones(76),ones(76))
+julia> Shocks(ones(length(data.grossy)), ones(length(data.grossy)))
 ```
 """
 struct Shocks

@@ -1,13 +1,6 @@
 using BeyondHulten
 using DataFrames
-using LinearAlgebra
 using Test
-
-function tiny_fixture()
-    io = DataFrame(Sektoren=["a", "b"])
-    Data(io, Matrix{Float64}(I, 2, 2), [.5, .5], [.5, .5], [1., 1.],
-        [.5, .5], [.5, .5], [1., 1.], [0.5, 0.5])
-end
 
 @testset "mobile labor closure and reallocation" begin
     data = tiny_fixture()
@@ -18,7 +11,7 @@ end
     sol = solve(model)
     @test real_gdp(sol) ≈ 1 atol=1e-5
     @test nominal_gdp(sol) ≈ 1 atol=1e-5
-    @test maximum(abs, equilibrium_residuals(sol)) < 1e-5
+    @test max_equilibrium_residual(sol) < 1e-5
     labor = sectoral_labor_demand(sol.prices_raw, sol.quantities,
         sol.wages_raw[1], model)
     @test sum(sol.prices_raw .* sol.consumption) ≈
@@ -36,6 +29,12 @@ end
     @test MobileLaborCES(e, 1., FlexibleWageClosure()).closure == :mobile
     @test mobile_labor_model(data, shocks, .5, .5, .9, .5;
         closure=FixedWageClosure()).options.closure == :fixed
+    @test mobile_labor_model(data, shocks, .5, .5, .9, .5;
+        closure=:fixed).options.labor_bar == sum(data.labor_share)
+    @test_throws ArgumentError mobile_labor_model(data, shocks, .5, .5, .9, .5;
+        labor_bar=1., closure=:fixed)
+    @test_throws ArgumentError mobile_labor_model(data, shocks, .5, .5, .9, .5;
+        labor_bar=1., closure=FixedWageClosure())
     @test_throws ArgumentError MobileLaborCES(e, 1., :unknown)
     @test_throws ArgumentError MobileLaborCES(e, 1.; closure="mobile")
     failure = try
@@ -46,6 +45,35 @@ end
     end
     @test failure isa ErrorException
     @test occursin("did not converge", sprint(showerror, failure))
+end
+
+@testset "mobile labor numerical safeguards and allocation wedge" begin
+    data = tiny_fixture()
+    shocks = Shocks(ones(2), ones(2), zeros(2))
+    model = Model(data, shocks,
+        MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, .5), 1., :mobile))
+
+    labor = sectoral_labor_demand(ones(2), ones(2), 1.,
+        Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 50.), 1., :mobile)))
+    @test all(isfinite, labor)
+    @test_throws ArgumentError sectoral_labor_demand(ones(2), ones(2), 1.,
+        Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, Inf), 1., :mobile)))
+    @test_throws DomainError sectoral_labor_demand(ones(2), ones(2), 1.,
+        Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 51.), 1., :mobile)))
+
+    optimum = [.5, .5]
+    @test BeyondHulten._allocation_efficiency_wedge(optimum, optimum, [.5, .5], .5) == ones(2)
+    for ϵ in (.5, 2.)
+        wedge = BeyondHulten._allocation_efficiency_wedge([.8, .2], optimum, [.5, .5], ϵ)
+        @test all(isfinite, wedge) && all((0 .< wedge) .& (wedge .<= 1))
+        @test all(wedge .< 1)
+    end
+    near_zero = BeyondHulten._allocation_efficiency_wedge([.8, .2], optimum, [.5, .5], .01)
+    moderate = BeyondHulten._allocation_efficiency_wedge([.8, .2], optimum, [.5, .5], .5)
+    @test prod(near_zero) < prod(moderate)
+    extreme = BeyondHulten._allocation_efficiency_wedge([1.0, 1.0], [eps(), eps()], [.5, .5], 1e-6)
+    @test all(isfinite, extreme) && all(0 .< extreme .<= 1)
+    @test economy_wide_wage(ones(2), ones(2), data.labor_share, model) ≈ 1.
 end
 
 @testset "legacy closure taxonomy and compatibility" begin

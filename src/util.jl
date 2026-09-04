@@ -1,12 +1,15 @@
 using ProgressMeter, ThreadsX
 
 
+"""Construct the standard demand shock for one modeled sector."""
 function standard_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten")
-	shock_amount = 100_000
-	demand_shock = ones(71)
-	supply_shock = ones(71)
-	demand_shock[findfirst(==(sector), data.io.Sektoren)] = 1.8097957577943152
-	shocks = Shocks(supply_shock, demand_shock, zeros(71))
+	n = length(data.grossy)
+	index = findfirst(==(sector), data.io.Sektoren)
+	(index === nothing || index > n) && throw(ArgumentError("sector $sector is not a modeled sector"))
+	demand_shock = ones(n)
+	supply_shock = ones(n)
+	demand_shock[index] = 1.8097957577943152
+	shocks = Shocks(supply_shock, demand_shock, zeros(n))
 	return shocks
 end
 
@@ -23,30 +26,40 @@ function autonomous_shock(data;
 	sector = "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten",
 	autonomous_mult = 1.8097957577943152,
 	investment_mult = 0.0)
-	aut = zeros(71)
-	aut[findfirst(==(sector), data.io.Sektoren)] = autonomous_mult
-	inv = zeros(71)
-	inv[findfirst(==(sector), data.io.Sektoren)] = investment_mult
-	Shocks(ones(71), ones(71), zeros(71), aut, inv)
+	n = length(data.grossy)
+	index = findfirst(==(sector), data.io.Sektoren)
+	(index === nothing || index > n) && throw(ArgumentError("sector $sector is not a modeled sector"))
+	aut = zeros(n)
+	aut[index] = autonomous_mult
+	inv = zeros(n)
+	inv[index] = investment_mult
+	Shocks(ones(n), ones(n), zeros(n), aut, inv)
 end
 
 
+"""Construct the standard technology shock for one modeled sector."""
 function standard_tech_shock(data, sector = "Vorb.Baustellen-,Bauinstallations-,Ausbauarbeiten")
-	demand_shock = ones(71)
-	supply_shock = ones(71)
-	supply_shock[findfirst(==(sector), data.io.Sektoren)] = 1.2
-	Shocks(supply_shock, demand_shock,zeros(71))
+	n = length(data.grossy)
+	index = findfirst(==(sector), data.io.Sektoren)
+	(index === nothing || index > n) && throw(ArgumentError("sector $sector is not a modeled sector"))
+	demand_shock = ones(n)
+	supply_shock = ones(n)
+	supply_shock[index] = 1.2
+	Shocks(supply_shock, demand_shock, zeros(n))
 end
 
+"""Construct demand and supply shocks from an impulse-response table."""
 function impulse_shock(data, impulses)
-	# `impulses` contains year, 71 goods sectors, and wages. Retain every goods
+	# `impulses` contains year, one column per modeled sector, and wages. Retain every goods
 	# sector while excluding the non-sector columns at either end.
 	impules_2019_prices = impulses[:, 2:end-1] ./ inflator
 	size(impules_2019_prices, 2) == length(data.grossy) ||
 		throw(DimensionMismatch("the impulse table must contain one column per modeled sector"))
-	effect = 1 .+  impules_2019_prices ./ data.io[1:71, "Letzte Verwendung von Gütern zusammen"]'
-	demand_shock = [mean(col) for col in eachcol(effect[1:2, :])]
-	supply_shock = ones(71)
+	n = length(data.grossy)
+	last_use = Vector(data.io[1:n, "Letzte Verwendung von Gütern zusammen"])
+	effect = 1 .+ impules_2019_prices ./ last_use'
+	demand_shock = [mean(col) for col in eachcol(effect[1:min(2, size(effect, 1)), :])]
+	supply_shock = ones(n)
 	Shocks(supply_shock, demand_shock, [mean(col) for col in eachcol(impules_2019_prices)])
 end
 struct ElasticityGradientSolution

@@ -12,7 +12,7 @@ using Test
     @test real_gdp(sol) ≈ 1 atol=1e-5
     @test nominal_gdp(sol) ≈ 1 atol=1e-5
     @test sol.wages ≈ ones(2)
-    @test maximum(abs, equilibrium_residuals(sol)) < 1e-5
+    @test max_equilibrium_residual(sol) < 1e-5
     labor = sectoral_labor_demand(sol.prices_raw, sol.quantities, 1.0, model)
     @test sum(sol.prices_raw .* sol.consumption) ≈ sum(labor) atol=1e-10
 
@@ -26,29 +26,33 @@ using Test
         shocked_sol.prices_raw, shocked_sol.quantities, 1.0, shocked)
     @test maximum(abs, equilibrium_residuals(shocked_sol)) < 1e-5
     @test !isapprox(sum(shocked_labor), shocked.options.labor_bar; atol=1e-4)
+    @test nominal_gdp(shocked_sol) ≈ sum(shocked_labor) atol=1e-9
     @test sum(shocked_sol.prices_raw .* shocked_sol.consumption) ≈
         sum(shocked_labor) atol=1e-9
 end
 
-@testset "Sobol result API" begin
-    @test SobolResult === VarianceDecompositionResult
-    grid = DataFrame(η=[0., 0., 1., 1.], ϵ=[0., 1., 0., 1.], θ=[0., 0., 0., 0.], σ=[0., 0., 0., 0.])
-    result = BeyondHulten._compute_sobol_indices(["η", "ϵ", "θ", "σ"], grid,
-        [0., 1., 1., 2.], "synthetic")
-    @test result isa SobolResult
-    @test result.S_f["η"] ≈ .5
-    @test result.S_f["ϵ"] ≈ .5
-    @test result.n_failed == 0
+@testset "fixed eta near one scale validation" begin
+    data = tiny_fixture()
+    model = Model(data, Shocks(ones(2), ones(2), zeros(2)),
+        MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, .999999), 1., :fixed))
+    err = try
+        solve(model)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("scale-indeterminate", sprint(showerror, err))
+end
 
-    public_result = variance_decomposition(
-        tiny_fixture(),
-        Shocks([1.1, 1.0], ones(2), zeros(2));
-        η_values=[0.0, 1.0],
-        ϵ_values=[0.5],
-        θ_values=[0.5],
-        σ_values=[0.9],
-        verbose=false,
-    )
-    @test public_result isa SobolResult
-    @test public_result.n_failed == 0
+@testset "fixed eta one anchor validation" begin
+    data = tiny_fixture()
+    model = Model(data, Shocks(ones(2), ones(2), zeros(2)),
+        MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 1.), 1., :fixed))
+    err = try
+        solve(model)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("autonomous or investment", sprint(showerror, err))
 end

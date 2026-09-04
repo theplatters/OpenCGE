@@ -25,9 +25,9 @@ function cobb_douglas_intermediary_demand(p, y, model)
   (; supply_shock, demand_shock) = shocks
 
   w = cobb_douglas_wages(p, y, model)
-  r = p .^ data.Ω
+  r = p .^ data.Ω_raw
 
-  (data.Ω') * (β .* y .* cobb_douglas_costfun(p, y, model)) .* inv.(p)
+  (data.Ω_raw') * (β .* y .* cobb_douglas_costfun(p, y, model)) .* inv.(p)
 end
 
 function cobb_douglas_costfun(p, y, model)
@@ -36,8 +36,8 @@ function cobb_douglas_costfun(p, y, model)
   (; supply_shock, demand_shock) = shocks
 
   w = cobb_douglas_wages(p, y, model)
-  r = p .^ (data.Ω)
-  inv.(supply_shock) .* (w .^ α) .* (prod(r, dims=2) .^ β) .* α .^ -α .* prod((β .* data.Ω) .^ (-β .* data.Ω), dims=2)
+  r = p .^ (data.Ω_raw)
+  inv.(supply_shock) .* (w .^ α) .* (prod(r, dims=2) .^ β) .* α .^ -α .* prod((β .* data.Ω_raw) .^ (-β .* data.Ω_raw), dims=2)
 end
 
 function cobb_douglas_consumption(p, y, model)
@@ -75,6 +75,6 @@ function solve(
   numeraire = mean(p, weights(consumption))
   grossy = Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
 
-  return Solution(p, q, wages, consumption, numeraire, real_gdp, (wages' * labor) / numeraire, model)
+  return Solution(p, q, wages, consumption, numeraire, real_gdp, wages' * labor, model)
 
 end
