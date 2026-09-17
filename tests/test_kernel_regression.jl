@@ -163,16 +163,25 @@ end
     labor = sectoral_labor_demand(sol.prices_raw, sol.quantities, 1.0, model)
     @test sum(sol.prices_raw .* sol.consumption) ≈ sum(labor) atol=1e-9
 
-    # The legacy manna anchors the η = 1 fixed system, so it solves.
+    # ADR-0014: manna does NOT anchor the η = 1 fixed system. Manna is a
+    # constant added to final demand, so it leaves the round-gain matrix G
+    # untouched: on this closed fixture (m = s = 0) the column sums are exactly
+    # 1, 1'(I − G) = 0, and the solution set stays a line. The retired
+    # heuristic admitted the case anyway and the solver returned a point whose
+    # location was set by its path. The determinate counterpart (same cell on a
+    # fixture with s > 0, where the round-gain contracts) is asserted in
+    # tests/test_fixed_closure.jl.
     shocked = mobile_labor_model(data,
         Shocks(ones(3), ones(3); autonomous_demand=[0.1, 0.0, 0.0]),
         0.5, 0.5, 0.9, 1.0; closure=:fixed)
-    shocked_sol = solve(shocked)
-    shocked_labor = sectoral_labor_demand(
-        shocked_sol.prices_raw, shocked_sol.quantities, 1.0, shocked)
-    @test maximum(abs, equilibrium_residuals(shocked,
-        [shocked_sol.prices_raw; shocked_sol.quantities])) < 1e-5
-    @test !isapprox(sum(shocked_labor), shocked.options.labor_bar; atol=1e-4)
+    err_manna = try
+        solve(shocked)
+        nothing
+    catch e
+        e
+    end
+    @test err_manna isa ArgumentError
+    @test occursin("scale-indeterminate", sprint(showerror, err_manna))
 
     anchored = mobile_labor_model(data, Shocks(ones(3), ones(3), zeros(3)),
         0.5, 0.5, 0.9, 1.0; closure=:fixed)
