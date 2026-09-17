@@ -73,6 +73,18 @@ struct Data <: AbstractData
 	imports_intermediate::Vector{Float64}
 	import_share::Vector{Float64}
 	domestic_final_demand::Vector{Float64}
+	# ── v3 open-absorption calibration (ported from cbase2, Notebook 03b) ──
+	# Field names/order match cbase2/src/core/interface.jl exactly. Compatibility
+	# defaults (compact constructor, read_data) are zeros — EXCEPT
+	# household_baseline, which defaults to the legacy Törnqvist base
+	# (consumption_share .* sum(labor_share)) so legacy real_gdp behavior is
+	# preserved; the Phase 3 calibration overwrites it (ADR-0005).
+	gov_demand::Vector{Float64}        # exogenous government consumption (gross, margin applies)
+	household_baseline::Vector{Float64} # baseline household block (Törnqvist base; legacy default = cs .* Σ labor_share)
+	import_margin::Vector{Float64}     # sector import share of MARGINAL final demand (0 = closed absorption)
+	exo_demand::Vector{Float64}        # exogenous investment: equipment + construction + inventories (margin applies)
+	exports_demand::Vector{Float64}    # exogenous exports (domestic sales abroad -- NO import margin)
+	saving_rate::Float64               # calibrated non-consumption share of after-tax income (S = I + X - M)
 	gdp_production::Float64
 	gdp_income::Float64
 	gdp_expenditure::Float64
@@ -104,6 +116,9 @@ end
 
 # Compact constructor retained for small synthetic fixtures and older clients.
 # The accounting-extension fields are immaterial for equilibrium calculations.
+# Compatibility defaults: v3 absorption fields are zeros, EXCEPT household_baseline
+# which defaults to the legacy Törnqvist base (consumption_share .* Σ labor_share),
+# NOT cbase2's zeros default — so legacy real_gdp behavior is preserved (ADR-0005).
 function Data(io::DataFrame, Ω::AbstractMatrix, consumption_share::AbstractVector,
 		factor_share::AbstractVector, λ::AbstractVector, labor_share::AbstractVector,
 		consumption_share_gross_output::AbstractVector, grossy::AbstractVector,
@@ -117,9 +132,13 @@ function Data(io::DataFrame, Ω::AbstractMatrix, consumption_share::AbstractVect
 	Ωf = Matrix{Float64}(Ω)
 	gv = Float64.(grossy)
 	va = Float64.(value_added)
-	Data(io, Ωf, Ωf, Float64.(consumption_share), Float64.(factor_share), Float64.(λ),
-		Float64.(labor_share), Float64.(consumption_share_gross_output), gv, va, gv, DataFrame(),
-		zeros(n), zeros(n), zeros(n), sum(va), sum(va), sum(va))
+	cs = Float64.(consumption_share)
+	ls = Float64.(labor_share)
+	household_baseline = cs .* sum(ls)
+	Data(io, Ωf, Ωf, cs, Float64.(factor_share), Float64.(λ),
+		ls, Float64.(consumption_share_gross_output), gv, va, gv, DataFrame(),
+		zeros(n), zeros(n), zeros(n), zeros(n), household_baseline, zeros(n), zeros(n),
+		zeros(n), 0.0, sum(va), sum(va), sum(va))
 end
 
 """
@@ -335,6 +354,15 @@ mutable struct Model{T <: ModelType}
 	data::Data
 	shocks::Shocks
 	options::T
+	# Financing closure (Foundation II). Default: NoFinancing (baseline
+	# reference). Concrete types live in src/closures/financing/financing.jl.
+	financing::AbstractFinancing
+end
+
+# 3-arg convenience constructor: defaults to the unfinanced baseline
+# reference. Financing experiments construct the 4-arg form.
+function Model(data::Data, shocks::Shocks, options)
+	Model(data, shocks, options, NoFinancing())
 end
 
 labor_closure(model::Model) = labor_closure(model.options)
@@ -355,9 +383,16 @@ function read_data(filename::String)::Data
 
 	d = generate_data(io)
 	# Assemble the Data object from the §4.1 accounting-consistent transformation.
+	# Compatibility defaults for the v3 absorption fields: zeros, EXCEPT
+	# household_baseline = consumption_share .* Σ labor_share (the legacy
+	# Törnqvist base; cbase2 uses zeros here and relies on its calibration to
+	# overwrite it — we preserve legacy behavior until Phase 3; ADR-0005).
+	household_baseline = d.consumption_share .* sum(d.labor_share)
+	n = length(d.grossy)
 	return Data(io, d.Ω, d.Ω_raw, d.consumption_share, d.factor_share, d.λ,
-				d.labor_share, d.consumption_share_gross_output, d.grossy, d.value_added,
-				d.gross_output_basic, d.value_added_components, d.imports_intermediate,
-				d.import_share, d.domestic_final_demand, d.gdp_production, d.gdp_income,
-				d.gdp_expenditure)
+			d.labor_share, d.consumption_share_gross_output, d.grossy, d.value_added,
+			d.gross_output_basic, d.value_added_components, d.imports_intermediate,
+			d.import_share, d.domestic_final_demand, zeros(n), household_baseline,
+			zeros(n), zeros(n), zeros(n), 0.0, d.gdp_production, d.gdp_income,
+			d.gdp_expenditure)
 end
