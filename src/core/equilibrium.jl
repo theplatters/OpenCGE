@@ -168,8 +168,9 @@ end
 # keeps N-1 clearing equations plus the CPI = 1 numeraire and exposes the
 # omitted N-th market as the residual external account
 # (`market_clearing_residuals`); the allocation wedge is retired with η ∈ {0,1}
-# (the all-N `revisefinal` form was rejected: it over-determines the open
-# economy and has no exact root for additive-demand cases). See `problem`.
+# (the all-N `644ba37` form, later reverted on `revisefinal` by `0f33ad6`,
+# over-determines the open economy and has no exact root for additive-demand
+# cases). See `problem`.
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Mobile Labor with Geometric Intersectoral Reallocation η
@@ -453,8 +454,9 @@ residuals equals the external-account imbalance. The system omits the N-th
 clearing and defines the external balance residually: the omitted residual is
 exposed by `market_clearing_residuals`, and the identity with
 S − (I+X−M) is asserted by the acceptance tests/experiments. Enforcing all N
-clearings instead (the `revisefinal` form) over-determines the open economy:
-the additive-demand cases then have no exact root (measured floor 4.4e-4 on
+clearings instead (the all-N `644ba37` form, reverted on `revisefinal` by
+`0f33ad6`) over-determines the open economy: the additive-demand cases then
+have no exact root (measured floor 4.4e-4 on
 the real 70-sector calibration, 9e-3 on the v3 contract fixture), because the
 extra scale-invariant equation is not compatible with the accounting.
 

@@ -36,7 +36,7 @@ function smoke_design_toml()::String
     [programme]
     explicit = [0.7, 0.3]
     total_eur_m = 1.0
-    f1_shift = "one_plus_psi"
+    f1_shift = "tilt_g0_over_c0"
 
     [reference]
     labor = "BF"
