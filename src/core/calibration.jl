@@ -270,7 +270,10 @@ function recalibrate_open(data::Data; exo_scale::Real = 1.0)
 	# ── Saving rate (data-implied) and CPI weights ──
 	E_h0 = 1.0 - sum(gG)                # baseline after-tax income (baseline income = 1)
 	s = 1.0 - sum(c0_gross) / E_h0
-	@assert 0.0 <= s < 1.0 "calibrated saving rate out of range: $s"
+	# s < 0 admissible inside the exo range: shrinking injections raise the
+	# residual household demand above income — the excess is externally
+	# financed (S = I + X − M with negative S), never clamped.
+	@assert -1.0 < s < 1.0 "calibrated saving rate out of range: $s"
 	ω = c0_gross ./ sum(c0_gross)
 
 	# ── Finiteness gate: worst-case round-gain column sums (F2, marginal tau = 0) ──
