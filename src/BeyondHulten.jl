@@ -33,15 +33,14 @@ export eta_sweep, eta_sweep_full, EtaSweepResult, real_gdp_sweep, nominal_gdp_sw
 export variance_decomposition, SobolResult, VarianceDecompositionResult, summary_table, eta_sweep_diagnostics, pilot_eta_sweep
 const inflator = 1.46
 
-include("interface.jl")
-include("solution.jl")
-include("cobbdouglas.jl")
-include("leontief.jl")
-include("ces.jl")
-include("mobile_labor.jl")
-include("util.jl")
-include("impulses.jl")
+include("core/accounting.jl")
+include("core/technology.jl")
+include("closures/labor/types.jl")
+include("core/equilibrium.jl")
+include("closures/labor/labor.jl")
+include("closures/financing/financing.jl")
+include("closures/registry.jl")
+include("core/diagnostics.jl")
 include("plots.jl")
-include("variance_decomposition.jl")
 
 end

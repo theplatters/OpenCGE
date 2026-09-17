@@ -1,16 +1,12 @@
+# src/core/accounting.jl — types, Data, Shocks, Model, generate_data, read_data
+# (relocated verbatim from src/interface.jl; closure types live in src/closures/labor/types.jl)
+
 abstract type AbstractElasticities end
 abstract type AbstractData end
 
-"""Abstract supertype for labor-closure descriptions."""
-abstract type AbstractLaborClosure end
-"""Legacy CES closure, retaining its exogenous labor callback or symbol."""
-struct ExogenousLaborClosure <: AbstractLaborClosure
-	callback::Union{Function, Symbol}
-end
-"""Mobile labor with a flexible, market-clearing wage."""
-struct FlexibleWageClosure <: AbstractLaborClosure end
-"""Mobile labor with a fixed wage and unconstrained employment demand."""
-struct FixedWageClosure <: AbstractLaborClosure end
+"""Abstract supertype for financing-closure descriptions (concrete types live in
+`src/closures/financing/financing.jl`)."""
+abstract type AbstractFinancing end
 
 
 """
@@ -45,8 +41,6 @@ CES() = CES(CESElasticities(0.01, 0.5, 0.9), full_labor_slack, false)
 CES(elasticities::CESElasticities, labor_slack) = CES(elasticities, labor_slack, false)
 CES(elasticities::CESElasticities; labor_slack=full_labor_slack, labor_reallocation=false) =
 	CES(elasticities, labor_slack, labor_reallocation)
-CES(e::CESElasticities, c::ExogenousLaborClosure, reallocate::Bool=false) = CES(e, c.callback, reallocate)
-labor_closure(options::CES) = ExogenousLaborClosure(options.labor_slack)
 struct Leontief <: ModelType
 	labor_effect::Bool
 end
@@ -58,7 +52,6 @@ struct CobbDouglas <: ModelType
 	labor_slack::Union{Function, Symbol}
 end
 
-labor_closure(options::CobbDouglas) = ExogenousLaborClosure(options.labor_slack)
 
 struct Data <: AbstractData
 	io::DataFrame

@@ -1,3 +1,6 @@
+# src/core/technology.jl — CES + Leontief + Cobb-Douglas technology (concatenated verbatim:
+# src/ces.jl + src/leontief.jl + src/cobbdouglas.jl, in that order)
+
 """
 	calculate_investment!(shock::Shocks, data::Data, investment::Number, sector::String)
 
@@ -99,7 +102,9 @@ function equilibrium_residuals(model::Model{CES}, X::AbstractVector)
 	out
 end
 
-_equilibrium_residuals(::Model{CES}, sol::Solution) =
+# `Solution` is defined in src/core/equilibrium.jl (included after this file),
+# so the method below duck-types its second argument; behavior is unchanged.
+_equilibrium_residuals(::Model{CES}, sol) =
 	equilibrium_residuals(sol.model, [sol.prices_raw; sol.quantities])
 
 """
@@ -141,4 +146,154 @@ function solve(
 
 	nominal_gdp = wages' * labor
 	return Solution(p, q, wages, consumption, numeraire, real_gdp, nominal_gdp, model)
+end
+
+# --- src/leontief.jl (verbatim) ---
+
+"""
+	solve(model::Model{LeontiefElasticies}; init)
+
+solves the leontief model
+"""
+function solve(model::Model{Leontief})
+
+	(; data, shocks) = model
+	consumption_share = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78, 2:73])
+
+	shock =  shocks.demand_shock_raw
+
+	wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
+
+	A = vcat(hcat(Matrix(data.io[1:71, 2:72]) ./ (data.grossy'), consumption_share),
+		hcat(wages', 0))
+
+
+	q = inv(I - A) * (vcat(shock, 0))
+	p = ones(length(q))
+
+
+	value_added = Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
+	value_added_share = value_added ./ Vector(data.io[findfirst(==("Produktionswert"), data.io.Sektoren), 2:72])
+	real_gdp =
+		1 +
+		sum(value_added_share .* q[1:71]) ./
+		sum(value_added)
+	q = [data.λ;0] .+  q ./ sum(value_added)
+	return Solution(p, q, ones(length(q)), shocks.demand_shock + q[72] .* consumption_share, 1, real_gdp, real_gdp, model)
+end
+
+#=
+function solve(
+	model::Model{Leontief};
+	init = vcat(ones(length(model.data.grossy)), model.data.λ))
+
+
+	consumption = data.io[1:length(data.consumption_share), 75] ./ sum(data.io[78, 2:72])
+	wages = (Vector(data.io[78, 2:72]) ./ data.grossy)
+
+	A = vcat(hcat(Matrix(data.io[1:71, 2:72]) ./ (data.grossy'), consumption),
+		hcat(wages', 0))
+
+	consumption = eachcol(data.io[:, DataFrames.Between("Konsumausgaben der privaten Haushalte im Inland", "Exporte")]) |>
+				  sum |>
+				  x -> getindex(x, 1:71)
+
+	shock = (shocks.demand_shock .- 1) .* consumption
+	@info shock
+	q = inv(I - A) * (vcat(shock, 0))
+	p = ones(length(q))
+	df = DataFrames.DataFrame(
+		Dict("prices" => p,
+			"quantities" => q,
+			"sectors" => vcat(data.io.Sektoren[1:71], data.io.Sektoren[78]),
+		))
+
+	df
+
+end
+=#
+"Calculates the gdp of a leontief solution"
+gdp(solution, model::Model{Leontief}) = 1 + solution.quantities[72] / sum(model.data.io[findfirst(==("Bruttolöhne und -gehälter"), model.data.io.Sektoren), 2:72])
+
+# --- src/cobbdouglas.jl (verbatim) ---
+
+function generalized_problem(x, model, costfun, intermediary_demand, consumption)
+
+  N = length(model.data.λ)
+  p = max.(0, x[1:N])
+  y = max.(0, x[N+1:end])
+
+
+  out = zeros(eltype(x), 2 * N)
+
+  out[1:N] .= p .- costfun(p, y, model)
+  out[N+1:end] .= y - intermediary_demand(p, y, model) - consumption(p, y, model)
+  out
+end
+
+function cobb_douglas_wages(p, y, model)
+  (; data, options, shocks) = model
+  (; α, β) = (options.elasticities)
+  labor  = options.labor_slack(model)
+  α .* p .* y .* labor .^ -1
+end
+
+function cobb_douglas_intermediary_demand(p, y, model)
+  (; data, options, shocks) = model
+  (; α, β) = (options.elasticities)
+  (; supply_shock, demand_shock) = shocks
+
+  w = cobb_douglas_wages(p, y, model)
+  r = p .^ data.Ω_raw
+
+  (data.Ω_raw') * (β .* y .* cobb_douglas_costfun(p, y, model)) .* inv.(p)
+end
+
+function cobb_douglas_costfun(p, y, model)
+  (; data, options, shocks) = model
+  (; α, β) = (options.elasticities)
+  (; supply_shock, demand_shock) = shocks
+
+  w = cobb_douglas_wages(p, y, model)
+  r = p .^ (data.Ω_raw)
+  inv.(supply_shock) .* (w .^ α) .* (prod(r, dims=2) .^ β) .* α .^ -α .* prod((β .* data.Ω_raw) .^ (-β .* data.Ω_raw), dims=2)
+end
+
+function cobb_douglas_consumption(p, y, model)
+  (; data, options, shocks) = model
+  (; α, β) = (options.elasticities)
+  (; supply_shock, demand_shock) = shocks
+
+  w = cobb_douglas_wages(p, y, model)
+  labor  = options.labor_slack(model)
+  C = w' * labor 
+  C * demand_shock .* p .^ (-1) .* data.consumption_share
+end
+
+function solve(
+  model::Model{CobbDouglas};
+  init=(vcat(ones(length(model.data.λ)), model.data.λ)))
+
+  (; data) = model
+
+  f = NonlinearSolve.NonlinearFunction((x, u) -> generalized_problem(x, u, cobb_douglas_costfun, cobb_douglas_intermediary_demand, cobb_douglas_consumption))
+  prob = NonlinearSolve.NonlinearProblem(f, init, model)
+
+  x = NonlinearSolve.solve(prob)
+  p = x[1:length(data.consumption_share)]
+  q = x[(length(data.consumption_share)+1):end]
+  wages = cobb_douglas_wages(p,q,model)
+  labor = model.options.labor_slack(model)
+  consumption = cobb_douglas_consumption(p,q,model)
+  real_gdp = tornqvist_quantity_index(
+    p,
+    consumption,
+    ones(length(p)),
+    data.consumption_share,
+  )
+  numeraire = mean(p, weights(consumption))
+  grossy = Vector(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
+
+  return Solution(p, q, wages, consumption, numeraire, real_gdp, wages' * labor, model)
+
 end
