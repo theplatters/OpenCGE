@@ -251,11 +251,13 @@ labor_closure(options::MobileLaborCES) =
 
 # ── Labor-market equation hook ──
 # The total-labor-market residual of the flexible-wage systems (problem(), 2N+1).
-# ALPHA (FlexibleWageClosure): vertical supply at the bar L̄.
-# BETA  (ElasticLaborClosure, defined in src/closures/labor/types.jl): elastic supply
-#       L^s = L̄ · (w / w0)^{η_s} along the real wage (CPI = 1 ⇒ w is the real wage).
-labor_market_residual(::FlexibleWageClosure, model::Model{MobileLaborCES}, L_sum::Real, w::Real) =
-    L_sum - model.options.labor_bar
+# ALPHA (FlexibleWageClosure): vertical supply at the bar L̄ (the CPI argument is
+#       unused).
+# BETA  (ElasticLaborClosure, defined in src/closures/labor/types.jl): elastic
+#       supply on the REAL wage, L^s = L̄ · [(w/P)/(w0/P0)]^{η_s}, deflated by the
+#       passed CPI (ADR-0014; DE-0004 requires the real wage).
+labor_market_residual(::FlexibleWageClosure, model::Model{MobileLaborCES}, L_sum::Real, w::Real,
+    cpi::Real) = L_sum - model.options.labor_bar
 
 # ── Unit cost with the Cobb-Douglas limit guard (Stage 1.5, Milestone C) ──
 # CES unit cost:  (A^(ϵ-1) · (fs·w^(1-ϵ) + (1-fs)·ip^(1-ϵ)))^(1/(1-ϵ)).
@@ -497,7 +499,7 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     out[N+1:2N-1] .= y[1:N-1] .- blocks.intermediary_demand[1:N-1] .- blocks.total_final_demand[1:N-1]
 
     # ── Equation 3: Labour market (flexible-wage system: ALPHA / BETA) ──
-    out[2N] = labor_market_residual(labor_closure(options), model, sum(blocks.L_i), w)
+    out[2N] = labor_market_residual(labor_closure(options), model, sum(blocks.L_i), w, cpi)
 
     # ── Equation 4: Numeraire constraint -- CPI = 1 ──
     out[2N+1] = cpi - 1.0
@@ -723,16 +725,29 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     N = length(data.factor_share)
 
     η = options.elasticities.η
-    # The fixed-wage η ≈ 1 system is homogeneous and scale-indeterminate
-    # UNLESS an additive demand anchor breaks homogeneity. Either a financed
-    # additive bundle (F2/F3 via has_additive_anchor) or the legacy
-    # autonomous/investment manna anchors scale; F1 is purely compositional
-    # and does not. The error keeps the legacy surfaces ("scale-indeterminate"
-    # and "autonomous or investment") asserted by the contract tests.
-    isapprox(η, 1.0; rtol=0, atol=_ETA_SCALE_INDETERMINACY_TOL) &&
-        !has_additive_anchor(model.financing) &&
-        all(iszero, shocks.autonomous_demand) && all(iszero, shocks.investment_shock) &&
-        throw(ArgumentError("fixed-wage η=1 has a homogeneous, scale-indeterminate equilibrium; add autonomous or investment demand as an additive-demand anchor (or a TaxFinanced / ExternalDebt programme bundle), or use another η"))
+    # Scale determinacy of the fixed-wage η ≈ 1 system is a VERIFIED property of
+    # the round-gain matrix, not a financing-type heuristic (ADR-0014). The
+    # clearing block is y = G·y + const, with G's column sums equal to the
+    # round-gain
+    #     colsum_u = A_bill_u/λ_u + (1 − m_u)·(1 − s)·fs_u,
+    # so (I − G) is singular — a unit root, hence a continuum of solutions —
+    # exactly when the largest column sum reaches 1. On a CLOSED fixture
+    # (m = s = 0, A_bill = (1−fs)λ) the column sums are exactly 1 and the guard
+    # fires; on the OPEN A-bill calibration they are strictly below 1 (the
+    # finiteness gate of `recalibrate_open`) and the system is determinate —
+    # measured on full-71: σ_min/σ_max = 0.1586 at the F1 point, and three inits
+    # (λ, 2λ, λ/2) converge to the same root (L = 0.9990271532561, agreeing to
+    # 1e-15). The error keeps the legacy surfaces ("scale-indeterminate" and
+    # "autonomous or investment") asserted by the contract tests.
+    if isapprox(η, 1.0; rtol=0, atol=_ETA_SCALE_INDETERMINACY_TOL)
+        colsums = data.A_bill ./ data.λ .+
+            (1.0 .- data.import_margin) .* (1.0 - data.saving_rate) .* data.factor_share
+        maximum(colsums) >= 1.0 - 1e-12 && throw(ArgumentError(
+            "fixed-wage η=1 has a homogeneous, scale-indeterminate equilibrium " *
+            "(max round-gain column sum = $(maximum(colsums)) ≥ 1, a unit root): " *
+            "add autonomous or investment demand as an additive-demand anchor " *
+            "(or a TaxFinanced / ExternalDebt programme bundle), or use another η"))
+    end
 
     if init === nothing
         init = [ones(N); data.λ]                # p = 1, y = λ

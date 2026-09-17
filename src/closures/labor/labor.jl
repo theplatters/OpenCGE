@@ -36,14 +36,23 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-	labor_market_residual(closure, model, L_sum, w)
+	labor_market_residual(closure, model, L_sum, w, cpi)
 
 Total-labour-market residual of the flexible-wage systems. The BETA method
-implements L^s = L̄ · (w/w0)^{η_s}; the ALPHA method lives in the core
-(`src/core/equilibrium.jl`).
+implements the REAL-wage supply curve (DE-0004)
+
+    L^s = L̄ · [ (w/P) / (w0/P0) ]^{η_s},    P = cpi,   w0/P0 = c.w0,
+
+so the closure is numeraire-invariant: `cpi` is the model's CPI at the trial
+prices and `c.w0` is the anchor REAL wage (baseline 1). Before ADR-0014 the
+residual used the raw `w`, which is the same function only while the CPI is the
+numeraire (P = 1); the explicit deflation removes that dependence. The ALPHA
+method lives in the core (`src/core/equilibrium.jl`).
 """
-function labor_market_residual(c::ElasticLaborClosure, model::Model{MobileLaborCES}, L_sum::Real, w::Real)
-	L_sum - model.options.labor_bar * (max(w, eps(Float64)) / c.w0)^(c.η_s)
+function labor_market_residual(c::ElasticLaborClosure, model::Model{MobileLaborCES},
+		L_sum::Real, w::Real, cpi::Real)
+	rw = max(w, eps(Float64)) / max(cpi, eps(Float64))
+	L_sum - model.options.labor_bar * (rw / c.w0)^(c.η_s)
 end
 
 # ── DELTA corner ──────────────────────────────────────────────────────────────
