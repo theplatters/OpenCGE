@@ -102,7 +102,7 @@ end
 """Read scenarios.csv rows keyed by run_id (all values as strings)."""
 function smoke_scenarios(root::AbstractString)::Dict{String,Dict{String,String}}
     raw = DataFrame(CSV.File(joinpath(root, "registry", "scenarios.csv");
-        stringtype = String, silencewarnings = true))
+        stringtype = String))
     return Dict(string(r.run_id) =>
         Dict(string(c) => string(coalesce(r[c], "")) for c in names(raw)) for r in eachrow(raw))
 end
@@ -198,7 +198,7 @@ end
     idxpath = joinpath(runs_dir, "index.csv")
     @test split(read(idxpath, String), '\n')[1] ==
         "run_id,date,design,closures,status,gate_summary,headline_metrics,commit"
-    idx = DataFrame(CSV.File(idxpath; stringtype = String, silencewarnings = true))
+    idx = DataFrame(CSV.File(idxpath; stringtype = String))
     @test size(idx, 1) == 1
     @test idx[1, :run_id] == "smoke-BF-F1"
     @test idx[1, :status] == "executed"
@@ -232,7 +232,7 @@ end
     @test !isfile(joinpath(rundir, "solution.csv"))
     @test isfile(joinpath(rundir, "log.txt"))
     idx = DataFrame(CSV.File(joinpath(runs_dir, "index.csv");
-        stringtype = String, silencewarnings = true))
+        stringtype = String))
     @test idx[1, :run_id] == "smoke-DELTA-F1"
     @test idx[1, :status] == "failed"
     @test smoke_scenarios(root)["smoke-DELTA-F1"]["status"] == "failed"
