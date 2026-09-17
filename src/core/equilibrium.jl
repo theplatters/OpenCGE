@@ -164,6 +164,12 @@ end
 # solver gates with LM polish, all-N fixed formulation, household_baseline
 # Törnqvist base, financing/eta_s kwargs. Compatibility: legacy manna A/G
 # retained; legacy error substrings kept.
+# Port of the cbase2 review fixes (ADR-0010, 2026-09-17): the MOBILE system
+# keeps N-1 clearing equations plus the CPI = 1 numeraire and exposes the
+# omitted N-th market as the residual external account
+# (`market_clearing_residuals`); the allocation wedge is retired with η ∈ {0,1}
+# (the all-N `revisefinal` form was rejected: it over-determines the open
+# economy and has no exact root for additive-demand cases). See `problem`.
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Mobile Labor with Geometric Intersectoral Reallocation η
@@ -277,14 +283,16 @@ end
 # This gives sectoral labor demand as a function of (p, y, w).
 # ─────────────────────────────────────────────────────────────────────────────────
 
-const _ETA_MAX = 50.0
 const _ETA_SCALE_INDETERMINACY_TOL = 1.1e-6
-const _ALLOCATION_LOG_LIMIT = 50.0
-const _WEDGE_MIN = eps(Float64)
 
+# Project decision (ADR-0010): only the BF endpoints η = 0 (immobile baseline
+# allocation) and η = 1 (fully cost-minimizing/mobile) are kept. The
+# interpolated cases 0 < η < 1 were carried by the ad hoc allocation wedge
+# (retired with this change); no intermediate allocation is supported.
 function _checked_eta(η)
     isfinite(η) || throw(ArgumentError("η must be finite"))
-    abs(η) <= _ETA_MAX || throw(DomainError(η, "η must have magnitude at most 50"))
+    (η == 0.0 || η == 1.0) || throw(DomainError(η,
+        "η must be 0 (immobile) or 1 (fully mobile); intermediate reallocation was retired (ADR-0010)"))
     Float64(η)
 end
 
@@ -317,35 +325,17 @@ function _cost_minimizing_labor(p, y, w, model::Model{MobileLaborCES})
     exp.(clamp.(log_demand, log(floatmin(Float64)), log(floatmax(Float64))))
 end
 
-"""Interpolate fixed and cost-minimizing allocations geometrically in log space."""
+"""Sectoral labor allocation at the kept BF endpoints η ∈ {0, 1}.
+
+η = 0 returns the baseline (immobile) allocation `data.labor_share`; η = 1
+returns the cost-minimizing demand. The former interpolation (and the ad hoc
+allocative-efficiency wedge that carried it) was retired with ADR-0010;
+`_checked_eta` rejects intermediate values loudly.
+"""
 function _interpolated_labor(p, y, w, model::Model{MobileLaborCES})
     η = _checked_eta(model.options.elasticities.η)
-    fixed = _positive_floor(model.data.labor_share)
-    optimum = _positive_floor(_cost_minimizing_labor(p, y, w, model))
-    log_labor = (1 - η) .* log.(fixed) .+ η .* log.(optimum)
-    exp.(clamp.(log_labor, log(floatmin(Float64)), log(floatmax(Float64))))
-end
-
-"""Return the allocative-efficiency factor (one at the optimum, never above one).
-
-The log allocation ratio is limited to ±50 to keep trial solver iterates finite.
-"""
-function _allocation_efficiency_wedge(labor, optimum, factor_share, ϵ)
-    ϵ > 0 || throw(DomainError(ϵ, "ϵ must be positive for the allocation wedge"))
-    ratio = clamp.(log.(_positive_floor(labor) ./ _positive_floor(optimum)),
-                   -_ALLOCATION_LOG_LIMIT, _ALLOCATION_LOG_LIMIT)
-    curvature = abs(1 - ϵ) / ϵ
-    penalty = 0.5 .* _positive_floor(factor_share) .* max.(1 .- factor_share, 0) .* curvature .* ratio.^2
-    # Keep the wedge strictly positive even when the clamped log ratio makes
-    # the exponential underflow. `max.` remains elementwise AD-compatible.
-    max.(exp.(-penalty), _WEDGE_MIN)
-end
-
-function _allocation_efficiency_wedge(p, y, w, labor, model::Model{MobileLaborCES})
-    (; factor_share) = model.data
-    ϵ = model.options.elasticities.ϵ
-    optimum = _cost_minimizing_labor(p, y, w, model)
-    _allocation_efficiency_wedge(labor, optimum, factor_share, ϵ)
+    η == 1.0 && return _positive_floor(_cost_minimizing_labor(p, y, w, model))
+    return _positive_floor(model.data.labor_share)
 end
 
 """
@@ -381,66 +371,38 @@ end
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-    problem(out, X, model::Model{MobileLaborCES})
+    _mobile_market_demand(model, p, y, w) -> NamedTuple
 
-The equilibrium system for the mobile-labor CES model.
+Goods-market blocks shared by `problem` (which enforces N-1 clearing equations
+plus CPI = 1) and `market_clearing_residuals` (the full N-vector canary):
 
-Unknowns: X = [p(1:N); y(1:N); w]  — 2N+1 elements
-Equations (2N+1):
-  1. Zero-profit equations  (N):     p_i = cost_i(p, w)   for all i=1..N
-  2. Market clearing        (N-1):   y_i = intermediary_demand_i + final_demand_i
-                                      for i=1..N-1 (the last sector's equation is
-                                      dropped under Walras' law)
-  3. Labor market clearing  (1):     Σ L_i(p,y,w) = L̄
-  4. Numeraire              (1):     CPI = 1  (Σ β_i · p_i^(1-σ))^(1/(1-σ)) = 1)
+  intermediary_demand  sectoral intermediate demand
+  total_final_demand   domestic final demand (household + additive + manna)
+  c_dom                domestic household demand block (for the canary)
+  additive             financed programme demand (for the canary)
+  L_i                  sectoral labor allocation at the kept BF endpoints
+  cost                 CES unit cost (no allocation wedge, ADR-0010)
+  E                    household expenditure entering the CES demand
 
-Note: The numeraire constraint (CPI = 1) pins the price level, breaking the
-price-level indeterminacy inherent in CRTS models. All N zero-profit
-conditions are enforced because the numeraire already replaces the price-level
-degree of freedom.
-
-Economic note: η changes the geometric allocation between baseline and
-cost-minimizing sectoral labor demand. It is not a labor-supply elasticity.
+Budget-consistent CES demand over the household's (possibly financed)
+expenditure. `fin = model.financing` (Foundation II):
+  F1  composes E within its budget via preference weights (no additive
+      demand; the normalizer keeps Σ p_i c_i = E exactly);
+  F2  E = w·ΣL − T(p) with T = Σ p_i g_i the lump-sum tax;
+  F3  E = w·ΣL, externally financed.
+Compatibility (ADR-0005): the legacy unfinanced autonomous/investment manna
+(A/G below) is RETAINED alongside the financed programme demand.
 """
-function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
+function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
+        y::AbstractVector, w::Real)
     (; data, options, shocks) = model
     N = length(data.factor_share)
-
-    # FULL FORMULATION (2N+1 unknowns: p1..pN, y1..yN, w) with the CPI
-    # numeraire. Under the v3 homogeneous budget (T = p' gG) the N-th market
-    # is Walras-redundant again (the p-weighted sum of all clearing residuals
-    # vanishes given zero-profit, the labour market and the budget closure),
-    # so the LAST clearing equation is dropped and the numeraire restored.
-    # The N-th market is checked post-solve as a canary.
-    p = _positive_floor(X[1:N])
-    y = _positive_floor(X[N+1:2N])
-    w = max(X[2N+1], 1e-10)  # scalar wage, keep positive
-
-    (; supply_shock, demand_shock) = shocks
-    (; consumption_share, Ω_raw, factor_share, labor_share) = data
-    (; θ, ϵ, σ, η) = options.elasticities
-
-    # ── Intermediate goods price index ──
+    (; consumption_share, Ω_raw, factor_share) = data
+    (; θ, ϵ, σ) = options.elasticities
     intermediate_price = _intermediate_price(Ω_raw, p, θ)
-
-    # ── CPI (consumption price index) ──
-    cpi = sum(consumption_share .* p .^ (1 - σ))^(1 / (1 - σ))
-
-    # ── Sectoral labor demand (from inverted FOC) ──
     L_i = sectoral_labor_demand(p, y, w, model)
-
-    # ── Final demand ──
-    # Budget-consistent CES demand over the household's (possibly financed)
-    # expenditure. `fin = model.financing` (Foundation II):
-    #   F1  composes E within its budget via preference weights (no additive
-    #       demand; the normalizer keeps Σ p_i c_i = E exactly);
-    #   F2  E = w·ΣL − T(p) with T = Σ p_i g_i the lump-sum tax;
-    #   F3  E = w·ΣL, externally financed.
-    # Compatibility (ADR-0005): the legacy unfinanced autonomous/investment
-    # manna (A/G below) is RETAINED alongside the financed programme demand;
-    # additive demand enters through BOTH `additive_demand(fin, N)` and manna.
     fin = model.financing
-    ds_eff = preference_weights(fin, demand_shock)
+    ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
     total_income = w * L_sum
     # NOTE: no positivity guard here — the residual function must tolerate the
@@ -452,16 +414,9 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     # v3 open economy: the household consumes (1-s)E gross (saving s·E leaks);
     # only the DOMESTIC content circulates -- the import content of household,
     # government, investment and programme demand is supplied by the external
-    # account. Exports are exogenous domestic sales (no margin). The leakages
-    # s·E + M now balance the injections I + X -- the identity S = I + X - M
-    # holds at every equilibrium (validated in the notebooks).
+    # account. Exports are exogenous domestic sales (no margin).
     c_dom = (1 .- data.saving_rate) .* (1 .- data.import_margin) .*
             (consumption_share .* ds_eff) .* E .* p .^ (-σ) ./ agg
-    # Legacy compatibility (ADR-0005): the unfinanced autonomous/investment
-    # manna is RETAINED alongside the financed programme demand. cbase2 retired
-    # manna; the root kernel keeps it so the characterization goldens and
-    # rerun_results.jl stay reproducible. With NoFinancing and zero v3 fields
-    # the demand below is numerically identical to the pre-Phase-2 code.
     cons_base = sum(data.labor_share)
     A = shocks.autonomous_demand .* data.consumption_share .* cons_base
     G = shocks.investment_shock .* data.consumption_share .* cons_base
@@ -469,36 +424,140 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
                          (1 .- data.import_margin) .* additive_demand(fin, N) .+
                          (1 .- data.import_margin) .* (data.gov_demand .+ data.exo_demand) .+
                          data.exports_demand .+ A .+ G
+    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+    # With only the BF endpoints η ∈ {0, 1} (ADR-0010) the ad hoc B&F (2019)
+    # "labor-reallocation wedge" is retired: it only existed to carry the
+    # interpolated 0 < η < 1 cases and was never derived as a CES
+    # allocative-loss coefficient.
+    cost = _ces_unit_cost(shocks.supply_shock, factor_share, w, intermediate_price, ϵ)
+    return (; intermediary_demand, total_final_demand, c_dom, additive = additive_demand(fin, N),
+        L_i, cost, E)
+end
 
-    # ── Intermediary demand ──
-    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+"""
+    problem(out, X, model::Model{MobileLaborCES})
 
-    # ── B&F (2019) labor-reallocation wedge ──
-    # L_opt is the cost-minimizing (mobile) labor demand; L_base is the
-    # baseline (immobile, fixed) allocation. When labor cannot reallocate toward
-    # its shocked optimum (eta < 1), there is a second-order allocative
-    # inefficiency that raises effective cost / lowers TFP. The wedge vanishes
-    # for eta=1 (mobile) and at baseline (L_opt == L_base).
-    alloc_wedge = _allocation_efficiency_wedge(p, y, w, L_i, model)
+The equilibrium system for the mobile-labor CES model.
 
-    # ── Cost function (effective TFP includes the reallocation wedge) ──
-    cost = _ces_unit_cost(supply_shock .* alloc_wedge, factor_share, w, intermediate_price, ϵ)
+Unknowns: X = [p(1:N); y(1:N); w]  — 2N+1 elements
+Equations (2N+1):
+  1. Zero-profit equations  (N):     p_i = cost_i(p, w)   for all i=1..N
+  2. Market clearing        (N-1):   y_i = intermediary_demand_i + final_demand_i
+                                      for i=1..N-1
+  3. Labor market clearing  (1):     Σ L_i(p,y,w) = L̄
+  4. Numeraire              (1):     CPI = 1  (Σ β_i · p_i^(1-σ))^(1/(1-σ) = 1)
+
+Note (review finding 2.1, ADR-0010): the N-th market is NOT Walras-redundant
+in the v3 open economy once imports leak — the p-weighted sum of the clearing
+residuals equals the external-account imbalance. The system omits the N-th
+clearing and defines the external balance residually: the omitted residual is
+exposed by `market_clearing_residuals`, and the identity with
+S − (I+X−M) is asserted by the acceptance tests/experiments. Enforcing all N
+clearings instead (the `revisefinal` form) over-determines the open economy:
+the additive-demand cases then have no exact root (measured floor 4.4e-4 on
+the real 70-sector calibration, 9e-3 on the v3 contract fixture), because the
+extra scale-invariant equation is not compatible with the accounting.
+
+The CPI = 1 numeraire pins the price level (the mobile system is homogeneous
+of degree 1 in (p, w) without it), mirroring the fixed-wage system
+(`problem_fixed`), where w = 1 pins the scale.
+
+Economic note: η selects the sectoral labor allocation at the two kept BF
+endpoints — η = 0 keeps the baseline (immobile) allocation, η = 1 uses the
+cost-minimizing (fully mobile) allocation (ADR-0010). It is not a
+labor-supply elasticity.
+"""
+function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
+    (; data, options) = model
+    N = length(data.factor_share)
+
+    # FULL FORMULATION (2N+1 unknowns: p1..pN, y1..yN, w): ALL N zero-profit
+    # conditions, N-1 clearing equations (the N-th market is the residual
+    # external account; see the docstring and ADR-0010), the labour market and
+    # the CPI = 1 numeraire.
+    p = _positive_floor(X[1:N])
+    y = _positive_floor(X[N+1:2N])
+    w = max(X[2N+1], 1e-10)  # scalar wage, keep positive
+
+    blocks = _mobile_market_demand(model, p, y, w)
+    cpi = sum(data.consumption_share .* p .^ (1 - options.elasticities.σ))^(1 / (1 - options.elasticities.σ))
 
     # ── Equation 1: Zero-profit for ALL N sectors ──
-    out[1:N] .= p .- cost
+    out[1:N] .= p .- blocks.cost
 
     # ── Equation 2: Market clearing for sectors 1..N-1 ──
-    # The N-th clearing equation is Walras-redundant under the v3 homogeneous
-    # budget (T = p' gG) and is dropped; it is checked post-solve as a canary.
-    out[N+1:2N-1] .= y[1:N-1] .- intermediary_demand[1:N-1] .- total_final_demand[1:N-1]
+    # The N-th clearing is NOT Walras-redundant once imports leak; it is the
+    # residual external account and is checked by `market_clearing_residuals`
+    # instead of being imposed here (ADR-0010).
+    out[N+1:2N-1] .= y[1:N-1] .- blocks.intermediary_demand[1:N-1] .- blocks.total_final_demand[1:N-1]
 
     # ── Equation 3: Labour market (flexible-wage system: ALPHA / BETA) ──
-    out[2N] = labor_market_residual(labor_closure(options), model, sum(L_i), w)
+    out[2N] = labor_market_residual(labor_closure(options), model, sum(blocks.L_i), w)
 
     # ── Equation 4: Numeraire constraint -- CPI = 1 ──
     out[2N+1] = cpi - 1.0
 
     nothing
+end
+
+"""
+    market_clearing_residuals(model, X) -> Vector
+
+Full N-vector of goods-market clearing residuals `y_i − inter_i − final_i` at
+the mobile vector `X = [p; y; w]` (clamped exactly as in `problem`). The last
+entry is the market that `problem` does NOT impose: it is the residual
+external account (review finding 2.1, ADR-0010). At a solved system the other
+N-1 entries are ~0, so `p ⋅ market_clearing_residuals` reduces to the omitted
+market's residual and matches the external-account imbalance
+`S − (I+X−M)` (asserted by the acceptance tests; the experiments record it as
+the canary). Diagnostic only — never part of the solve.
+"""
+function market_clearing_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
+    N = length(model.data.factor_share)
+    length(X) == 2N + 1 || throw(DimensionMismatch(
+        "mobile-labor canary expects a $(2N+1)-element vector [p; y; w]"))
+    p = _positive_floor(X[1:N])
+    y = _positive_floor(X[N+1:2N])
+    w = max(X[2N+1], 1e-10)
+    blocks = _mobile_market_demand(model, p, y, w)
+    return y .- blocks.intermediary_demand .- blocks.total_final_demand
+end
+
+"""
+    external_balance_canary(model, X) -> NamedTuple
+
+`S − (I + X − M)` at the mobile vector `X = [p; y; w]`, in value terms and
+consistent with the model's demand blocks:
+  S    = s·E,
+  I+X  = p·(exo_demand + exports_demand),
+  M    = import content of final demand: `m/(1-m)` on the domestic household
+         block, `m` on the government/investment/programme injections, minus
+         the full programme value under F3 (ExternalDebt finances it
+         externally, so the inflow offsets the trade balance).
+At a mobile (η = 1) equilibrium the omitted N-th market residual
+(`market_clearing_residuals`) equals `S − (I+X−M)`; the acceptance tests
+assert that identity (review finding 2.1, ADR-0010). At η = 0 the omitted
+market additionally reflects the fixed-allocation/factor-market gap, and
+legacy manna (ADR-0005) has no modelled import content; the identity is
+asserted only for the mobile, zero-manna case.
+"""
+function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector)
+    N = length(model.data.factor_share)
+    length(X) == 2N + 1 || throw(DimensionMismatch(
+        "mobile-labor canary expects a $(2N+1)-element vector [p; y; w]"))
+    p = _positive_floor(X[1:N])
+    y = _positive_floor(X[N+1:2N])
+    w = max(X[2N+1], 1e-10)
+    blocks = _mobile_market_demand(model, p, y, w)
+    (; data) = model
+    m = data.import_margin
+    M_cons = dot(p .* (m ./ max.(1 .- m, eps(Float64))), blocks.c_dom)
+    M_inj = dot(p .* m, blocks.additive .+ data.gov_demand .+ data.exo_demand)
+    M_prog = model.financing isa ExternalDebt ? -dot(p, blocks.additive) : 0.0
+    S = data.saving_rate * blocks.E
+    IX = dot(p, data.exo_demand .+ data.exports_demand)
+    return (; S = S, IX = IX, M = M_cons + M_inj + M_prog,
+        diff = S - (IX - (M_cons + M_inj + M_prog)))
 end
 
 """Return the exact residual vector for either mobile-labor closure.
@@ -554,8 +613,7 @@ Equations (2N):
 Total: 2N equations, 2N unknowns. There is no CPI pin: w = 1 is the numeraire.
 Employment `L_i` is computed post-solve and is not constrained to `labor_bar`.
 The sticky-wage counterfactual holds the production cost at its direct CES
-form. The mobile-only reallocation-efficiency correction is not added because
-this fixed closure has no labor-market/accounting equation to support it.
+form (the retired mobile interpolation wedge, ADR-0010, is not used here).
 """
 function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     (; data, options, shocks) = model
@@ -617,9 +675,7 @@ function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     # Intermediary demand
     intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
 
-    # Direct CES cost at the sticky wage (CD-limit-safe); the reallocation
-    # correction is supported only by the mobile closure's labor-market
-    # accounting.
+    # Direct CES cost at the sticky wage (CD-limit-safe).
     cost = _ces_unit_cost(supply_shock, factor_share, w, intermediate_price, ϵ)
 
     # 1. Zero-profit for ALL N sectors (p1 = 1 is NOT pinned here: the wage

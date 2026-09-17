@@ -45,7 +45,7 @@ function v3_fixture()
         saving_rate = saving_rate)
 end
 
-const _V3_θ, _V3_ϵ, _V3_σ, _V3_η = 1.0, 0.5, 0.9, 0.5
+const _V3_θ, _V3_ϵ, _V3_σ, _V3_η = 1.0, 0.5, 0.9, 1.0
 _v3_shocks() = Shocks(ones(3), ones(3), zeros(3))
 
 @testset "promoted closures: v3-style fixture consistency" begin
@@ -129,10 +129,11 @@ end
         @test maximum(abs, equilibrium_residuals(mdl, X)) < 1e-6
         L = sum(sectoral_labor_demand(sol.prices_raw, sol.quantities, w, mdl))
         # Registry formulation Σ L_i = L̄·((w/P)/(w0/P0))^η_s with the CPI
-        # numeraire (P = 1) and the w0 = 1 anchor.
+        # numeraire (P = 1) and the w0 = 1 anchor. This is the enforced
+        # labour-market equation; the former log(L/lbar)/log(w) "implied
+        # elasticity" was just this residual solved for η_s (circular, review
+        # §3.4) and is degenerate whenever the equilibrium keeps w = 1.
         @test L ≈ lbar * (w / 1.0)^η_s atol=1e-8
-        # Implied-elasticity identification recovers η_s (verify_v3 §4).
-        @test abs(log(L / lbar) / log(w / 1.0) - η_s) < 5e-2
     end
 end
 
@@ -244,6 +245,33 @@ end
         dot(p, fx.data.import_margin .* fx.g) atol=1e-12
     @test additive_demand(fin, 3) ≈ fx.g
     @test additive_demand(NoFinancing(), 3) ≈ zeros(3)
+end
+
+@testset "promoted closures: external-account canary (review 2.1)" begin
+    # The N-th market clearing is not imposed (`problem` enforces N-1 plus the
+    # CPI numeraire); `market_clearing_residuals` exposes it, and at a mobile
+    # (η = 1) equilibrium it equals the external-account imbalance
+    # S − (I+X−M) from `external_balance_canary` (ADR-0010).
+    fx = v3_fixture()
+    shocks = _v3_shocks()
+    for fin in (NoFinancing(), TaxFinanced(fx.g), ExternalDebt(fx.g))
+        for η in (0.0, 1.0)
+            mdl = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, η;
+                financing = fin)
+            sol = solve(mdl)
+            X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+            @test maximum(abs, equilibrium_residuals(mdl, X)) < 1e-6
+            cl = market_clearing_residuals(mdl, X)
+            can = external_balance_canary(mdl, X)
+            # N-1 clearings are enforced; the N-th is the residual external
+            # account. At η = 1 (mobile FOC holds) the omitted market equals the
+            # canary; at η = 0 it also carries the fixed-allocation gap.
+            @test maximum(abs, cl[1:end-1]) < 1e-6
+            if η == 1.0
+                @test dot(sol.prices_raw, cl) ≈ can.diff atol=1e-9
+            end
+        end
+    end
 end
 
 @testset "promoted closures: fixed-wage financing anchor at η = 1" begin

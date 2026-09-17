@@ -5,7 +5,7 @@ using Test
 @testset "fixed wage closure" begin
     data = tiny_fixture()
     shocks = Shocks(ones(2), ones(2), zeros(2))
-    model = Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, .5), 1., :fixed))
+    model = Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 0.), 1., :fixed))
     @test labor_closure(model.options) isa FixedWageClosure
     @test labor_closure(model) isa FixedWageClosure
     sol = solve(model)
@@ -17,10 +17,12 @@ using Test
     @test sum(sol.prices_raw .* sol.consumption) ≈ sum(labor) atol=1e-10
 
     # Employment is an outcome, not a labor-market-clearing constraint, under
-    # the fixed-wage closure.
+    # the fixed-wage closure. Use the mobile allocation (η = 1; the manna
+    # anchors the fixed η = 1 system) so the reported labor responds to the
+    # shock instead of being the constant η = 0 baseline allocation.
     shocked = Model(data,
         Shocks(ones(2), ones(2); autonomous_demand=[0.1, 0.0]),
-        model.options)
+        MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 1.), 1., :fixed))
     shocked_sol = solve(shocked)
     shocked_labor = sectoral_labor_demand(
         shocked_sol.prices_raw, shocked_sol.quantities, 1.0, shocked)

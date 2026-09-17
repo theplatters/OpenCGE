@@ -24,22 +24,23 @@ function three_sector_fixture()
         consumption_share_gross_output, grossy, value_added)
 end
 
-# All goldens below captured at 13e6a07 (pre-Phase-2) on 2026-09-17.
-# Solved with default init (p=1, y=λ, w=1); no explicit `init` is passed, so
-# these values also pin the default-init behavior. Tolerances are deliberately
-# loose (atol=1e-5) so the tests only fail on genuine behavior change, not on
-# solver-version noise.
-const _GOLDEN_P_ETA0 = [1.000348167380564, 0.9996203896355675, 0.9996989970952382]
-const _GOLDEN_Q_ETA0 = [1.2955292458297045, 0.9797654204899366, 0.7829507233833768]
-const _GOLDEN_W_ETA0 = 0.9993482119243464
-const _GOLDEN_RGDP_ETA0 = 0.9993482667717062
-const _GOLDEN_NGDP_ETA0 = 1.5389962463634934
-
-const _GOLDEN_P_ETA05 = [0.9999546140065427, 0.9999088188161817, 1.0002502367593709]
-const _GOLDEN_Q_ETA05 = [1.2826523984905909, 0.9656876543830839, 0.7227746520877962]
-const _GOLDEN_W_ETA05 = 0.9997214851976715
-const _GOLDEN_RGDP_ETA05 = 0.9997212038017236
-const _GOLDEN_NGDP_ETA05 = 1.539570642737864
+# Goldens captured on 2026-09-17 after the ADR-0010 port (N-1 clearing + CPI,
+# residual external account) and the retirement of the allocation wedge with
+# η ∈ {0, 1}. Solved with default init (p=1, y=λ, w=1); no explicit `init` is
+# passed, so these values also pin the default-init behavior. Tolerances are
+# deliberately loose (atol=1e-5) so the tests only fail on genuine behavior
+# change, not on solver-version noise.
+#
+# η = 1 (fully mobile) solves the mobile system exactly. η = 0 (immobile
+# baseline allocation) leaves the labor FOC unenforced and its solution carries
+# the fixed-allocation gap in the omitted N-th market; the two endpoints
+# therefore differ in general (they coincide only where the omitted market is
+# redundant, e.g. the closed fixture at η = 1).
+const _GOLDEN_P_ETA0 = [1.0, 1.0, 1.0]
+const _GOLDEN_Q_ETA0 = [1.2965771781445423, 0.9799857844319968, 0.78266717964435]
+const _GOLDEN_W_ETA0 = 1.0
+const _GOLDEN_RGDP_ETA0 = 1.0
+const _GOLDEN_NGDP_ETA0 = 1.54
 
 const _GOLDEN_P_ETA1 = [1.0, 1.0, 1.0]
 const _GOLDEN_Q_ETA1 = [1.2822805578342904, 0.9651845775225595, 0.720098441345365]
@@ -48,11 +49,11 @@ const _GOLDEN_RGDP_ETA1 = 1.0
 const _GOLDEN_NGDP_ETA1 = 1.54
 
 # Legacy additive-shock compatibility path (autonomous + investment demand plus
-# a sectoral supply shock), η=0.5. Captured at 13e6a07 (pre-Phase-2) on 2026-09-17.
-const _GOLDEN_P_ADD = [0.9055297413891441, 1.1097179093199117, 1.0936109024298981]
-const _GOLDEN_Q_ADD = [1.6303355732987004, 1.0251550467271742, 0.6533876090640365]
-const _GOLDEN_W_ADD = 1.1579925257837076
-const _GOLDEN_RGDP_ADD = 1.1579925250285006
+# a sectoral supply shock), η=0. Captured 2026-09-17.
+const _GOLDEN_P_ADD = [0.90589586160246, 1.1101434216426687, 1.091897747460701]
+const _GOLDEN_Q_ADD = [1.640761247830256, 1.0347653859537826, 0.6935523230378825]
+const _GOLDEN_W_ADD = 1.159091891146103
+const _GOLDEN_RGDP_ADD = 1.159091890922907
 
 function _solve_mobile(data, shocks, η; kwargs...)
     model = mobile_labor_model(data, shocks, 0.5, 0.5, 0.9, η;
@@ -62,13 +63,13 @@ end
 
 @testset "kernel regression: tiny fixture still solves" begin
     data = tiny_fixture()
-    model, sol = _solve_mobile(data, Shocks(ones(2), ones(2), zeros(2)), 0.5)
+    model, sol = _solve_mobile(data, Shocks(ones(2), ones(2), zeros(2)), 0.0)
     @test real_gdp(sol) ≈ 1 atol=1e-5
     @test nominal_gdp(sol) ≈ 1 atol=1e-5
     @test max_equilibrium_residual(sol) < 1e-5
 end
 
-@testset "kernel regression: mobile BF/ALPHA goldens (η sweep)" begin
+@testset "kernel regression: mobile BF endpoints (η = 0 and 1)" begin
     data = three_sector_fixture()
     @test vec(sum(data.Ω_raw, dims=2)) ≈ ones(3) atol=1e-12
     @test data.labor_share ≈ data.λ .* data.factor_share atol=1e-12
@@ -81,13 +82,6 @@ end
     @test real_gdp(sol0) ≈ _GOLDEN_RGDP_ETA0 atol=1e-5
     @test nominal_gdp(sol0) ≈ _GOLDEN_NGDP_ETA0 atol=1e-5
 
-    model05, sol05 = _solve_mobile(data, shocks, 0.5)
-    @test sol05.prices_raw ≈ _GOLDEN_P_ETA05 atol=1e-5
-    @test sol05.quantities ≈ _GOLDEN_Q_ETA05 atol=1e-5
-    @test sol05.wages_raw[1] ≈ _GOLDEN_W_ETA05 atol=1e-5
-    @test real_gdp(sol05) ≈ _GOLDEN_RGDP_ETA05 atol=1e-5
-    @test nominal_gdp(sol05) ≈ _GOLDEN_NGDP_ETA05 atol=1e-5
-
     model1, sol1 = _solve_mobile(data, shocks, 1.0)
     @test sol1.prices_raw ≈ _GOLDEN_P_ETA1 atol=1e-5
     @test sol1.quantities ≈ _GOLDEN_Q_ETA1 atol=1e-5
@@ -95,10 +89,20 @@ end
     @test real_gdp(sol1) ≈ _GOLDEN_RGDP_ETA1 atol=1e-5
     @test nominal_gdp(sol1) ≈ _GOLDEN_NGDP_ETA1 atol=1e-5
 
-    for (m, s) in ((model0, sol0), (model05, sol05), (model1, sol1))
+    for (m, s) in ((model0, sol0), (model1, sol1))
         X = [s.prices_raw; s.quantities; s.wages_raw[1]]
         @test maximum(abs, equilibrium_residuals(m, X)) < 1e-5
     end
+    # η = 0 reports the baseline allocation; η = 1 reports the cost-minimizing
+    # demand at the equilibrium (the two coincide at the baseline only). The
+    # endpoints differ in aggregate because the omitted N-th market carries the
+    # η = 0 fixed-allocation/factor-market gap (ADR-0010).
+    @test sectoral_labor_demand(sol0.prices_raw, sol0.quantities, sol0.wages_raw[1], model0) ≈
+        data.labor_share
+    @test !isapprox(
+        sectoral_labor_demand(sol1.prices_raw, sol1.quantities, sol1.wages_raw[1], model1),
+        data.labor_share; atol=1e-6)
+    @test_throws DomainError _solve_mobile(data, shocks, 0.5)
 end
 
 @testset "kernel regression: mobile with legacy additive shocks" begin
@@ -108,7 +112,7 @@ end
     shocks = Shocks(supply, ones(3);
         autonomous_demand=[0.1, 0.0, 0.0],
         investment_shock=[0.0, 0.05, 0.0])
-    model, sol = _solve_mobile(data, shocks, 0.5)
+    model, sol = _solve_mobile(data, shocks, 0.0)
     @test sol.prices_raw ≈ _GOLDEN_P_ADD atol=1e-5
     @test sol.quantities ≈ _GOLDEN_Q_ADD atol=1e-5
     @test sol.wages_raw[1] ≈ _GOLDEN_W_ADD atol=1e-5
@@ -120,7 +124,7 @@ end
 @testset "kernel regression: mobile contracts" begin
     data = three_sector_fixture()
     shocks = Shocks(ones(3), ones(3), zeros(3))
-    model, sol = _solve_mobile(data, shocks, 0.5)
+    model, sol = _solve_mobile(data, shocks, 1.0)
     X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
     @test maximum(abs, equilibrium_residuals(model, X)) < 1e-5
 
@@ -148,8 +152,10 @@ end
     # market" open item — so fixed-closure levels are expected to move. Only
     # the closure contracts below must survive.
     data = three_sector_fixture()
+    # Unanchored fixed-wage models must use η = 0: the η = 1 fixed system is
+    # homogeneous and the scale-indeterminacy guard fires (tested below).
     model = mobile_labor_model(data, Shocks(ones(3), ones(3), zeros(3)),
-        0.5, 0.5, 0.9, 0.5; closure=:fixed)
+        0.5, 0.5, 0.9, 0.0; closure=:fixed)
     sol = solve(model)
     @test sol.wages ≈ ones(3)
     @test maximum(abs,
@@ -157,9 +163,10 @@ end
     labor = sectoral_labor_demand(sol.prices_raw, sol.quantities, 1.0, model)
     @test sum(sol.prices_raw .* sol.consumption) ≈ sum(labor) atol=1e-9
 
+    # The legacy manna anchors the η = 1 fixed system, so it solves.
     shocked = mobile_labor_model(data,
         Shocks(ones(3), ones(3); autonomous_demand=[0.1, 0.0, 0.0]),
-        0.5, 0.5, 0.9, 0.5; closure=:fixed)
+        0.5, 0.5, 0.9, 1.0; closure=:fixed)
     shocked_sol = solve(shocked)
     shocked_labor = sectoral_labor_demand(
         shocked_sol.prices_raw, shocked_sol.quantities, 1.0, shocked)

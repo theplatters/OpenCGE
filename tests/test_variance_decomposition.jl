@@ -28,6 +28,8 @@ end
     @test_throws ArgumentError variance_decomposition(data, shocks;
         η_values=[51.], verbose=false)
     @test_throws ArgumentError variance_decomposition(data, shocks;
+        η_values=[0.5], verbose=false)
+    @test_throws ArgumentError variance_decomposition(data, shocks;
         ϵ_values=Float64[], verbose=false)
     @test_throws ArgumentError variance_decomposition(data, shocks;
         θ_values=[NaN], verbose=false)

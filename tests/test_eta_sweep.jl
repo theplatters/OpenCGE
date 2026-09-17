@@ -4,7 +4,7 @@ using Test
 @testset "eta sweep result and accessors" begin
     data = tiny_fixture()
     shocks = Shocks([1.05, 1.0], ones(2), zeros(2))
-    η_values = [0.0, 0.5]
+    η_values = [0.0, 1.0]
     solutions = eta_sweep(data, shocks, 0.5, 0.5, 0.9, η_values; verbose=false)
     result = EtaSweepResult(Float64.(η_values), solutions)
 
@@ -28,6 +28,8 @@ end
     shocks = Shocks(ones(2), ones(2), zeros(2))
     @test_throws ArgumentError eta_sweep(data, shocks, 0.5, 0.5, 0.9, [Inf])
     @test_throws ArgumentError eta_sweep(data, shocks, 0.5, 0.5, 0.9, [51.])
+    # Intermediate reallocation is retired (ADR-0010): only 0 and 1 are valid.
+    @test_throws ArgumentError eta_sweep(data, shocks, 0.5, 0.5, 0.9, [0.5])
     err = try
         eta_sweep(data, shocks, Inf, 0.5, 0.9, [0.])
     catch e

@@ -27,13 +27,13 @@ using Test
     @test sectoral_labor_demand(p, y, 1., m1) ≈
         (data.factor_share .* y .* sqrt.(p)) atol=1e-12
     @test MobileLaborCES(e, 1., FlexibleWageClosure()).closure == :mobile
-    @test mobile_labor_model(data, shocks, .5, .5, .9, .5;
+    @test mobile_labor_model(data, shocks, .5, .5, .9, 0.;
         closure=FixedWageClosure()).options.closure == :fixed
-    @test mobile_labor_model(data, shocks, .5, .5, .9, .5;
+    @test mobile_labor_model(data, shocks, .5, .5, .9, 0.;
         closure=:fixed).options.labor_bar == sum(data.labor_share)
-    @test_throws ArgumentError mobile_labor_model(data, shocks, .5, .5, .9, .5;
+    @test_throws ArgumentError mobile_labor_model(data, shocks, .5, .5, .9, 0.;
         labor_bar=1., closure=:fixed)
-    @test_throws ArgumentError mobile_labor_model(data, shocks, .5, .5, .9, .5;
+    @test_throws ArgumentError mobile_labor_model(data, shocks, .5, .5, .9, 0.;
         labor_bar=1., closure=FixedWageClosure())
     @test_throws ArgumentError MobileLaborCES(e, 1., :unknown)
     @test_throws ArgumentError MobileLaborCES(e, 1.; closure="mobile")
@@ -47,32 +47,26 @@ using Test
     @test occursin("did not converge", sprint(showerror, failure))
 end
 
-@testset "mobile labor numerical safeguards and allocation wedge" begin
+@testset "mobile labor numerical safeguards and eta endpoints" begin
     data = tiny_fixture()
     shocks = Shocks(ones(2), ones(2), zeros(2))
     model = Model(data, shocks,
-        MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, .5), 1., :mobile))
+        MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 0.), 1., :mobile))
 
-    labor = sectoral_labor_demand(ones(2), ones(2), 1.,
-        Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 50.), 1., :mobile)))
-    @test all(isfinite, labor)
+    # η = 0 returns the baseline allocation; η = 1 the cost-minimizing demand
+    # (equal to the baseline at p = y = w = 1). Intermediate values are
+    # retired (ADR-0010) and rejected loudly.
+    @test sectoral_labor_demand(ones(2), ones(2), 1., model) ≈ data.labor_share
+    m1 = Model(data, shocks,
+        MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 1.), 1., :mobile))
+    @test sectoral_labor_demand(ones(2), ones(2), 1., m1) ≈ data.labor_share
     @test_throws ArgumentError sectoral_labor_demand(ones(2), ones(2), 1.,
         Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, Inf), 1., :mobile)))
-    @test_throws DomainError sectoral_labor_demand(ones(2), ones(2), 1.,
-        Model(data, shocks, MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 51.), 1., :mobile)))
-
-    optimum = [.5, .5]
-    @test BeyondHulten._allocation_efficiency_wedge(optimum, optimum, [.5, .5], .5) == ones(2)
-    for ϵ in (.5, 2.)
-        wedge = BeyondHulten._allocation_efficiency_wedge([.8, .2], optimum, [.5, .5], ϵ)
-        @test all(isfinite, wedge) && all((0 .< wedge) .& (wedge .<= 1))
-        @test all(wedge .< 1)
+    for retired in (0.5, 50.)
+        @test_throws DomainError sectoral_labor_demand(ones(2), ones(2), 1.,
+            Model(data, shocks,
+                MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, retired), 1., :mobile)))
     end
-    near_zero = BeyondHulten._allocation_efficiency_wedge([.8, .2], optimum, [.5, .5], .01)
-    moderate = BeyondHulten._allocation_efficiency_wedge([.8, .2], optimum, [.5, .5], .5)
-    @test prod(near_zero) < prod(moderate)
-    extreme = BeyondHulten._allocation_efficiency_wedge([1.0, 1.0], [eps(), eps()], [.5, .5], 1e-6)
-    @test all(isfinite, extreme) && all(0 .< extreme .<= 1)
     @test economy_wide_wage(ones(2), ones(2), data.labor_share, model) ≈ 1.
 end
 

@@ -3,92 +3,171 @@ using DataFrames
 using LinearAlgebra
 using Test
 
-# Contract tests for the Phase 3 calibration port (ADR-0006): DATASET_VARIANTS,
-# drop_sectors, dataset_coverage, recalibrate_open, and the read_data datadir
-# keyword. Fixture tests run everywhere; the real-data block is guarded on the
-# (gitignored) IO table and skips when it is absent. Tolerances via isapprox,
-# never exact float equality. The drop_sectors empty-components BoundsError
-# below was a real bug: the first version of this test exposed it and
-# src/core/calibration.jl now subsets value_added_components only when the row
-# counts match.
+# Contract tests for the Phase 3 calibration port (ADR-0006, ADR-0010):
+# DATASET_VARIANTS, retained_io_table/retained_dataset (the review findings
+# 2.2/2.3 repair of the old drop_sectors slicer), dataset_coverage,
+# recalibrate_open, and the read_data datadir keyword. Fixture tests run
+# everywhere; the real-data block is guarded on the (gitignored) IO table and
+# skips when it is absent. Tolerances via isapprox, never exact float equality.
 
 """Repo root (parent of tests/)."""
 calibration_test_root() = normpath(joinpath(@__DIR__, ".."))
 
+"""
+3-sector IO table with the full Destatis row/column vocabulary, constructed so
+that every `generate_data` accounting assertion holds and the retained slices
+stay within the 10% GDP-reconciliation guard. Columns: Sektoren, the three
+sector columns, the seven final-demand categories; rows: three sector rows,
+imports, goods taxes, and the five value-added/production rows.
+"""
+function retained_io_fixture()
+	sectors = ["A", "B", "C"]
+	fdnames = [
+		"Konsumausgaben der privaten Haushalte im Inland",
+		"Konsumausgaben der privaten Organisationen o.E.",
+		"Konsumausgaben des Staates",
+		"Anlageinvestitionen f.Ausrüstungen u.sonst.Anlagen",
+		"Anlageinvestitionen für Bauten",
+		"Vorratsveränderungen und Nettozugang an Wertsachen",
+		"Exporte",
+	]
+	Z = [10.0 5.0 2.0; 4.0 12.0 3.0; 2.0 3.0 8.0]   # Z[supplier, user]
+	FD = [12.0 1.0 2.0 1.0 0.5 0.2 4.0;
+	      15.0 1.0 2.0 0.5 0.3 0.1 5.0;
+	       8.0 0.5 1.0 0.3 0.2 0.1 3.0]
+	z = zeros(7)
+	M = Matrix{Float64}(undef, 11, 10)
+	for s in 1:3
+		M[s, :] = vcat(Z[s, :], FD[s, :])
+	end
+	M[4, :]  = vcat([2.0, 3.0, 1.0], [14.0, 0.9, 1.8, 1.1, 0.6, 0.2, 0.0])
+	M[5, :]  = vcat([0.5, 0.5, 0.5], [9.0, 0.5, 1.2, 0.4, 0.2, 0.1, 0.0])
+	M[6, :]  = vcat([10.0, 13.0, 6.5], z)
+	M[7, :]  = vcat([6.0, 8.0, 4.0], z)
+	M[8, :]  = vcat([1.0, 1.0, 0.5], z)
+	M[9, :]  = vcat([1.0, 1.5, 0.5], z)
+	M[10, :] = vcat([2.0, 2.5, 1.5], z)
+	M[11, :] = vcat([26.0, 33.0, 19.5], z)
+	labels = vcat(sectors, ["Verwendung der Importe",
+		"Gütersteuern abzüglich Gütersubventionen", "Bruttowertschöpfung",
+		"Arbeitnehmerentgelt im Inland",
+		"Sonst.Produktionsabgaben abzgl. sonst.Subventionen",
+		"Abschreibungen", "Nettobetriebsüberschuss", "Produktionswert"])
+	df = DataFrame("Sektoren" => labels)
+	for (j, name) in enumerate(vcat(sectors, fdnames))
+		df[!, name] = M[:, j]
+	end
+	return df
+end
+
+"""Full-table `Data` built from the synthetic fixture table."""
+function retained_fixture_data()
+	io = retained_io_fixture()
+	return BeyondHulten.assemble_data(io,
+		BeyondHulten.generate_data(io; number_sectors = 3))
+end
+
 @testset "calibration: dataset variants" begin
-    @test DATASET_VARIANTS["full"] == Int[]
-    @test DATASET_VARIANTS["70s"] == [71]
-    @test sort(DATASET_VARIANTS["reduced"]) == sort([71, 48, 18, 19, 53, 58, 13, 68])
+	@test DATASET_VARIANTS["full"] == Int[]
+	@test DATASET_VARIANTS["70s"] == [71]
+	@test sort(DATASET_VARIANTS["reduced"]) == sort([71, 48, 18, 19, 53, 58, 13, 68])
 end
 
-@testset "calibration: drop_sectors on tiny_fixture" begin
-    fx = tiny_fixture()
-    # Empty drops are the identity (returns the object itself).
-    @test drop_sectors(fx, Int[]) === fx
-    d = drop_sectors(fx, [2])
-    @test length(d.factor_share) == 1
-    @test size(d.io, 1) == 1
-    @test size(d.Ω) == (1, 1)
-    @test size(d.Ω_raw) == (1, 1)
-    # The v3 absorption vectors are subset with [keep] (ADR-0006 deviation),
-    # not zeroed, so a dropped dataset keeps a valid household_baseline ...
-    @test d.household_baseline == fx.household_baseline[[1]]
-    @test d.gov_demand == fx.gov_demand[[1]]
-    @test d.import_margin == fx.import_margin[[1]]
-    @test d.exo_demand == fx.exo_demand[[1]]
-    @test d.exports_demand == fx.exports_demand[[1]]
-    @test d.factor_share == fx.factor_share[[1]]
-    @test d.λ == fx.λ[[1]]
-    # ... and the saving rate is kept.
-    @test d.saving_rate == fx.saving_rate
+@testset "calibration: final-demand columns located by name" begin
+	io = retained_io_fixture()
+	@test BeyondHulten.final_demand_columns(io) == collect(5:11)
+	split = BeyondHulten.final_demand_split(io, 3)
+	@test size(split.tot) == (3, 7)
+	@test all(vec(sum(split.dom; dims = 1)) .<= vec(sum(split.tot; dims = 1)) .+ 1e-12)
 end
 
-@testset "calibration: dataset_coverage on tiny_fixture" begin
-    fx = tiny_fixture()
-    c = dataset_coverage(fx, [2])
-    @test c.dropped_sectors == [2]
-    @test c.gross_share_kept ≈ 50.0
-    @test c.va_share_kept ≈ 50.0
-    # fd_share_kept is NaN here by construction: the compact tiny fixture
-    # carries zero domestic_final_demand (0/0), so it is not asserted.
-    c0 = dataset_coverage(fx, Int[])
-    @test c0.dropped_sectors == Int[]
-    @test c0.gross_share_kept ≈ 100.0
-    @test c0.va_share_kept ≈ 100.0
+@testset "calibration: retained_dataset on synthetic IO table" begin
+	full = retained_fixture_data()
+	# Empty drops are the identity (returns the object itself).
+	@test retained_dataset(full, Int[]) === full
+
+	d = retained_dataset(full, [2])
+	@test length(d.factor_share) == 2
+	@test size(d.Ω_raw) == (2, 2)
+	@test size(d.io) == (10, 10)   # 3 sectors + 8 aggregate rows minus one sector
+	# Review findings 2.2/2.3: probability rows and the income unit survive.
+	@test vec(sum(d.Ω_raw; dims = 2)) ≈ ones(2) atol=1e-12
+	@test sum(d.labor_share) ≈ 1.0 atol=1e-12
+	@test d.labor_share ≈ d.λ .* d.factor_share atol=1e-12
+	# The legacy Törnqvist default is kept for an uncalibrated rebuild (ADR-0005).
+	@test d.household_baseline ≈ d.consumption_share .* sum(d.labor_share) atol=1e-12
+
+	# Recalibration runs on the rebuilt table and returns a normalized CPI block.
+	de = recalibrate_open(d; exo_scale = 1.0)
+	@test -1 < de.saving_rate < 1
+	@test all(0 .<= de.import_margin .<= 1)
+	@test sum(de.consumption_share) ≈ 1.0 atol=1e-12
+	@test de.household_baseline ./ sum(de.household_baseline) ≈ de.consumption_share atol=1e-12
+	@test all(>=(0), de.gov_demand) && all(>=(0), de.exo_demand) && all(>=(0), de.exports_demand)
+	@test 1.0 - sum(de.gov_demand) > 0
+
+	# Guards added with the repair (b46912d): loud failures instead of slicing.
+	@test_throws ArgumentError retained_dataset(full, [0])
+	@test_throws ArgumentError retained_dataset(full, [4])
+	@test_throws ArgumentError retained_dataset(full, [1, 2, 3])
+	io = retained_io_fixture()
+	@test_throws ArgumentError retained_io_table(io, Int[]; number_sectors = 0)
+	@test_throws ArgumentError retained_io_table(io, [3]; number_sectors = 2)
+	@test_throws ArgumentError retained_io_table(io, [1, 2, 3]; number_sectors = 3)
+end
+
+@testset "calibration: dataset_coverage on synthetic fixture" begin
+	full = retained_fixture_data()
+	c = dataset_coverage(full, [2])
+	@test c.dropped_sectors == [2]
+	@test 0 < c.gross_share_kept < 100
+	@test 0 < c.va_share_kept < 100
+	@test 0 < c.fd_share_kept < 100
+	c0 = dataset_coverage(full, Int[])
+	@test c0.dropped_sectors == Int[]
+	@test c0.gross_share_kept ≈ 100.0
+	@test c0.va_share_kept ≈ 100.0
 end
 
 @testset "calibration: recalibrate_open argument validation" begin
-    fx = tiny_fixture()
-    @test_throws ArgumentError recalibrate_open(fx, "cbase2"; exo_scale = -0.1)
-    @test_throws ArgumentError recalibrate_open(fx, "cbase2"; exo_scale = 1.5)
+	fx = tiny_fixture()
+	@test_throws ArgumentError recalibrate_open(fx; exo_scale = -0.1)
+	@test_throws ArgumentError recalibrate_open(fx; exo_scale = 1.5)
 end
 
 @testset "calibration: real-data v3 numbers (guarded)" begin
-    root = calibration_test_root()
-    io_path = joinpath(root, "data", "I-O_DE2019_formatiert.csv")
-    if !isfile(io_path)
-        @test_skip true  # data/ is gitignored; this block needs the IO table
-    else
-        full = read_data("I-O_DE2019_formatiert.csv"; datadir = root)
-        @test length(full.factor_share) == 71
-        recal71 = recalibrate_open(full, joinpath(root, "cbase2"); drops = Int[])
-        @test recal71.saving_rate ≈ 0.3979 atol = 1e-4
-        @test sum(recal71.gov_demand) ≈ 0.2141 atol = 1e-4
-        dropped = drop_sectors(full, [71])
-        @test length(dropped.factor_share) == 70
-        recal70 = recalibrate_open(dropped, joinpath(root, "cbase2"); drops = [71])
-        @test recal70.saving_rate ≈ 0.4259 atol = 1e-4
-        @test sum(recal70.gov_demand) ≈ 0.2167 atol = 1e-4
-        # Finiteness gate: worst-case round-gain column sums strictly below 1.
-        colsums = (1.0 .- recal70.factor_share) .+
-            (1.0 .- recal70.import_margin) .* (1.0 - recal70.saving_rate) .*
-            recal70.factor_share
-        @test maximum(colsums) < 1.0
-        # Clamp mass recomputed from the returned fields (freeze record: 0.0873):
-        # c0_dom = λ − Ω_raw'((1−fs)λ) − (1−m)(gG+inv) − expo, mass = Σ|min(c0,0)|.
-        m = recal70.import_margin
-        c0 = dropped.λ .- dropped.Ω_raw' * ((1.0 .- dropped.factor_share) .* dropped.λ) .-
-            (1.0 .- m) .* (recal70.gov_demand .+ recal70.exo_demand) .- recal70.exports_demand
-        @test sum(abs.(min.(c0, 0.0))) ≈ 0.0873 atol = 1e-4
-    end
+	root = calibration_test_root()
+	io_path = joinpath(root, "data", "I-O_DE2019_formatiert.csv")
+	if !isfile(io_path)
+		@test_skip true  # data/ is gitignored; this block needs the IO table
+	else
+		full = read_data("I-O_DE2019_formatiert.csv"; datadir = root)
+		@test length(full.factor_share) == 71
+		@test sum(full.labor_share) ≈ 1.0 atol=1e-10
+		recal71 = recalibrate_open(full; exo_scale = 1.0)
+		@test recal71.saving_rate ≈ 0.397878 atol = 1e-4
+		@test sum(recal71.gov_demand) ≈ 0.214101 atol = 1e-4
+
+		# Review findings 2.2/2.3: the rebuilt 70-sector dataset has probability
+		# rows (the old slice left 0.9713) and Σ labor_share = 1 (was 0.9878).
+		dropped = retained_dataset(full, [71])
+		@test length(dropped.factor_share) == 70
+		@test vec(sum(dropped.Ω_raw; dims = 2)) ≈ ones(70) atol=1e-10
+		@test sum(dropped.labor_share) ≈ 1.0 atol=1e-10
+		recal70 = recalibrate_open(dropped; exo_scale = 1.0)
+		@test recal70.saving_rate ≈ 0.410965 atol = 1e-4
+		@test sum(recal70.gov_demand) ≈ 0.216741 atol = 1e-4
+		@test 1.0 - sum(recal70.gov_demand) ≈ 0.783259 atol = 1e-4
+		# Finiteness gate: worst-case round-gain column sums strictly below 1.
+		colsums = (1.0 .- recal70.factor_share) .+
+			(1.0 .- recal70.import_margin) .* (1.0 - recal70.saving_rate) .*
+			recal70.factor_share
+		@test maximum(colsums) < 1.0
+		# Clamp mass (review finding 2.5) is disclosed, not reconciled: recompute
+		# from the returned fields and pin the modelled number.
+		m = recal70.import_margin
+		c0 = dropped.λ .- dropped.Ω_raw' * ((1.0 .- dropped.factor_share) .* dropped.λ) .-
+			(1.0 .- m) .* (recal70.gov_demand .+ recal70.exo_demand) .- recal70.exports_demand
+		@test sum(abs.(min.(c0, 0.0))) ≈ 0.086197 atol = 1e-4
+	end
 end

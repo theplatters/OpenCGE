@@ -40,7 +40,7 @@ function smoke_design_toml()::String
 
     [reference]
     labor = "BF"
-    eta = 0.5
+    eta = 0.0
     theta = 1.0
     epsilon = 0.5
     sigma = 0.9
@@ -56,7 +56,7 @@ function smoke_design_toml()::String
     [cells.smoke-BF-F1]
     labor = "BF"
     financing = "F1"
-    eta = 0.5
+    eta = 0.0
     eta_s = 0.0
     theta = 1.0
     epsilon = 0.5
@@ -166,7 +166,7 @@ end
     scen = man["scenario"]
     @test scen["labour"] == "BF"
     @test scen["financing"] == "F1"
-    @test scen["eta"] ≈ 0.5
+    @test scen["eta"] ≈ 0.0
     @test scen["shock"] == "impulses.csv"
     @test scen["magnitude"] == 1.0
     for k in ("init", "reference", "algorithm")

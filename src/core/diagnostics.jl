@@ -328,7 +328,7 @@ as estimates from a balanced design.
 function variance_decomposition(
     data::Data,
     shocks::Shocks;
-    η_values::Vector{Float64} = [0.0, 0.5, 1.0, 2.0, 10.0],
+    η_values::Vector{Float64} = [0.0, 1.0],
     ϵ_values::Vector{Float64} = [0.1, 0.5, 0.99],
     θ_values::Vector{Float64} = [0.1, 0.5, 0.99],
     σ_values::Vector{Float64} = [0.1, 0.5, 0.99],
@@ -421,7 +421,8 @@ function _validate_grids(grids::AbstractVector{<:Real}...; eta=false)
         values = Float64.(grid)
         all(isfinite, values) || throw(ArgumentError("factor grid $i must contain only finite values"))
         if eta
-            all(abs.(values) .<= 50) || throw(ArgumentError("η values must satisfy finite |η| ≤ 50"))
+            all(v -> v == 0.0 || v == 1.0, values) || throw(ArgumentError(
+                "η values must be 0 (immobile) or 1 (fully mobile); intermediate reallocation was retired (ADR-0010)"))
         end
         checked[i] = values
     end
@@ -612,7 +613,9 @@ Returns an `EtaSweepResult` with solutions at each η value.
 This is a descriptive sweep; it does not make a go/no-go claim.
 """
 function eta_sweep_full(data::Data, shocks::Shocks; θ=0.5, ϵ=0.5, σ=0.9, labor_bar::Union{Float64, Nothing}=nothing)
-    η_values = [0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0]
+    # Only the BF endpoints are kept (ADR-0010); the sweep compares immobile
+    # (η = 0) against fully mobile (η = 1).
+    η_values = [0.0, 1.0]
     sols = eta_sweep(data, shocks, θ, ϵ, σ, η_values; labor_bar=labor_bar)
     return EtaSweepResult(η_values, sols)
 end
@@ -621,7 +624,7 @@ end
 function eta_sweep_diagnostics(data::Data, shocks::Shocks; θ::Float64=0.5, ϵ::Float64=0.5, σ::Float64=0.9, labor_bar::Union{Float64, Nothing}=nothing)
     esr = eta_sweep_full(data, shocks; θ=θ, ϵ=ϵ, σ=σ, labor_bar=labor_bar)
     variation = vec(std(sectoral_quantities(esr), dims=2))
-    vd = variance_decomposition(data, shocks; η_values=[0.0, 0.5, 1.0, 5.0, 50.0],
+    vd = variance_decomposition(data, shocks; η_values=[0.0, 1.0],
         ϵ_values=[0.1, 0.5, 0.99], θ_values=[0.5], σ_values=[0.5], output=:real_gdp,
         labor_bar=labor_bar, verbose=false)
     (sweep=esr, decomposition=vd, sectoral_variation=variation,
@@ -666,7 +669,7 @@ function pilot_eta_sweep(data::Data, shocks::Shocks; θ::Float64=0.5, ϵ::Float6
     # ── Part 2: Quick variance decomposition (reduced grid for speed) ──
     println("\n[2/2] Running variance decomposition (reduced grid)...")
     vd = variance_decomposition(data, shocks;
-        η_values = [0.0, 0.5, 1.0, 5.0, 50.0],
+        η_values = [0.0, 1.0],
         ϵ_values = [0.1, 0.5, 0.99],
         θ_values = [0.5],  # reduced for speed
         σ_values = [0.5],  # reduced for speed

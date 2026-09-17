@@ -142,10 +142,9 @@ rung is retried with (i) a Levenberg–Marquardt algorithm, (ii) a seeded
 jitter of the warm start, and (iii) — failing both — a halved step toward
 the previous rung (up to `max_refine` refinements). If refinement exhausts,
 the continuation **jumps directly to the target** η_s from the last good
-point: the BETA solution manifold can contain folds (multiple local
-equilibria of the wedge-penalised system — recorded in
-`cbase2/process_comments.md`), and a fold blocks step-wise progress while a larger
-Newton step reaches the branch beyond it.
+point: the BETA solution manifold can contain folds (recorded in
+`cbase2/process_comments.md`), and a fold blocks step-wise progress while a
+larger Newton step reaches the branch beyond it.
 """
 function solve_beta(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η::Real;
 		eta_s::Real, financing::AbstractFinancing = NoFinancing(), init = nothing,

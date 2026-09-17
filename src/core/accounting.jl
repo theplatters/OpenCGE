@@ -141,8 +141,74 @@ function Data(io::DataFrame, Ω::AbstractMatrix, consumption_share::AbstractVect
 		zeros(n), 0.0, sum(va), sum(va), sum(va))
 end
 
+# Final-demand categories of the Destatis table, in table order. They are
+# looked up by NAME (not by the full-table position 75:81) so the accounting
+# transformation also works on rebuilt retained-sector tables, where the
+# sector block is shorter.
+const _FD_COLUMN_NAMES = [
+	"Konsumausgaben der privaten Haushalte im Inland",
+	"Konsumausgaben der privaten Organisationen o.E.",
+	"Konsumausgaben des Staates",
+	"Anlageinvestitionen f.Ausrüstungen u.sonst.Anlagen",
+	"Anlageinvestitionen für Bauten",
+	"Vorratsveränderungen und Nettozugang an Wertsachen",
+	"Exporte",
+]
+
 """
-	generate_data(io::DataFrames.DataFrame)
+	final_demand_columns(io) -> Vector{Int}
+
+Column positions of the seven final-demand categories in `io`, located by
+name so the function is robust to rebuilt retained-sector tables (shorter
+sector block) and to column reordering.
+"""
+function final_demand_columns(io::DataFrames.DataFrame)
+	FD = Int[]
+	for name in _FD_COLUMN_NAMES
+		j = findfirst(==(name), names(io))
+		j === nothing && throw(ArgumentError(
+			"IO table is missing the final-demand column \"$name\""))
+		push!(FD, j)
+	end
+	return FD
+end
+
+"""
+	final_demand_split(io, number_sectors) -> NamedTuple
+
+Final-demand blocks at purchaser prices for the first `number_sectors` sector
+rows of `io`, plus the §4.1 proportional domestic/import/tax split:
+
+  tot[s, k]       purchaser-price final demand of sector s, category k
+  dom[s, k]       domestic content (the rest is supplied by imports + taxes)
+  imp_final[k]    total imported final demand of category k
+  imptx_final[k]  goods taxes less subsidies on category k
+
+The domestic share of each category is uniform across sectors (the source
+table reports imports and product taxes by category, not by supplying
+sector).
+"""
+function final_demand_split(io::DataFrames.DataFrame, number_sectors::Integer)
+	FD = final_demand_columns(io)
+	r_imp = findfirst(==("Verwendung der Importe"), io.Sektoren)
+	r_tx  = findfirst(==("Gütersteuern abzüglich Gütersubventionen"), io.Sektoren)
+	(r_imp === nothing || r_tx === nothing) && throw(ArgumentError(
+		"IO table must contain the \"Verwendung der Importe\" and " *
+		"\"Gütersteuern abzüglich Gütersubventionen\" rows"))
+	tot = Matrix{Float64}(io[1:number_sectors, FD])
+	imp_final = vec(Matrix{Float64}(io[r_imp:r_imp, FD]))
+	imptx_final = vec(Matrix{Float64}(io[r_tx:r_tx, FD]))
+	dom = similar(tot)
+	for k in eachindex(FD)
+		cat_total = sum(tot[:, k])
+		domfrac = cat_total > 0 ? (cat_total - imp_final[k] - imptx_final[k]) / cat_total : 0.0
+		dom[:, k] = tot[:, k] .* max(domfrac, 0.0)
+	end
+	return (; FD, tot, dom, imp_final, imptx_final)
+end
+
+"""
+	generate_data(io::DataFrames.DataFrame; number_sectors::Int = 71)
 
 Pulls the key econometric variables used by the model out of the extended IO
 table and performs the §4.1 accounting-consistency transformation:
@@ -155,27 +221,37 @@ table and performs the §4.1 accounting-consistency transformation:
 5. builds the raw conditional input-share matrix `Ω_raw` used by equilibrium
    technology, while retaining domestic `Ω` for audit and incidence data.
 
-Returns a NamedTuple; `read_data` assembles it into a `Data` object.
+`number_sectors` is the number of modeled sector rows/columns in `io` (71 for
+the full Destatis table). The retained-sector pipeline (`retained_dataset` in
+`src/core/calibration.jl`) rebuilds the IO table without the dropped sectors
+and passes the reduced count, so `Ω_raw`, `λ`, `labor_share` and the GDP
+aggregates are recomputed on the retained economy: every `Ω_raw` row is
+normalized on the retained suppliers and Σ `labor_share` is exactly 1,
+instead of inheriting full-table shares (the `drop_sectors` defect).
+
+Returns a NamedTuple; `assemble_data` binds it to the table in a `Data`
+object.
 """
-function generate_data(io::DataFrames.DataFrame)
-	number_sectors = 71
-	SEC = 2:number_sectors+1          # 71 sector columns (supplier rows / user cols)
-	FD  = 75:81                        # final-demand categories (basic-price columns)
+function generate_data(io::DataFrames.DataFrame; number_sectors::Int = 71)
+	number_sectors >= 1 || throw(ArgumentError("number_sectors must be positive"))
+	SEC = 2:number_sectors+1          # sector columns (supplier rows / user cols)
 
 	# --- Imports and product taxes are reported BY COLUMN (using sector + final cat).
-	# Index those rows DIRECTLY by ORIGINAL column numbers (SEC = 2:72, FD = 75:81)
-	# to avoid the off-by-one error of slicing `2:end` and then re-indexing. ---
+	# Index those rows DIRECTLY by their table position (rows are separate from the
+	# sector block); the final-demand block is located by name. ---
 	r_imp = findfirst(==("Verwendung der Importe"), io.Sektoren)
 	r_tx  = findfirst(==("Gütersteuern abzüglich Gütersubventionen"), io.Sektoren)
+	(r_imp === nothing || r_tx === nothing) &&
+		throw(ArgumentError("IO table is missing the import / goods-tax rows"))
+	fd = final_demand_split(io, number_sectors)
 	imp_inter_byuser = Matrix{Float64}(io[r_imp:r_imp, SEC])[:]
-	imp_final        = Matrix{Float64}(io[r_imp:r_imp, FD])[:]
-	imptx_final       = Matrix{Float64}(io[r_tx:r_tx, FD])[:]
+	imp_final        = fd.imp_final
+	imptx_final      = fd.imptx_final
 
 	# Raw intermediate-use matrix Z[s,u] (domestic + imported, combined).
 	Z = Matrix{Float64}(io[1:number_sectors, SEC])
 
-	# Imported intermediate use, by USER sector u, and imported final demand by category.
-	imp_inter_total  = sum(imp_inter_byuser)
+	# Imported final demand by category.
 	imp_final_total  = sum(imp_final)
 	imptx_final_total = sum(imptx_final)
 
@@ -219,7 +295,7 @@ function generate_data(io::DataFrames.DataFrame)
 	# --- GDP three-side reconciliation (basic prices) ---
 	GDP_P = sum(gva)
 	GDP_I = sum(wage) + sum(othertx) + sum(dep) + sum(netop)
-	fd_purch_total = sum(Matrix(io[1:number_sectors, FD]))
+	fd_purch_total = sum(fd.tot)
 	fd_dom_basic   = fd_purch_total - imp_final_total - imptx_final_total
 	GDP_E = fd_dom_basic
 	@assert GDP_P ≈ GDP_I "production must equal income"
@@ -244,15 +320,9 @@ function generate_data(io::DataFrames.DataFrame)
 	labor_share = λ .* factor_share
 
 	# --- Domestic final-demand vector at basic prices (shock incidence target) ---
-	fd_bysector = Matrix{Float64}(io[1:number_sectors, FD])
-	fd_dom_basic_bysector = similar(fd_bysector)
-	for (k, c) in enumerate(FD)
-		cat_total = sum(fd_bysector[:, k])
-		imp_c = imp_final[k]; tx_c = imptx_final[k]
-		domfrac = cat_total > 0 ? (cat_total - imp_c - tx_c) / cat_total : 0.0
-		fd_dom_basic_bysector[:, k] = fd_bysector[:, k] .* max(domfrac, 0.0)
-	end
-	domestic_final_demand = vec(sum(fd_dom_basic_bysector; dims=2))
+	# `fd.dom` is the §4.1 proportional domestic split of the purchaser-price
+	# categories (see `final_demand_split`).
+	domestic_final_demand = vec(sum(fd.dom; dims=2))
 	consumption_share_gross_output = domestic_final_demand ./ grossy
 
 	va_comp = DataFrame(
@@ -368,6 +438,28 @@ end
 labor_closure(model::Model) = labor_closure(model.options)
 
 """
+	assemble_data(io, d) -> Data
+
+Assemble a `Data` object from a raw IO table and the NamedTuple returned by
+`generate_data`. The v3 open-economy fields start at their closed-absorption
+defaults (zeros / saving rate 0) and are filled by `recalibrate_open` in
+`src/core/calibration.jl`; `household_baseline` keeps the legacy Törnqvist
+default `consumption_share .* Σ labor_share` so uncalibrated datasets behave
+as before (ADR-0005), instead of cbase2's zeros default. Shared by `read_data`
+(full table) and `retained_dataset` (rebuilt retained-sector table).
+"""
+function assemble_data(io::DataFrames.DataFrame, d::NamedTuple)
+	n = length(d.λ)
+	household_baseline = d.consumption_share .* sum(d.labor_share)
+	return Data(io, d.Ω, d.Ω_raw, d.consumption_share, d.factor_share, d.λ,
+			d.labor_share, d.consumption_share_gross_output, d.grossy, d.value_added,
+			d.gross_output_basic, d.value_added_components, d.imports_intermediate,
+			d.import_share, d.domestic_final_demand, zeros(n), household_baseline,
+			zeros(n), zeros(n), zeros(n), 0.0, d.gdp_production, d.gdp_income,
+			d.gdp_expenditure)
+end
+
+"""
 	read_data(filename::String)
 
 Given a filename of a IO table located in the /data directory this returns the CESData, where shocks are set to ones
@@ -382,17 +474,7 @@ function read_data(filename::String; datadir::AbstractString = pwd())::Data
 	io = coalesce.(io, 0) #set nans to 0
 
 	d = generate_data(io)
-	# Assemble the Data object from the §4.1 accounting-consistent transformation.
-	# Compatibility defaults for the v3 absorption fields: zeros, EXCEPT
-	# household_baseline = consumption_share .* Σ labor_share (the legacy
-	# Törnqvist base; cbase2 uses zeros here and relies on its calibration to
-	# overwrite it — we preserve legacy behavior until Phase 3; ADR-0005).
-	household_baseline = d.consumption_share .* sum(d.labor_share)
-	n = length(d.grossy)
-	return Data(io, d.Ω, d.Ω_raw, d.consumption_share, d.factor_share, d.λ,
-			d.labor_share, d.consumption_share_gross_output, d.grossy, d.value_added,
-			d.gross_output_basic, d.value_added_components, d.imports_intermediate,
-			d.import_share, d.domestic_final_demand, zeros(n), household_baseline,
-			zeros(n), zeros(n), zeros(n), 0.0, d.gdp_production, d.gdp_income,
-			d.gdp_expenditure)
+	# Assemble the Data object from the §4.1 accounting-consistent transformation
+	# (compatibility defaults: see `assemble_data`).
+	return assemble_data(io, d)
 end

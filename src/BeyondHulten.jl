@@ -11,7 +11,7 @@ export labor_market_residual
 export AbstractFinancing, NoFinancing, PreferenceReallocation, TaxFinanced, ExternalDebt
 export preference_weights, tau_rate, household_expenditure, additive_demand, public_budget, external_balance, has_additive_anchor
 export delta_elasticities, delta_model, leontief_multiplier, solve_beta, solve_verified
-export drop_sectors, dataset_coverage, recalibrate_open, DATASET_VARIANTS
+export retained_io_table, retained_dataset, dataset_coverage, recalibrate_open, DATASET_VARIANTS
 export closure_ids, closure_axis, closure_constructor, bf_model, alpha_model, beta_model, gamma_model
 
 # Export Data, Models, and Shocks
@@ -27,7 +27,7 @@ export cobb_douglas_costfun, cobb_douglas_consumption, cobb_douglas_intermediary
 
 # Export Model Constructors & Solver
 export solve
-export equilibrium_residuals
+export equilibrium_residuals, market_clearing_residuals, external_balance_canary
 export CES, Leontief, CobbDouglas, Solution, MobileLaborCES, mobile_labor_model
 export sectoral_labor_demand, economy_wide_wage
 
