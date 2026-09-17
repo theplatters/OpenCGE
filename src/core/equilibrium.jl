@@ -531,20 +531,25 @@ end
 """
     external_balance_canary(model, X) -> NamedTuple
 
-`S − (I + X − M)` at the mobile vector `X = [p; y; w]`, in value terms and
+`S − (I + X − M) + T` at the mobile vector `X = [p; y; w]`, in value terms and
 consistent with the model's demand blocks:
   S    = s·E,
   I+X  = p·(exo_demand + exports_demand),
   M    = import content of final demand: `m/(1-m)` on the domestic household
          block, `m` on the government/investment/programme injections, minus
          the full programme value under F3 (ExternalDebt finances it
-         externally, so the inflow offsets the trade balance).
+         externally, so the inflow offsets the trade balance), plus the
+         intermediate-import leak `M_int` (row 74, ADR-0012).
+  T    = product taxes on intermediate use `T_int` (row 75, ADR-0013) — the
+         third component of the purchaser-price intermediate bill, which the
+         A-bill charges to no one: `(1−fs)·λ ≡ A_bill + M_int + T_int`.
 At a mobile (η = 1) equilibrium the omitted N-th market residual
-(`market_clearing_residuals`) equals `S − (I+X−M)`; the acceptance tests
-assert that identity (review finding 2.1, ADR-0010). At η = 0 the omitted
-market additionally reflects the fixed-allocation/factor-market gap, and
-legacy manna (ADR-0005) has no modelled import content; the identity is
-asserted only for the mobile, zero-manna case.
+(`market_clearing_residuals`) equals this quantity; the acceptance tests
+assert that identity (review finding 2.1, ADR-0010; the `T` term added by
+ADR-0013 closes it to machine precision — measured 1.7e-16 on full-71).
+At η = 0 the omitted market additionally reflects the fixed-allocation/
+factor-market gap, and legacy manna (ADR-0005) has no modelled import content;
+the identity is asserted only for the mobile, zero-manna case.
 """
 function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector)
     N = length(model.data.factor_share)
@@ -559,12 +564,18 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
     M_cons = dot(p .* (m ./ max.(1 .- m, eps(Float64))), blocks.c_dom)
     M_inj = dot(p .* m, blocks.additive .+ data.gov_demand .+ data.exo_demand)
     M_prog = model.financing isa ExternalDebt ? -dot(p, blocks.additive) : 0.0
-    # intermediate-import leak (A-bill fix): row 74 scales with sectoral output
+    # Intermediate-bill leaks (A-bill fix): the two non-domestic components of
+    # the purchaser-price intermediate bill, both scaling with sectoral output.
+    # Row 74 (imported intermediates, ADR-0012) and row 75 (product taxes on
+    # intermediate use, ADR-0013). Omitting row 75 leaves the identity short by
+    # exactly that term (measured: -2.6e-2 on full-71 before the fix).
     M_intl = dot(p .* (data.M_int ./ data.λ), y)
+    T_intl = dot(p .* (data.T_int ./ data.λ), y)
     S = data.saving_rate * blocks.E
     IX = dot(p, data.exo_demand .+ data.exports_demand)
-    return (; S = S, IX = IX, M = M_cons + M_inj + M_prog + M_intl,
-        diff = S - (IX - (M_cons + M_inj + M_prog + M_intl)))
+    return (; S = S, IX = IX,
+        M = M_cons + M_inj + M_prog + M_intl, T = T_intl,
+        diff = S - (IX - (M_cons + M_inj + M_prog + M_intl + T_intl)))
 end
 
 """Return the exact residual vector for either mobile-labor closure.

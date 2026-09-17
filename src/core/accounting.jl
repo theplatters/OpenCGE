@@ -89,9 +89,13 @@ struct Data <: AbstractData
 	# The model's intermediate demand is charged with the DOMESTIC intermediate
 	# bill (raw-table row 73, "Gesamte Verwendung der inländischen Produktion"),
 	# NOT the purchaser-price bill (1−fs)·λ ≡ A + imports + taxes (rows 74/75).
-	# The imported+taxed content is an explicit external-account leak (M_int).
+	# Both non-domestic components of that bill are explicit external-account
+	# leaks: the imported intermediates (row 74 → M_int, ADR-0012) and the
+	# product taxes on intermediate use (row 75 → T_int, ADR-0013). Without the
+	# tax term the omitted-market canary misses the identity by exactly row 75.
 	A_bill::Vector{Float64}            # per-user domestic intermediate bill at baseline (model units)
 	M_int::Vector{Float64}             # per-user intermediate imports at baseline (model units)
+	T_int::Vector{Float64}             # per-user product taxes on intermediate use at baseline (model units)
 	gdp_production::Float64
 	gdp_income::Float64
 	gdp_expenditure::Float64
@@ -151,23 +155,28 @@ function Data(io::DataFrame, Ω::AbstractMatrix, consumption_share::AbstractVect
 	Data(io, Ωf, Ωf, cs, fs_f, λ_f,
 		ls, Float64.(consumption_share_gross_output), gv, va, gv, DataFrame(),
 		zeros(n), zeros(n), zeros(n), zeros(n), household_baseline, zeros(n), zeros(n),
-		zeros(n), 0.0, A_bill, zeros(n), sum(va), sum(va), sum(va))
+		zeros(n), 0.0, A_bill, zeros(n), zeros(n), sum(va), sum(va), sum(va))
 end
 
 # ── A-bill extraction (LaForge exact domestic-bill fix, 2026-09-17) ──
 # Row 73 "Gesamte Verwendung der inländischen Produktion" = each using sector's
 # DOMESTIC intermediate bill; row 74 "Verwendung der Importe" = its imported
-# intermediates. Both scaled to model units by 1/GDP_P. Located by label so the
+# intermediates; row 75 "Gütersteuern abzüglich Gütersubventionen" = the product
+# taxes on its intermediate use. All three scaled to model units by 1/GDP_P.
+# Row 76 is their sum (the purchaser-price bill). Located by label so the
 # rebuilt retained-sector tables (shorter sector block) work identically.
 function _domestic_bills(io::DataFrames.DataFrame, n::Int, gdp::Real)
 	lbl = String.(io.Sektoren)
 	rA = findfirst(x -> occursin("inländischen Produktion", x), lbl)
 	rImp = findfirst(==("Verwendung der Importe"), lbl)
-	(rA === nothing || rImp === nothing) && throw(ArgumentError(
-		"IO table must contain the domestic-use row (73) and the import-use row (74)"))
+	rTx = findfirst(x -> occursin("Gütersteuern abzüglich Gütersubventionen", x), lbl)
+	(rA === nothing || rImp === nothing || rTx === nothing) && throw(ArgumentError(
+		"IO table must contain the domestic-use row (73), the import-use row (74) " *
+		"and the goods-tax row (75)"))
 	A_bill = [Float64(io[rA, 1 + u]) for u in 1:n] ./ gdp
 	M_int = [Float64(io[rImp, 1 + u]) for u in 1:n] ./ gdp
-	return A_bill, M_int
+	T_int = [Float64(io[rTx, 1 + u]) for u in 1:n] ./ gdp
+	return A_bill, M_int, T_int
 end
 
 # Final-demand categories of the Destatis table, in table order. They are
@@ -480,14 +489,17 @@ as before (ADR-0005), instead of cbase2's zeros default. Shared by `read_data`
 function assemble_data(io::DataFrames.DataFrame, d::NamedTuple)
 	n = length(d.λ)
 	household_baseline = d.consumption_share .* sum(d.labor_share)
-	# A-bill (LaForge fix): the domestic intermediate bill and the intermediate
-	# imports, read from the raw table and scaled to model units.
-	A_bill, M_int = _domestic_bills(io, n, d.gdp_production)
+	# A-bill (LaForge fix): the domestic intermediate bill plus the two
+	# non-domestic components of the purchaser-price bill (intermediate imports
+	# row 74, product taxes row 75), read from the raw table and scaled to model
+	# units. Both non-domestic components are booked as external-account leaks
+	# in `external_balance_canary` (ADR-0012, ADR-0013).
+	A_bill, M_int, T_int = _domestic_bills(io, n, d.gdp_production)
 	return Data(io, d.Ω, d.Ω_raw, d.consumption_share, d.factor_share, d.λ,
 			d.labor_share, d.consumption_share_gross_output, d.grossy, d.value_added,
 			d.gross_output_basic, d.value_added_components, d.imports_intermediate,
 			d.import_share, d.domestic_final_demand, zeros(n), household_baseline,
-			zeros(n), zeros(n), zeros(n), 0.0, A_bill, M_int, d.gdp_production,
+			zeros(n), zeros(n), zeros(n), 0.0, A_bill, M_int, T_int, d.gdp_production,
 			d.gdp_income, d.gdp_expenditure)
 end
 

@@ -40,7 +40,7 @@ function v3_fixture()
     data = Data(io, Ω, Ω, ω, factor_share, λ, labor_share, ω, grossy,
         value_added, grossy, DataFrame(), zeros(3), zeros(3), zeros(3),
         gov, c0_gross, fill(m, 3), inv, expo, saving_rate,
-        (1 .- factor_share) .* λ, zeros(3), gdp, gdp, gdp)
+        (1 .- factor_share) .* λ, zeros(3), zeros(3), gdp, gdp, gdp)
     # Small positive programme bundle on sector 1; strictly positive F1 shift.
     (; data = data, g = [0.02, 0.0, 0.0], shift = [1.5, 1.0, 0.8],
         saving_rate = saving_rate)
@@ -252,7 +252,7 @@ end
     # The N-th market clearing is not imposed (`problem` enforces N-1 plus the
     # CPI numeraire); `market_clearing_residuals` exposes it, and at a mobile
     # (η = 1) equilibrium it equals the external-account imbalance
-    # S − (I+X−M) from `external_balance_canary` (ADR-0010).
+    # S − (I+X−M) + T from `external_balance_canary` (ADR-0010, ADR-0013).
     fx = v3_fixture()
     shocks = _v3_shocks()
     for fin in (NoFinancing(), TaxFinanced(fx.g), ExternalDebt(fx.g))
@@ -273,6 +273,28 @@ end
             end
         end
     end
+
+    # ADR-0013: the intermediate-tax leak (row 75) enters the canary linearly.
+    # T_int is not part of the demand system, so the solution is unchanged; the
+    # canary's diff must move by exactly the valued tax term.
+    d = fx.data
+    T = fill(0.01, 3)
+    d_t = Data(d.io, d.Ω, d.Ω_raw, d.consumption_share, d.factor_share, d.λ,
+        d.labor_share, d.consumption_share_gross_output, d.grossy, d.value_added,
+        d.gross_output_basic, d.value_added_components, d.imports_intermediate,
+        d.import_share, d.domestic_final_demand, d.gov_demand, d.household_baseline,
+        d.import_margin, d.exo_demand, d.exports_demand, d.saving_rate,
+        d.A_bill, d.M_int, T, d.gdp_production, d.gdp_income, d.gdp_expenditure)
+    mdl = mobile_labor_model(d, shocks, _V3_θ, _V3_ϵ, _V3_σ, 1.0)
+    mdl_t = mobile_labor_model(d_t, shocks, _V3_θ, _V3_ϵ, _V3_σ, 1.0)
+    sol = solve(mdl)
+    X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+    can = external_balance_canary(mdl, X)
+    can_t = external_balance_canary(mdl_t, X)
+    @test can.T ≈ 0.0 atol = 1e-12
+    @test can_t.T ≈ dot(sol.prices_raw .* (T ./ d.λ), sol.quantities) atol = 1e-12
+    @test can_t.diff - can.diff ≈ can_t.T atol = 1e-12
+    @test dot(sol.prices_raw, market_clearing_residuals(mdl_t, X)) ≈ can_t.diff atol=1e-9
 end
 
 @testset "promoted closures: fixed-wage financing anchor at η = 1" begin

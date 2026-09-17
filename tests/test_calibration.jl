@@ -155,7 +155,26 @@ end
 		@test recal71.saving_rate ≈ 0.1199 atol = 1e-3
 		@test sum(recal71.gov_demand) ≈ 0.214101 atol = 1e-4
 		@test sum(recal71.M_int) ≈ 0.2214 atol = 1e-3
+		# ADR-0013: row 75 (product taxes on intermediate use) is the third
+		# component of the purchaser-price bill; booking it closes the canary.
+		@test sum(recal71.T_int) ≈ 0.0257 atol = 1e-3
+		@test sum(recal71.A_bill) + sum(recal71.M_int) + sum(recal71.T_int) ≈
+			sum(recal71.λ) - 1.0 atol = 1e-10
 		@test all(>=(0), recal71.household_baseline)
+
+		# ADR-0013 contract: at the baseline root (and at the solved root) the
+		# omitted N-th market residual equals the external canary to machine
+		# precision. Before the T_int term the identity was short by exactly
+		# sum(T_int) = 2.5745e-2 (the "−2.6e-2 reconciliation gap").
+		mdl71 = mobile_labor_model(recal71, Shocks(ones(71), ones(71), zeros(71)),
+			0.5, 0.5, 0.9, 1.0)
+		X71 = [ones(71); recal71.λ; 1.0]
+		@test abs(dot(ones(71), market_clearing_residuals(mdl71, X71)) -
+			external_balance_canary(mdl71, X71).diff) < 1e-12
+		sol71 = solve(mdl71)
+		X71s = [sol71.prices_raw; sol71.quantities; sol71.wages_raw[1]]
+		@test abs(dot(sol71.prices_raw, market_clearing_residuals(mdl71, X71s)) -
+			external_balance_canary(mdl71, X71s).diff) < 1e-12
 
 		# Review findings 2.2/2.3: the rebuilt 70-sector dataset has probability
 		# rows (the old slice left 0.9713) and Σ labor_share = 1 (was 0.9878).
@@ -170,6 +189,16 @@ end
 		@test sum(recal70.gov_demand) ≈ 0.216741 atol = 1e-4
 		@test 1.0 - sum(recal70.gov_demand) ≈ 0.783259 atol = 1e-4
 		@test sum(recal70.M_int) ≈ 0.2237 atol = 1e-3
+		@test sum(recal70.T_int) ≈ 0.0260 atol = 1e-3
+		# The 70s canary identity holds to machine precision around the
+		# documented microscopic retained-economy residual (−2.4e-6), which
+		# appears identically on both sides (ADR-0013).
+		mdl70 = mobile_labor_model(recal70, Shocks(ones(70), ones(70), zeros(70)),
+			0.5, 0.5, 0.9, 1.0)
+		X70 = [ones(70); recal70.λ; 1.0]
+		mk70 = dot(ones(70), market_clearing_residuals(mdl70, X70))
+		@test abs(mk70 - external_balance_canary(mdl70, X70).diff) < 1e-12
+		@test abs(mk70) < 1e-5   # the disclosed microscopic clamp
 		# Finiteness gate: worst-case round-gain column sums strictly below 1.
 		colsums = (1.0 .- recal70.factor_share) .+
 			(1.0 .- recal70.import_margin) .* (1.0 - recal70.saving_rate) .*

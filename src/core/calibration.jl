@@ -252,8 +252,10 @@ function recalibrate_open(data::Data; exo_scale::Real = 1.0)
 	# technology Ω_raw — NOT the purchaser-price bill (1−fs)·λ ≡ A + imports +
 	# taxes. By the table's row identity the residual c0 is then exactly the
 	# observed domestic household final demand: ZERO negative sectors, no
-	# clamping. The imported+taxed intermediate content (rows 74/75) is an
-	# explicit external-account leak carried in data.M_int.
+	# clamping. The imported (row 74) and taxed (row 75) intermediate content is
+	# an explicit external-account leak carried in data.M_int / data.T_int
+	# (ADR-0012, ADR-0013); leaving row 75 out breaks the omitted-market canary
+	# by exactly that term.
 	Mλ = Ω_raw' * data.A_bill
 	c0_dom = λ .- Mλ .- (1.0 .- m) .* (gG .+ inv) .- expo
 	# Floating-point dust is clamped; genuine negative MASS fails. Measured:
@@ -295,6 +297,6 @@ function recalibrate_open(data::Data; exo_scale::Real = 1.0)
 		data.value_added, data.gross_output_basic, data.value_added_components,
 		data.imports_intermediate, data.import_share, data.domestic_final_demand,
 		gG, c0_gross, m, inv, expo, s,
-		data.A_bill, data.M_int,
+		data.A_bill, data.M_int, data.T_int,
 		data.gdp_production, data.gdp_income, data.gdp_expenditure)
 end
