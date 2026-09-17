@@ -98,7 +98,10 @@ function leontief_multiplier(data::Data, g::Vector{Float64}; mode::Symbol = :F3)
 	# exports X (NO margin). Income:
 	#   E = (1 - tau0) * L            under F3 (programme untaxed; tau0 = sum gG)
 	#   E = L - sum gG - sum g        under F2 (balanced-budget rule)
-	M = Ω_raw' * Diagonal(1.0 .- factor_share)
+	# DOMESTIC bill coefficient a_u = A_bill/λ_u (LaForge A-bill fix): the
+	# analytic Leontief system prices the domestic intermediate flows; the
+	# imported+taxed content is an external-account leak, not a round.
+	M = Ω_raw' * Diagonal(data.A_bill ./ data.λ)
 	τ0 = sum(gov_demand)
 	exo = (1.0 .- import_margin) .* (gov_demand + data.exo_demand) .+ data.exports_demand
 	# F1/F3: FIXED NOMINAL baseline tax T = sum gG -> E = wL - sum gG, i.e. the

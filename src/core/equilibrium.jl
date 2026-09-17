@@ -425,7 +425,10 @@ function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
                          (1 .- data.import_margin) .* additive_demand(fin, N) .+
                          (1 .- data.import_margin) .* (data.gov_demand .+ data.exo_demand) .+
                          data.exports_demand .+ A .+ G
-    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+    # Intermediate demand: the DOMESTIC bill A_u scaled by equilibrium output
+    # (a_u = A_bill/λ_u; LaForge exact A-bill fix). The imported+taxed content
+    # of the bill is an external-account leak (data.M_int), not domestic demand.
+    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (data.A_bill ./ data.λ) .* y))
     # With only the BF endpoints η ∈ {0, 1} (ADR-0010) the ad hoc B&F (2019)
     # "labor-reallocation wedge" is retired: it only existed to carry the
     # interpolated 0 < η < 1 cases and was never derived as a CES
@@ -556,10 +559,12 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
     M_cons = dot(p .* (m ./ max.(1 .- m, eps(Float64))), blocks.c_dom)
     M_inj = dot(p .* m, blocks.additive .+ data.gov_demand .+ data.exo_demand)
     M_prog = model.financing isa ExternalDebt ? -dot(p, blocks.additive) : 0.0
+    # intermediate-import leak (A-bill fix): row 74 scales with sectoral output
+    M_intl = dot(p .* (data.M_int ./ data.λ), y)
     S = data.saving_rate * blocks.E
     IX = dot(p, data.exo_demand .+ data.exports_demand)
-    return (; S = S, IX = IX, M = M_cons + M_inj + M_prog,
-        diff = S - (IX - (M_cons + M_inj + M_prog)))
+    return (; S = S, IX = IX, M = M_cons + M_inj + M_prog + M_intl,
+        diff = S - (IX - (M_cons + M_inj + M_prog + M_intl)))
 end
 
 """Return the exact residual vector for either mobile-labor closure.
@@ -674,8 +679,9 @@ function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
                          (1 .- data.import_margin) .* (data.gov_demand .+ data.exo_demand) .+
                          data.exports_demand .+ A .+ G
 
-    # Intermediary demand
-    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (1 .- factor_share) .* y))
+    # Intermediary demand: DOMESTIC bill coefficient a_u = A_bill/λ_u (A-bill
+    # fix); the imported+taxed content is an external-account leak.
+    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (data.A_bill ./ data.λ) .* y))
 
     # Direct CES cost at the sticky wage (CD-limit-safe).
     cost = _ces_unit_cost(supply_shock, factor_share, w, intermediate_price, ϵ)

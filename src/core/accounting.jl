@@ -85,6 +85,13 @@ struct Data <: AbstractData
 	exo_demand::Vector{Float64}        # exogenous investment: equipment + construction + inventories (margin applies)
 	exports_demand::Vector{Float64}    # exogenous exports (domestic sales abroad -- NO import margin)
 	saving_rate::Float64               # calibrated non-consumption share of after-tax income (S = I + X - M)
+	# ── A-bill calibration (LaForge exact domestic-bill fix, 2026-09-17) ──
+	# The model's intermediate demand is charged with the DOMESTIC intermediate
+	# bill (raw-table row 73, "Gesamte Verwendung der inländischen Produktion"),
+	# NOT the purchaser-price bill (1−fs)·λ ≡ A + imports + taxes (rows 74/75).
+	# The imported+taxed content is an explicit external-account leak (M_int).
+	A_bill::Vector{Float64}            # per-user domestic intermediate bill at baseline (model units)
+	M_int::Vector{Float64}             # per-user intermediate imports at baseline (model units)
 	gdp_production::Float64
 	gdp_income::Float64
 	gdp_expenditure::Float64
@@ -138,7 +145,23 @@ function Data(io::DataFrame, Ω::AbstractMatrix, consumption_share::AbstractVect
 	Data(io, Ωf, Ωf, cs, Float64.(factor_share), Float64.(λ),
 		ls, Float64.(consumption_share_gross_output), gv, va, gv, DataFrame(),
 		zeros(n), zeros(n), zeros(n), zeros(n), household_baseline, zeros(n), zeros(n),
-		zeros(n), 0.0, sum(va), sum(va), sum(va))
+		zeros(n), 0.0, zeros(n), zeros(n), sum(va), sum(va), sum(va))
+end
+
+# ── A-bill extraction (LaForge exact domestic-bill fix, 2026-09-17) ──
+# Row 73 "Gesamte Verwendung der inländischen Produktion" = each using sector's
+# DOMESTIC intermediate bill; row 74 "Verwendung der Importe" = its imported
+# intermediates. Both scaled to model units by 1/GDP_P. Located by label so the
+# rebuilt retained-sector tables (shorter sector block) work identically.
+function _domestic_bills(io::DataFrames.DataFrame, n::Int, gdp::Real)
+	lbl = String.(io.Sektoren)
+	rA = findfirst(x -> occursin("inländischen Produktion", x), lbl)
+	rImp = findfirst(==("Verwendung der Importe"), lbl)
+	(rA === nothing || rImp === nothing) && throw(ArgumentError(
+		"IO table must contain the domestic-use row (73) and the import-use row (74)"))
+	A_bill = [Float64(io[rA, 1 + u]) for u in 1:n] ./ gdp
+	M_int = [Float64(io[rImp, 1 + u]) for u in 1:n] ./ gdp
+	return A_bill, M_int
 end
 
 # Final-demand categories of the Destatis table, in table order. They are
@@ -451,12 +474,15 @@ as before (ADR-0005), instead of cbase2's zeros default. Shared by `read_data`
 function assemble_data(io::DataFrames.DataFrame, d::NamedTuple)
 	n = length(d.λ)
 	household_baseline = d.consumption_share .* sum(d.labor_share)
+	# A-bill (LaForge fix): the domestic intermediate bill and the intermediate
+	# imports, read from the raw table and scaled to model units.
+	A_bill, M_int = _domestic_bills(io, n, d.gdp_production)
 	return Data(io, d.Ω, d.Ω_raw, d.consumption_share, d.factor_share, d.λ,
 			d.labor_share, d.consumption_share_gross_output, d.grossy, d.value_added,
 			d.gross_output_basic, d.value_added_components, d.imports_intermediate,
 			d.import_share, d.domestic_final_demand, zeros(n), household_baseline,
-			zeros(n), zeros(n), zeros(n), 0.0, d.gdp_production, d.gdp_income,
-			d.gdp_expenditure)
+			zeros(n), zeros(n), zeros(n), 0.0, A_bill, M_int, d.gdp_production,
+			d.gdp_income, d.gdp_expenditure)
 end
 
 """

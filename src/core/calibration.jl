@@ -246,37 +246,52 @@ function recalibrate_open(data::Data; exo_scale::Real = 1.0)
 	inv = (tot[:, 4] .+ tot[:, 5] .+ tot[:, 6]) .* scale .* exo_scale  # investment (gross, margin applies)
 	expo = tot[:, 7] .* scale .* exo_scale         # exports (NO margin -- domestic sales abroad)
 
-	# ── Baseline household residual (gross), exact clearing at λ ──
-	Mλ = Ω_raw' * ((1.0 .- fs) .* λ)
+	# ── Baseline household block: the table's own domestic household final ──
+	# demand (LaForge exact A-bill fix, 2026-09-17). The intermediate demand is
+	# charged with the DOMESTIC bill A_u (row 73) distributed by the domestic
+	# technology Ω_raw — NOT the purchaser-price bill (1−fs)·λ ≡ A + imports +
+	# taxes. By the table's row identity the residual c0 is then exactly the
+	# observed domestic household final demand: ZERO negative sectors, no
+	# clamping. The imported+taxed intermediate content (rows 74/75) is an
+	# explicit external-account leak carried in data.M_int.
+	Mλ = Ω_raw' * data.A_bill
 	c0_dom = λ .- Mλ .- (1.0 .- m) .* (gG .+ inv) .- expo
-	n_clamped = count(<(0), c0_dom)
-	n_clamped > 0 && println("recalibrate_open: household residual clamped to 0 in ",
-		n_clamped, " sectors (total clamped mass = ",
-		round(sum(abs.(min.(c0_dom, 0))); digits=6), " model units)")
+	# Floating-point dust is clamped; genuine negative MASS fails. Measured:
+	# full-71 is exact (dust ~4e-19); 70s carries ONE microscopic negative
+	# (−2.4e-6, the retained-economy identity gap — LaForge caution), clamped
+	# and documented; "reduced" would fail its identity gap (~6e-3) and is
+	# deferred as a variant (dataset-variant decision pending).
+	dust = -sum(min.(c0_dom, 0.0))
+	dust > 1e-5 && error("A-bill household residual negative mass ", dust,
+		" in ", count(<(0), c0_dom), " sectors: the domestic-bill identity is broken")
 	c0_dom = max.(c0_dom, 0.0)
 	c0_gross = c0_dom ./ max.(1.0 .- m, 1e-6)
 
 	# ── Saving rate (data-implied) and CPI weights ──
 	E_h0 = 1.0 - sum(gG)                # baseline after-tax income (baseline income = 1)
 	s = 1.0 - sum(c0_gross) / E_h0
-	@assert -1.0 < s < 1.0 "calibrated saving rate out of range: $s"
+	@assert 0.0 <= s < 1.0 "calibrated saving rate out of range: $s"
 	ω = c0_gross ./ sum(c0_gross)
 
 	# ── Finiteness gate: worst-case round-gain column sums (F2, marginal tau = 0) ──
-	# Enforced only for s >= 0 (negative-s calibrations occur only inside the
-	# exo_scale bisection and are never solved).
-	colsums = (1.0 .- fs) .+ (1.0 .- m) .* (1.0 - s) .* fs
+	# Direct intermediate round: the DOMESTIC bill coefficient a_u = A_bill/λ_u
+	# (replaces the old total-bill coefficient 1−fs_u); plus the consumption
+	# round through labour income. Enforced only for s >= 0.
+	a = data.A_bill ./ λ
+	colsums = a .+ (1.0 .- m) .* (1.0 - s) .* fs
 	s >= 0 && @assert all(<(1), colsums) "finiteness gate failed: max column sum = $(maximum(colsums))"
 
 	println("recalibrate_open (v3, N=", n, "): saving rate s = ", round(s; digits=4),
 		", tau0 = ", round(sum(gG); digits=4),
 		", export share = ", round(sum(expo); digits=4),
-		", investment share = ", round(sum(inv); digits=4))
+		", investment share = ", round(sum(inv); digits=4),
+		", intermediate imports = ", round(sum(data.M_int); digits=4))
 
 	return Data(data.io, data.Ω, data.Ω_raw, ω, data.factor_share, data.λ,
 		data.labor_share, data.consumption_share_gross_output, data.grossy,
 		data.value_added, data.gross_output_basic, data.value_added_components,
 		data.imports_intermediate, data.import_share, data.domestic_final_demand,
 		gG, c0_gross, m, inv, expo, s,
+		data.A_bill, data.M_int,
 		data.gdp_production, data.gdp_income, data.gdp_expenditure)
 end
