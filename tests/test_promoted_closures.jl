@@ -39,7 +39,8 @@ function v3_fixture()
     ω = c0_gross ./ sum(c0_gross)
     data = Data(io, Ω, Ω, ω, factor_share, λ, labor_share, ω, grossy,
         value_added, grossy, DataFrame(), zeros(3), zeros(3), zeros(3),
-        gov, c0_gross, fill(m, 3), inv, expo, saving_rate, gdp, gdp, gdp)
+        gov, c0_gross, fill(m, 3), inv, expo, saving_rate,
+        (1 .- factor_share) .* λ, zeros(3), gdp, gdp, gdp)
     # Small positive programme bundle on sector 1; strictly positive F1 shift.
     (; data = data, g = [0.02, 0.0, 0.0], shift = [1.5, 1.0, 0.8],
         saving_rate = saving_rate)

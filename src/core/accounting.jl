@@ -141,11 +141,17 @@ function Data(io::DataFrame, Ω::AbstractMatrix, consumption_share::AbstractVect
 	va = Float64.(value_added)
 	cs = Float64.(consumption_share)
 	ls = Float64.(labor_share)
+	fs_f = Float64.(factor_share)
+	λ_f = Float64.(λ)
 	household_baseline = cs .* sum(ls)
-	Data(io, Ωf, Ωf, cs, Float64.(factor_share), Float64.(λ),
+	# Closed-synthetic default: with no import data the DOMESTIC bill equals
+	# the total bill, so a_u = 1−fs_u and the demand block is identical to the
+	# pre-A-bill behaviour (the goldens and legacy clients keep their values).
+	A_bill = (1.0 .- fs_f) .* λ_f
+	Data(io, Ωf, Ωf, cs, fs_f, λ_f,
 		ls, Float64.(consumption_share_gross_output), gv, va, gv, DataFrame(),
 		zeros(n), zeros(n), zeros(n), zeros(n), household_baseline, zeros(n), zeros(n),
-		zeros(n), 0.0, zeros(n), zeros(n), sum(va), sum(va), sum(va))
+		zeros(n), 0.0, A_bill, zeros(n), sum(va), sum(va), sum(va))
 end
 
 # ── A-bill extraction (LaForge exact domestic-bill fix, 2026-09-17) ──

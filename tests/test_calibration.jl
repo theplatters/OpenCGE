@@ -13,12 +13,16 @@ using Test
 """Repo root (parent of tests/)."""
 calibration_test_root() = normpath(joinpath(@__DIR__, ".."))
 
+isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
+
 """
 3-sector IO table with the full Destatis row/column vocabulary, constructed so
 that every `generate_data` accounting assertion holds and the retained slices
 stay within the 10% GDP-reconciliation guard. Columns: Sektoren, the three
 sector columns, the seven final-demand categories; rows: three sector rows,
-imports, goods taxes, and the five value-added/production rows.
+the domestic-use row (73: "Gesamte Verwendung der inländischen Produktion",
+the A-bill contract of ADR-0012), imports, goods taxes, and the five
+value-added/production rows.
 """
 function retained_io_fixture()
 	sectors = ["A", "B", "C"]
@@ -36,19 +40,21 @@ function retained_io_fixture()
 	      15.0 1.0 2.0 0.5 0.3 0.1 5.0;
 	       8.0 0.5 1.0 0.3 0.2 0.1 3.0]
 	z = zeros(7)
-	M = Matrix{Float64}(undef, 11, 10)
+	M = Matrix{Float64}(undef, 12, 10)
 	for s in 1:3
 		M[s, :] = vcat(Z[s, :], FD[s, :])
 	end
-	M[4, :]  = vcat([2.0, 3.0, 1.0], [14.0, 0.9, 1.8, 1.1, 0.6, 0.2, 0.0])
-	M[5, :]  = vcat([0.5, 0.5, 0.5], [9.0, 0.5, 1.2, 0.4, 0.2, 0.1, 0.0])
-	M[6, :]  = vcat([10.0, 13.0, 6.5], z)
-	M[7, :]  = vcat([6.0, 8.0, 4.0], z)
-	M[8, :]  = vcat([1.0, 1.0, 0.5], z)
-	M[9, :]  = vcat([1.0, 1.5, 0.5], z)
-	M[10, :] = vcat([2.0, 2.5, 1.5], z)
-	M[11, :] = vcat([26.0, 33.0, 19.5], z)
-	labels = vcat(sectors, ["Verwendung der Importe",
+	M[4, :]  = vcat([16.0, 20.0, 13.0], z)   # row 73: domestic intermediate bill (col sums of Z)
+	M[5, :]  = vcat([2.0, 3.0, 1.0], [14.0, 0.9, 1.8, 1.1, 0.6, 0.2, 0.0])
+	M[6, :]  = vcat([0.5, 0.5, 0.5], [9.0, 0.5, 1.2, 0.4, 0.2, 0.1, 0.0])
+	M[7, :]  = vcat([10.0, 13.0, 6.5], z)
+	M[8, :]  = vcat([6.0, 8.0, 4.0], z)
+	M[9, :]  = vcat([1.0, 1.0, 0.5], z)
+	M[10, :] = vcat([1.0, 1.5, 0.5], z)
+	M[11, :] = vcat([2.0, 2.5, 1.5], z)
+	M[12, :] = vcat([26.0, 33.0, 19.5], z)
+	labels = vcat(sectors, ["Gesamte Verwendung der inländischen Produktion",
+		"Verwendung der Importe",
 		"Gütersteuern abzüglich Gütersubventionen", "Bruttowertschöpfung",
 		"Arbeitnehmerentgelt im Inland",
 		"Sonst.Produktionsabgaben abzgl. sonst.Subventionen",
@@ -89,7 +95,7 @@ end
 	d = retained_dataset(full, [2])
 	@test length(d.factor_share) == 2
 	@test size(d.Ω_raw) == (2, 2)
-	@test size(d.io) == (10, 10)   # 3 sectors + 8 aggregate rows minus one sector
+	@test size(d.io) == (11, 10)   # rows: 3 sectors + 9 aggregates − 1; cols: label + 3 sectors − 1 + 7 FD
 	# Review findings 2.2/2.3: probability rows and the income unit survive.
 	@test vec(sum(d.Ω_raw; dims = 2)) ≈ ones(2) atol=1e-12
 	@test sum(d.labor_share) ≈ 1.0 atol=1e-12
@@ -145,8 +151,11 @@ end
 		@test length(full.factor_share) == 71
 		@test sum(full.labor_share) ≈ 1.0 atol=1e-10
 		recal71 = recalibrate_open(full; exo_scale = 1.0)
-		@test recal71.saving_rate ≈ 0.397878 atol = 1e-4
+		# ADR-0012 (A-bill): the identity-implied saving rate; the clamp is gone.
+		@test recal71.saving_rate ≈ 0.1199 atol = 1e-3
 		@test sum(recal71.gov_demand) ≈ 0.214101 atol = 1e-4
+		@test sum(recal71.M_int) ≈ 0.2214 atol = 1e-3
+		@test all(>=(0), recal71.household_baseline)
 
 		# Review findings 2.2/2.3: the rebuilt 70-sector dataset has probability
 		# rows (the old slice left 0.9713) and Σ labor_share = 1 (was 0.9878).
@@ -155,9 +164,12 @@ end
 		@test vec(sum(dropped.Ω_raw; dims = 2)) ≈ ones(70) atol=1e-10
 		@test sum(dropped.labor_share) ≈ 1.0 atol=1e-10
 		recal70 = recalibrate_open(dropped; exo_scale = 1.0)
-		@test recal70.saving_rate ≈ 0.410965 atol = 1e-4
+		# ADR-0012: 70s re-anchored rate; one microscopic identity residual
+		# (−2.4e-6, the retained-economy gap) is clamped and documented.
+		@test recal70.saving_rate ≈ 0.1285 atol = 1e-3
 		@test sum(recal70.gov_demand) ≈ 0.216741 atol = 1e-4
 		@test 1.0 - sum(recal70.gov_demand) ≈ 0.783259 atol = 1e-4
+		@test sum(recal70.M_int) ≈ 0.2237 atol = 1e-3
 		# Finiteness gate: worst-case round-gain column sums strictly below 1.
 		colsums = (1.0 .- recal70.factor_share) .+
 			(1.0 .- recal70.import_margin) .* (1.0 - recal70.saving_rate) .*
