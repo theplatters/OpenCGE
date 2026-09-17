@@ -374,8 +374,8 @@ Given a filename of a IO table located in the /data directory this returns the C
  given a filename of a io table located in the /data directory this returns the cesdata, where shocks are set to ones
 and elasticities are set to the ones presente in the paper by b&f
 """
-function read_data(filename::String)::Data
-	filedir = joinpath(pwd(), "data/", filename)
+function read_data(filename::String; datadir::AbstractString = pwd())::Data
+	filedir = joinpath(datadir, "data", filename)
 	io = CSV.read(filedir, DataFrames.DataFrame, delim = ";", decimal = ',', missingstring = ["-", "x"]) #read in from csv
 	DataFrames.rename!(io, Symbol(names(io)[1]) => :Sektoren) #name the indices after the sectors
 	io.Sektoren = replace.(io.Sektoren, r"^\s+" => "") #remove unneccasary whitespaces
