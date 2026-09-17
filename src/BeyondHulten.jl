@@ -3,12 +3,7 @@ module BeyondHulten
 using NonlinearSolve: NonlinearSolve
 using CSV: CSV
 using DataFrames
-using LineSearches: LineSearches
 using LinearAlgebra
-using StatsBase
-using GLMakie
-using XLSX
-using DelimitedFiles
 # Export Elasticity Types
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor, MobileLaborCESElasticities
 export AbstractLaborClosure, ExogenousLaborClosure, FlexibleWageClosure, FixedWageClosure, labor_closure

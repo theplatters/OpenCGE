@@ -1,0 +1,341 @@
+module BeyondHultenGLMakieExt
+
+# Plotting methods for BeyondHulten (Julia package extension).
+#
+# This extension loads automatically when both `BeyondHulten` and `GLMakie`
+# are loaded in the same session. The parent package only declares empty
+# generic stubs (see `src/plots.jl`); all methods below are attached to the
+# parent's functions, so `using GLMakie, BeyondHulten` restores the full
+# plotting surface without burdening headless use with the graphics stack.
+
+using GLMakie
+using BeyondHulten
+using DataFrames
+using ThreadsX
+
+function BeyondHulten.axis_change_in_level!(fig, data, impulses; options)
+	shocks = BeyondHulten.impulse_shock(data, impulses)
+	colors = Makie.wong_colors()
+	sorted_shocks = sortperm(shocks.demand_shock, rev = true)  # Sort indices in descending order
+	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
+	top5_indices = sorted_shocks[1:7]
+
+	model = BeyondHulten.Model(data, shocks, options)
+	sol = BeyondHulten.solve(model)
+
+	model_leontief = BeyondHulten.Model(data, shocks, BeyondHulten.Leontief())
+	sol_leontief = BeyondHulten.solve(model_leontief)
+
+	# Error bar calculations
+	model_low = BeyondHulten.Model(data, shocks, BeyondHulten.CES(BeyondHulten.CESElasticities(0.001, 0.05, 0.6), options.labor_slack, false))
+	sol_low = BeyondHulten.solve(model_low)
+
+	model_high = BeyondHulten.Model(data, shocks, BeyondHulten.CES(BeyondHulten.CESElasticities(0.99, 0.99, 0.99), options.labor_slack, false))
+	sol_high = BeyondHulten.solve(model_high)
+
+	ax = Axis(fig[1, 1], xlabel = "Sector",
+		xticks = (1:length(top5_indices), names(impulses)[2:72][top5_indices]),
+		xticklabelrotation = -1 * pi / 4,
+		ytickformat = "{:.2f}%",
+		ylabelsize = 24,
+		xlabelsize = 24,
+		xticklabelsize = 20,
+		yticklabelsize = 20)
+
+	group = sort(repeat(1:4, length(top5_indices)))
+
+	# Prepare the values for barplot
+	consumption_values = 100 * (sol.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1)
+	price_values = 100 * (sol.prices[top5_indices] .- 1)
+
+	# Prepare error ranges
+	consumption_low = 100 * (sol_low.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1)
+	consumption_high = 100 * (sol_high.consumption[top5_indices] ./ (data.consumption_share[top5_indices]) .- 1)
+
+	price_low = 100 * (sol_low.prices[top5_indices] .- 1)
+	price_high = 100 * (sol_high.prices[top5_indices] .- 1)
+
+	barplot!(ax,
+		repeat(1:length(top5_indices), 4),
+		[
+			100 * (shocks.demand_shock[top5_indices] .- 1);
+			100 * (sol_leontief.consumption[top5_indices] .- 1);
+			consumption_values;
+			price_values
+		],
+		dodge = group,
+		color = colors[group])
+
+	# Add error bars for the last two sets of bars (consumption and prices)
+	for i in 1:length(top5_indices)
+		# Position for consumption bars (3rd group)
+		consumption_pos = i + (3 - 1) * 0.25 - 0.4
+		# Position for price bars (4th group)
+		price_pos = i + (4 - 1) * 0.25 - 0.45
+
+		# Add error bars for consumption
+		errorbars!(ax, [consumption_pos], [consumption_values[i]],
+			[consumption_values[i] - consumption_low[i]],
+			[consumption_high[i] - consumption_values[i]],
+			whiskerwidth = 15, color = :black)
+
+		# Add error bars for prices
+		errorbars!(ax, [price_pos], [price_values[i]],
+			[price_values[i] - price_low[i]],
+			[price_high[i] - price_values[i]],
+			whiskerwidth = 15, color = :black)
+	end
+
+	labels = ["Increase in state spending", "Change in consumption Leontief", "Change in consumption CGE", "Deviation of price from Numeraire CGE"]
+	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
+	axislegend(ax, elements, labels, position = :rt, labelsize = 24)
+end
+
+function BeyondHulten.get_color(data, shocks)
+	c = ones(Int, length(data.λ))
+	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
+	c[top7_indices] .= 2
+	c
+end
+
+function BeyondHulten.axis_change_in_price!(fig, data, impulse; options)
+	shocks = BeyondHulten.impulse_shock(data, impulse)
+	model = BeyondHulten.Model(data, shocks, options)
+	sol = BeyondHulten.solve(model)
+	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
+
+	colors = Makie.wong_colors()
+	c = BeyondHulten.get_color(data, shocks)
+	ax = Axis(fig[1, 2],
+		xlabel = "Change in quantities",
+		ylabel = "Change in prices",
+		ytickformat = "{:.2f}%",
+		xtickformat = "{:.2f}%",
+		xlabelsize = 24,
+		ylabelsize = 24,
+		xticklabelsize = 20,
+		yticklabelsize = 20)
+	p = [Point2f(100 * (sol.quantities[i] / data.λ[i] - 1), 100 * (sol.prices[i] - 1)) for i in 1:71]
+	scatter!(ax, p, markersize = 20, color = colors[c[1:71]])
+	annotation!(ax,
+		p[top7_indices],
+		text = names(impulse)[2:72][top7_indices])
+
+	labels = ["Shocked sectors", "Unshocked sectors"]
+	elements = [MarkerElement(marker = :circle, color = colors[i]) for i in [2, 1]]
+	axislegend(ax, elements, labels, position = :rb, labelsize = 24)
+end
+
+function BeyondHulten.panel(data, impulses; options, name = "panel")
+	fig = Figure(size = (1980, 1020))
+	BeyondHulten.axis_change_in_level!(fig, data, impulses, options = options)
+	BeyondHulten.axis_change_in_price!(fig, data, impulses, options = options)
+	save("plots/$(name).png", fig)
+end
+
+function BeyondHulten.diff_lambda(data, impulses; options, name = "diff_lambda_imp")
+	colors = Makie.wong_colors()
+	f = Figure(size = (1980, 1000))
+	positions_cge = 4 * range(1, 71) .- 2
+	ax = Axis(f[1, 1],
+		ytickformat = "{:.2f}%",
+		xticks = (positions_cge[1:5:end] .+ 1, string.(1:5:71)),
+		xminorticks = positions_cge .+ 1,  # Explicitly set minor tick positions
+		xminorticksvisible = true,
+		xminorgridvisible = true,
+		xlabelsize = 24,
+		ylabelsize = 24,
+		xticklabelsize = 20,
+		yticklabelsize = 20)
+
+	xlims!(ax, (0, maximum(positions_cge) + 4))
+	shocks = BeyondHulten.impulse_shock(data, impulses)
+	model = BeyondHulten.Model(data, shocks, options)
+	sol = BeyondHulten.solve(model)
+	sol_leontief = BeyondHulten.solve(BeyondHulten.Model(data, shocks, BeyondHulten.Leontief()))
+
+
+	# Find top 7 shocked sectors
+	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
+
+	# Create alpha (transparency) array for highlighting
+	alphas = fill(1.0, 71)
+	# Highlight top 7 shocked sectors with different alpha
+	for i in 1:71
+		if !(i in top7_indices)
+			alphas[i] = 0.6  # More transparent for non-top sectors
+		end
+	end
+
+	# Calculate components
+	consumption_component = 100 .* data.consumption_share ./ data.λ .* (sol.consumption ./ data.consumption_share .- 1)
+	intermediate_component = 100 .* (data.λ .- data.consumption_share) ./ data.λ .* ((sol.quantities - sol.consumption) ./ (data.λ .- data.consumption_share) .- 1)
+	leontief_total = 100 .* (sol_leontief.quantities[1:71] ./ data.λ .- 1)
+
+	positions_leontief = 4 * range(1, 71)
+	# Create stacked bars for CGE model
+	barplot!(ax,
+		positions_cge,
+		consumption_component,
+		width = 1.8,
+		color = [RGBAf(colors[1].r, colors[1].g, colors[1].b, alphas[i]) for i in 1:71],
+		label = "CGE Consumption",
+	)
+
+	barplot!(ax,
+		positions_cge,
+		intermediate_component,
+		offset = max.(consumption_component, 0.0),
+		width = 1.8,
+		color = [RGBAf(colors[2].r, colors[2].g, colors[2].b, alphas[i]) for i in 1:71],
+		label = "CGE Intermediates",
+	)
+
+	# Add Leontief bars
+	barplot!(ax,
+		positions_leontief,  # Offset to the right
+		leontief_total,
+		width = 1.8,
+		color = [RGBAf(colors[3].r, colors[3].g, colors[3].b, alphas[i]) for i in 1:71],
+		label = "Leontief Total",
+	)
+
+	# Add sector labels for top 7
+	for i in top7_indices
+		y_val = leontief_total[i]
+		text!(ax, positions_cge[i] + 0.4, y_val + 0.1;
+			text = names(impulses)[2:72][i],
+			align = (:center, :bottom),
+			fontsize = 14,
+			rotation = π / 6,  # 30 degrees
+		)
+	end
+
+	# Create legend
+	labels = ["CGE Consumption", "CGE Intermediates", "Leontief Total"]
+	elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
+	axislegend(ax, elements, labels, position = :rt, labelsize = 38)
+	save("plots/$(name).png", f)
+end
+
+function BeyondHulten.effect_of_different_elasticities(shocks, data, gdp_effect_simple; labor_slack_function = BeyondHulten.full_labor_slack, name = "eg")
+	a, b, c, d =
+		ThreadsX.map([fill(0.99, 3), fill(0.5, 3), fill(0.2, 3), fill(0.1, 3)]) do elasticity
+			BeyondHulten.elasticity_gradient(data, shocks, labor_slack_function, false, elasticity)
+		end
+
+
+	cd_elasticities = BeyondHulten.CESElasticities(0.99, 0.99, 0.99)
+	sol_cd = BeyondHulten.solve(BeyondHulten.Model(data, shocks, BeyondHulten.CES(cd_elasticities, labor_slack_function)))
+	model_leontief = BeyondHulten.Model(data, shocks, BeyondHulten.Leontief())
+	sol_leontief = BeyondHulten.solve(model_leontief)
+
+	p1 = BeyondHulten.plot_real_gdp_gradient([a, b, c, d],
+		title = "Effect of different elasticities on GDP with labour slack ",
+		cd = BeyondHulten.real_gdp(sol_cd),
+		leontief = BeyondHulten.real_gdp(sol_leontief),
+		initial = gdp_effect_simple)
+
+	@info gdp_effect_simple
+	@info BeyondHulten.real_gdp(sol_cd)
+	@info BeyondHulten.real_gdp(sol_leontief)
+	save("plots/$(name).png", p1)
+end
+
+function BeyondHulten.comparison_between_labor_slacks(data, shocks, gdp_effect_simple, title)
+	no_ls, ls, ls_emp =
+		ThreadsX.map([model -> model.data.labor_share, BeyondHulten.full_labor_slack, BeyondHulten.empirical_labor_slack]) do labor_slack_function
+			BeyondHulten.elasticity_gradient(data, shocks, labor_slack_function, false, fill(0.1, 3))
+		end
+
+	c = Makie.wong_colors()
+	f = Figure(size = (1980, 1000), title = title, color = c)
+	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24)
+
+	sol_leontief = BeyondHulten.solve(BeyondHulten.Model(data, shocks, BeyondHulten.Leontief()))
+
+	map_to_gdp(x) = 100 .* reverse(map(x -> BeyondHulten.real_gdp(x) .- 1, x))
+
+
+	for (i, (el, linestyle, slack_type)) in enumerate(zip([no_ls, ls, ls_emp], [:solid, :dash, :dot], ["no labor slack", "calibrated labor slack", "empirical labor slack"]))
+		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.ϵ), label = "Elasticity between goods -  $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[1])
+		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods -  $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[2])
+		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption - $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[3])
+	end
+
+	lines!(ax, [0.9, 0.015], 100 .* fill(BeyondHulten.real_gdp(sol_leontief) .- 1, 2), label = "Leontief model", linewidth = 3, color = c[4])
+	lines!(ax, [0.9, 0.015], 100 .* fill(gdp_effect_simple .- 1, 2), label = "Initial stimulus", linewidth = 3, color = c[5])
+	f[2, 1] = Legend(f, ax, labelsize = 24, tellwidth = false, orientation = :horizontal, nbanks = 4)
+
+
+	save("plots/comparison_between_labor_slacks.png", f)
+end
+
+
+function BeyondHulten.labor_slack_gradient(data, impulse)
+	shocks = BeyondHulten.impulse_shock(data, impulse)
+	gdp_effect_simple = 1 + sum(shocks.demand_shock_raw) ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
+	no_labor_slack(model) = model.data.labor_share
+	ces_options = BeyondHulten.CES(BeyondHulten.CESElasticities(0.001, 0.5, 0.9), no_labor_slack, false)
+	cd_options = BeyondHulten.CES(BeyondHulten.CESElasticities(0.99, 0.99, 0.99), no_labor_slack, false)
+	leontief = BeyondHulten.Leontief()
+	model = BeyondHulten.Model(data, shocks, ces_options)
+	sol = BeyondHulten.solve(model)
+	sol_cd = BeyondHulten.solve(BeyondHulten.Model(data, shocks, cd_options))
+	sol_leontief = BeyondHulten.solve(BeyondHulten.Model(data, shocks, leontief))
+	labour_slack_gradient = Vector{Float64}()
+	l(α, model) = (1 - α) * BeyondHulten.full_labor_slack(model) + α * model.data.labor_share
+	for α in range(0, 1, 100)
+		labour_share(model) = l(α, model)
+		ces = BeyondHulten.CES(BeyondHulten.CESElasticities(0.01, 0.5, 0.9), model -> l(α, model))
+		model = BeyondHulten.Model(data, shocks, ces)
+		sol = BeyondHulten.solve(model, init = vcat(sol.prices, sol.quantities))
+		push!(labour_slack_gradient, sol |> BeyondHulten.real_gdp)
+	end
+
+	f = Figure(size = (1000, 800), color = Makie.wong_colors())
+	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", ylabel = "GDP", xlabel = "Labour slack", titlesize = 30, yticklabelsize = 24, xticklabelsize = 24, xlabelsize = 26, ylabelsize = 26)
+	lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label = "Real GDP", linewidth = 3)
+	lines!(ax, [0, 100], 100 .* fill(BeyondHulten.real_gdp(sol_leontief), 2), label = "Leontief", linewidth = 3)
+	lines!(ax, [0, 100], 100 .* fill(BeyondHulten.real_gdp(sol_cd), 2), label = "Cobb-Douglas", linewidth = 3)
+	lines!(ax, [0, 100], 100 .* fill(gdp_effect_simple, 2), label = "Baseline", linewidth = 3)
+	axislegend(ax, position = :rb, labelsize = 28)
+	save("plots/labor_slack_gradient.png", f)
+
+	@info BeyondHulten.real_gdp(sol_cd)
+end
+
+function BeyondHulten.plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims = (97, 103), initial)
+	f = Figure(size = (1980, 1000), title = title, color = Makie.wong_colors())
+
+	ga = f[1, 1] = GridLayout()
+	ax = [
+		Axis(ga[1, 1], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.9", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[1, 2], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.5", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[2, 1], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.2", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+		Axis(ga[2, 2], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24),
+	]
+	ylims!(ax[1], -2, 5)
+	ylims!(ax[2], -2, 5)
+	ylims!(ax[3], -2, 5)
+	ylims!(ax[4], -2, 5)
+	map_to_gdp(x) = 100 .* reverse(map(x -> BeyondHulten.real_gdp(x) .- 1, x))
+	for (i, el) in enumerate(results)
+		# Shade area between Leontief and Cobb Douglas
+		band!(ax[i], [0.015, 0.9], 100 .* fill(min(leontief, cd), 2), 100 .* fill(max(leontief, cd), 2),
+			alpha = 0.2, color = :gray80)
+
+		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.ϵ), label = "Elasticity between goods", linewidth = 3)
+		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.θ), label = "Elasticity between labour and goods", linewidth = 3)
+		lines!(ax[i], 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption", linewidth = 3)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(leontief .- 1, 2), label = "Leontief model", linewidth = 3)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(initial .- 1, 2), label = "Initial stimulus", linewidth = 3)
+		lines!(ax[i], [0.9, 0.015], 100 .* fill(cd .- 1, 2), label = "Cobb Douglas", linewidth = 3)
+	end
+
+	f[2, 1] = Legend(f, ax[1], labelsize = 29, tellwidth = false, orientation = :horizontal, nbanks = 2)
+
+	f
+end
+
+end
