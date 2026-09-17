@@ -44,8 +44,10 @@ using Test
     @test maximum(abs, equilibrium_residuals(shocked_sol)) < 1e-5
     @test !isapprox(sum(shocked_labor), shocked.options.labor_bar; atol=1e-4)
     @test nominal_gdp(shocked_sol) ≈ sum(shocked_labor) atol=1e-9
+    # Household expenditure is (1 − s) × income; the fixture carries s = 0.1 so
+    # the round-gain contracts (ADR-0014). With s = 0 the factor would be 1.
     @test sum(shocked_sol.prices_raw .* shocked_sol.consumption) ≈
-        sum(shocked_labor) atol=1e-9
+        (1 - 0.1) * sum(shocked_labor) atol=1e-9
 end
 
 @testset "fixed eta near one scale validation" begin
