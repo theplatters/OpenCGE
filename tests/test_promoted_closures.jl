@@ -277,6 +277,13 @@ end
     # ADR-0013: the intermediate-tax leak (row 75) enters the canary linearly.
     # T_int is not part of the demand system, so the solution is unchanged; the
     # canary's diff must move by exactly the valued tax term.
+    #
+    # A synthetic fixture cannot demonstrate the *closure* of the identity: its
+    # calibration is consistent under ANY split of the purchaser-price bill
+    # (only A + M + T = (1−fs)·λ matters), whereas on the real table rows 73/74/
+    # 75 fix the split and leaving row 75 out breaks the identity by exactly it.
+    # The end-to-end contract is therefore asserted on the real table in
+    # tests/test_calibration.jl ("ADR-0013 contract").
     d = fx.data
     T = fill(0.01, 3)
     d_t = Data(d.io, d.Ω, d.Ω_raw, d.consumption_share, d.factor_share, d.λ,
@@ -294,7 +301,9 @@ end
     @test can.T ≈ 0.0 atol = 1e-12
     @test can_t.T ≈ dot(sol.prices_raw .* (T ./ d.λ), sol.quantities) atol = 1e-12
     @test can_t.diff - can.diff ≈ can_t.T atol = 1e-12
-    @test dot(sol.prices_raw, market_clearing_residuals(mdl_t, X)) ≈ can_t.diff atol=1e-9
+    # The demand system is untouched by T_int, so the solution is identical.
+    sol_t = solve(mdl_t)
+    @test sol_t.quantities ≈ sol.quantities atol = 1e-12
 end
 
 @testset "promoted closures: fixed-wage financing anchor at η = 1" begin
