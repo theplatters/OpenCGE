@@ -83,7 +83,13 @@ function drop_sectors(data::Data, drops::Vector{Int})
 	io = data.io[keep, :]
 	va = data.value_added[keep]
 	vac = data.value_added_components
-	vac70 = vac isa AbstractDataFrame ? vac[keep, :] : vac[keep]
+	vac70 = if vac isa AbstractDataFrame
+		nrow(vac) == n ? vac[keep, :] : vac
+	elseif vac isa AbstractVector
+		length(vac) == n ? vac[keep] : vac
+	else
+		vac
+	end
 	return Data(io,
 		data.Ω[keep, keep], data.Ω_raw[keep, keep],
 		data.consumption_share[keep], data.factor_share[keep], data.λ[keep],
