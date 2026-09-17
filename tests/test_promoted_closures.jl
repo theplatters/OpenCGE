@@ -323,25 +323,21 @@ end
     # ... while unanchored demand still throws the legacy guard.
     bare = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, 1.0;
         closure = :fixed)
-    err = try
-        solve(bare)
-        nothing
-    catch e
-        e
-    end
-    @test err isa ArgumentError
-    @test occursin("scale-indeterminate", sprint(showerror, err))
-    # F1 is purely compositional and does not anchor scale either.
+    # ADR-0014: the v3 fixture is an OPEN calibration (m = 0.2, s ≈ 0.092), so
+    # its round-gain column sums are 0.836 < 1 and the fixed η = 1 system is
+    # DETERMINATE — it solves with no additive anchor. The retired heuristic
+    # rejected it (while admitting CLOSED fixtures whenever manna was present);
+    # the verified criterion does the opposite, and the rejections are pinned in
+    # tests/test_fixed_closure.jl and tests/test_kernel_regression.jl.
+    bare_sol = solve(bare)
+    @test maximum(abs, equilibrium_residuals(bare,
+        [bare_sol.prices_raw; bare_sol.quantities])) < 1e-5
+    # F1 is purely compositional and determinate on the open fixture too.
     f1 = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, 1.0;
         closure = :fixed, financing = PreferenceReallocation(fx.shift))
-    err1 = try
-        solve(f1)
-        nothing
-    catch e
-        e
-    end
-    @test err1 isa ArgumentError
-    @test occursin("scale-indeterminate", sprint(showerror, err1))
+    f1_sol = solve(f1)
+    @test maximum(abs, equilibrium_residuals(f1,
+        [f1_sol.prices_raw; f1_sol.quantities])) < 1e-5
 end
 
 @testset "promoted closures: v3 data compatibility defaults" begin
