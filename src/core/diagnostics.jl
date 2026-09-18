@@ -119,6 +119,161 @@ function cpi(sol::Solution)
 	(sol.model.data.consumption_share' * sol.prices_raw .^ (1- σ))^(1/(1 - σ))
 end
 
+# --- National-accounts GDP measurement (ADR-0018) ---
+
+"""
+	gdp_components(model::Model{MobileLaborCES}, sol::Solution) -> NamedTuple
+
+Seven signed aggregate GDP components at a solved open-economy equilibrium,
+with `p = sol.prices_raw`, `y = sol.quantities`, `w = sol.wages_raw[1]` and
+the demand blocks of the shared `_mobile_market_demand` hook
+(`c_dom`, `additive`, `L_i`, `E`):
+
+1. `C_gross`: gross household consumption `c_dom ./ (1 .- m)`;
+2. `G+programme`: government demand plus the financed programme bundle;
+3. `I`: exogenous investment; 4. `X`: exports (no margin);
+5. `−M_final`: final-import margin content of C+G+I (including the programme);
+6. `−M_int`: intermediate imports (row 74, ADR-0012);
+7. `−T_int`: product taxes on intermediate use (row 75, ADR-0013).
+
+The intermediate-bill leaks (6-7) are valued with the ADR-0016 CES bill
+factor `k = p^ϵ · a^(ϵ−1) · P^(1−ϵ)` (same factor as
+`external_balance_canary`, duplicated here so the canary is untouched).
+
+Returns `(V, Q, wage_bill, wedge)` with `V`/`Q` the seven component values /
+quantities (model units), `wage_bill = w·ΣL_i` and
+`wedge = sum(V) - wage_bill`. At every solved equilibrium the exact identity
+`sum(V) + p·ρ = wage_bill` holds, where `ρ = market_clearing_residuals`;
+at mobile η = 1 `p·ρ` is the canary external position (ADR-0010), so
+`wedge = −canary.diff`. Throws `ArgumentError` for other model types (the
+closed cores have no open-economy blocks).
+"""
+function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
+	p = sol.prices_raw
+	y = sol.quantities
+	w = sol.wages_raw[1]
+	blocks = _mobile_market_demand(model, p, y, w)
+	(; data, options, shocks) = model
+	(; θ, ϵ) = options.elasticities
+	m = data.import_margin
+	gov = data.gov_demand
+	add = blocks.additive
+	exo = data.exo_demand
+	x = data.exports_demand
+	# 1. Gross household consumption (domestic block grossed up by the margin).
+	c_gross = blocks.c_dom ./ (1 .- m)
+	V1 = dot(p, c_gross)
+	Q1 = sum(c_gross)
+	# 2. Government consumption plus the financed programme bundle.
+	V2 = dot(p, gov .+ add)
+	Q2 = sum(gov .+ add)
+	# 3. Investment. 4. Exports (domestic sales abroad: no margin).
+	V3 = dot(p, exo)
+	Q3 = sum(exo)
+	V4 = dot(p, x)
+	Q4 = sum(x)
+	# 5. Final-import margin content of household and injected demand.
+	M_cons = dot(p .* (m ./ max.(1 .- m, eps(Float64))), blocks.c_dom)
+	M_inj = dot(p .* m, add .+ gov .+ exo)
+	V5 = -(M_cons + M_inj)
+	Q5 = sum(m .* c_gross) + sum(m .* (add .+ gov .+ exo))
+	# 6-7. Intermediate-bill leaks, valued with the ADR-0016 CES bill factor
+	# (duplicated from `external_balance_canary` so the canary is untouched).
+	k = p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* _intermediate_price(data.Ω_raw, p, θ) .^ (1 - ϵ)
+	V6 = -dot(k .* (data.M_int ./ data.λ), y)
+	Q6 = sum((data.M_int ./ data.λ) .* y)
+	V7 = -dot(k .* (data.T_int ./ data.λ), y)
+	Q7 = sum((data.T_int ./ data.λ) .* y)
+	V = Float64[V1, V2, V3, V4, V5, V6, V7]
+	Q = Float64[Q1, Q2, Q3, Q4, Q5, Q6, Q7]
+	wage_bill = w * sum(blocks.L_i)
+	return (; V = V, Q = Q, wage_bill = Float64(wage_bill), wedge = sum(V) - wage_bill)
+end
+
+function gdp_components(model::Model, ::Solution)
+	throw(ArgumentError("gdp_components is only defined for the open-economy Model{MobileLaborCES}; " *
+		"got $(typeof(model.options)) (the closed cores have no open-economy blocks)"))
+end
+
+"""
+	gdp_deflator(sol::Solution, base::Solution) -> Float64
+
+Törnqvist price index of the seven `gdp_components` aggregates (ADR-0018):
+unit values `|V_j|/Q_j` with signed value shares `V_j/ΣV`, 1.0 at `base`.
+A component whose value is zero at either end contributes no measured price
+change; components that are zero at both ends are dropped; slots with
+non-positive quantities are skipped (never divided by zero). Throws
+`DomainError` if either side's total signed value is non-positive.
+"""
+function gdp_deflator(sol::Solution, base::Solution)::Float64
+	c = gdp_components(sol.model, sol)
+	c0 = gdp_components(base.model, base)
+	tot = sum(c.V)
+	tot0 = sum(c0.V)
+	tot0 <= 0 && throw(DomainError(tot0, "base GDP value must be positive"))
+	tot <= 0 && throw(DomainError(tot, "current GDP value must be positive"))
+	s0 = c0.V ./ tot0
+	s1 = c.V ./ tot
+	active = (abs.(c0.V) .+ abs.(c.V)) .> 0
+	dlnP = 0.0
+	for j in eachindex(c.V)
+		active[j] || continue
+		(c0.V[j] == 0 || c.V[j] == 0) && continue
+		(c0.Q[j] <= 0 || c.Q[j] <= 0) && continue
+		u0 = abs(c0.V[j]) / c0.Q[j]
+		u1 = abs(c.V[j]) / c.Q[j]
+		(u0 <= 0 || u1 <= 0) && continue
+		dlnP += 0.5 * (s0[j] + s1[j]) * log(u1 / u0)
+	end
+	return exp(dlnP)
+end
+
+"""
+	gdp_income(sol::Solution, base::Solution) -> Float64
+
+Income-side real GDP index (ADR-0018): nominal wage-bill growth deflated by
+`gdp_deflator`. 1.0 at `base`.
+"""
+function gdp_income(sol::Solution, base::Solution)::Float64
+	c = gdp_components(sol.model, sol)
+	c0 = gdp_components(base.model, base)
+	return (c.wage_bill / c0.wage_bill) / gdp_deflator(sol, base)
+end
+
+"""
+	gdp_expenditure(sol::Solution, base::Solution) -> Float64
+
+Expenditure-side Divisia dual (ADR-0018): nominal `ΣV` growth deflated by
+`gdp_deflator`. Equals `gdp_income` at the baseline and at fixed-wage cells;
+differs by the external wedge at mobile η = 1 cells. 1.0 at `base`.
+"""
+function gdp_expenditure(sol::Solution, base::Solution)::Float64
+	c = gdp_components(sol.model, sol)
+	c0 = gdp_components(base.model, base)
+	return (sum(c.V) / sum(c0.V)) / gdp_deflator(sol, base)
+end
+
+"""
+	gdp_wedge(sol::Solution) -> Float64
+
+External wedge `ΣV − w·ΣL` at a solved equilibrium (ADR-0018): the
+negative canary external position at mobile η = 1 cells. Diagnostic only,
+never gated to zero.
+"""
+function gdp_wedge(sol::Solution)::Float64
+	return gdp_components(sol.model, sol).wedge
+end
+
+"""
+	real_consumption(sol::Solution) -> Float64
+
+Canonical name of the household-consumption (welfare) Törnqvist index stored
+in `Solution.real_gdp` (ADR-0018). `real_gdp` itself is unchanged (D3).
+"""
+function real_consumption(sol::Solution)::Float64
+	return sol.real_gdp
+end
+
 # --- src/impulses.jl (verbatim) ---
 
 function load_impulses(filename)

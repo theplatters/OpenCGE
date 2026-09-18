@@ -37,6 +37,7 @@ export elasticities_gradient, standard_shock, standard_tech_shock, autonomous_sh
 export plot_real_gdp_gradient,plot_nominal_gdp_gradient, panel, diff_lambda, comparison_between_labor_slacks,effect_of_different_elasticities
 export eta_sweep, eta_sweep_full, EtaSweepResult, real_gdp_sweep, nominal_gdp_sweep, sectoral_quantities, sectoral_prices
 export variance_decomposition, SobolResult, VarianceDecompositionResult, summary_table, eta_sweep_diagnostics, pilot_eta_sweep
+export gdp_components, gdp_deflator, gdp_income, gdp_expenditure, gdp_wedge, real_consumption
 const inflator = 1.46
 
 include("core/accounting.jl")
