@@ -306,6 +306,27 @@ end
     @test sol_t.quantities ≈ sol.quantities atol = 1e-12
 end
 
+@testset "promoted closures: intermediate-leak valuation is CES-consistent (ADR-0016)" begin
+    # One-sector exact root: fs = 0.5, λ = 2, A_bill + M_int + T_int = 1.0 =
+    # (1−fs)·λ, supply shock a = 4, ϵ = θ = 0.5 so the CES bill factor is
+    # k = p^ϵ · a^(ϵ−1) · P^(1-ϵ) = 0.5. The imported intermediates and the
+    # intermediate taxes are shares of the SAME bundle the domestic bill is
+    # charged from, so both leaks must scale with k. Before ADR-0016 they were
+    # valued at p alone and the canary read 3.0 instead of the exact 1.5.
+    io = DataFrame("Sektoren" => ["a"], "Letzte Verwendung von Gütern zusammen" => [1.0])
+    d0 = Data(io, ones(1, 1), [1.0], [0.5], [2.0], [1.0], [1.0], [2.0], [1.0])
+    vals = Any[getfield(d0, f) for f in fieldnames(Data)]
+    vals[findfirst(==(:A_bill), fieldnames(Data))] = [0.5]
+    vals[findfirst(==(:M_int), fieldnames(Data))] = [0.25]
+    vals[findfirst(==(:T_int), fieldnames(Data))] = [0.25]
+    d = Data(vals...)
+    mdl = mobile_labor_model(d, Shocks([4.0], [1.0], [0.0]), 0.5, 0.5, 0.9, 1.0)
+    X = [1.0, 12.0, 9.0]
+    @test maximum(abs, equilibrium_residuals(mdl, X)) < 1e-12
+    @test dot([1.0], market_clearing_residuals(mdl, X)) ≈ 1.5 atol = 1e-12
+    @test external_balance_canary(mdl, X).diff ≈ 1.5 atol = 1e-12
+end
+
 @testset "promoted closures: fixed-wage financing anchor at η = 1" begin
     fx = v3_fixture()
     shocks = _v3_shocks()

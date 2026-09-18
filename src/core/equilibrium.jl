@@ -545,6 +545,10 @@ consistent with the model's demand blocks:
   T    = product taxes on intermediate use `T_int` (row 75, ADR-0013) — the
          third component of the purchaser-price intermediate bill, which the
          A-bill charges to no one: `(1−fs)·λ ≡ A_bill + M_int + T_int`.
+         `M_int` and `T_int` are constant shares of the SAME per-user CES
+         intermediate bundle the domestic bill `A_bill` is charged from, so
+         both leaks are valued with the CES bill factor
+         `k_u = p_u^ϵ · a_u^(ϵ−1) · P_u^(1-ϵ)` (ADR-0016).
 At a mobile (η = 1) equilibrium the omitted N-th market residual
 (`market_clearing_residuals`) equals this quantity; the acceptance tests
 assert that identity (review finding 2.1, ADR-0010; the `T` term added by
@@ -561,18 +565,23 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
     y = _positive_floor(X[N+1:2N])
     w = max(X[2N+1], 1e-10)
     blocks = _mobile_market_demand(model, p, y, w)
-    (; data) = model
+    (; data, options, shocks) = model
+    (; θ, ϵ) = options.elasticities
     m = data.import_margin
     M_cons = dot(p .* (m ./ max.(1 .- m, eps(Float64))), blocks.c_dom)
     M_inj = dot(p .* m, blocks.additive .+ data.gov_demand .+ data.exo_demand)
     M_prog = model.financing isa ExternalDebt ? -dot(p, blocks.additive) : 0.0
     # Intermediate-bill leaks (A-bill fix): the two non-domestic components of
-    # the purchaser-price intermediate bill, both scaling with sectoral output.
+    # the purchaser-price intermediate bill. They are constant shares of the
+    # SAME per-user CES intermediate bundle the domestic bill A_bill is charged
+    # from, so both carry the CES bill factor k_u = p_u^ϵ · a_u^(ϵ−1) · P_u^(1-ϵ)
+    # (ADR-0016), where a is the supply shock and P = _intermediate_price.
     # Row 74 (imported intermediates, ADR-0012) and row 75 (product taxes on
     # intermediate use, ADR-0013). Omitting row 75 leaves the identity short by
     # exactly that term (measured: -2.6e-2 on full-71 before the fix).
-    M_intl = dot(p .* (data.M_int ./ data.λ), y)
-    T_intl = dot(p .* (data.T_int ./ data.λ), y)
+    k_bill = p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* _intermediate_price(data.Ω_raw, p, θ) .^ (1 - ϵ)
+    M_intl = dot(k_bill .* (data.M_int ./ data.λ), y)
+    T_intl = dot(k_bill .* (data.T_int ./ data.λ), y)
     S = data.saving_rate * blocks.E
     IX = dot(p, data.exo_demand .+ data.exports_demand)
     return (; S = S, IX = IX,

@@ -176,6 +176,23 @@ end
 		@test abs(dot(sol71.prices_raw, market_clearing_residuals(mdl71, X71s)) -
 			external_balance_canary(mdl71, X71s).diff) < 1e-12
 
+		# ADR-0016: off-baseline leak valuation. A +20 % sector-1 supply shock
+		# moves the CES bill factor k away from 1; the canary must still close
+		# exactly, and the pre-ADR-0016 valuation (k ≡ 1) would break it.
+		shock_sh = Shocks([1.2; ones(70)], ones(71), zeros(71))
+		mdl_sh = mobile_labor_model(recal71, shock_sh, 0.5, 0.5, 0.9, 1.0)
+		sol_sh = solve(mdl_sh)
+		X_sh = [sol_sh.prices_raw; sol_sh.quantities; sol_sh.wages_raw[1]]
+		P_sh = BeyondHulten._intermediate_price(recal71.Ω_raw, sol_sh.prices_raw, 0.5)
+		k_sh = sol_sh.prices_raw .^ 0.5 .* shock_sh.supply_shock .^ (-0.5) .* P_sh .^ 0.5
+		@test maximum(abs.(k_sh .- 1)) > 1e-2
+		cl_sh = market_clearing_residuals(mdl_sh, X_sh)
+		can_sh = external_balance_canary(mdl_sh, X_sh)
+		@test dot(sol_sh.prices_raw, cl_sh) ≈ can_sh.diff atol = 1e-9
+		leak_fix = dot(k_sh .* (recal71.M_int .+ recal71.T_int) ./ recal71.λ, sol_sh.quantities)
+		leak_old = dot(sol_sh.prices_raw .* (recal71.M_int .+ recal71.T_int) ./ recal71.λ, sol_sh.quantities)
+		@test abs(dot(sol_sh.prices_raw, cl_sh) - (can_sh.diff - (leak_fix - leak_old))) > 1e-6
+
 		# Review findings 2.2/2.3: the rebuilt 70-sector dataset has probability
 		# rows (the old slice left 0.9713) and Σ labor_share = 1 (was 0.9878).
 		dropped = retained_dataset(full, [71])
