@@ -254,7 +254,7 @@ function recalibrate_open(data::Data; exo_scale::Real = 1.0)
 	# observed domestic household final demand: ZERO negative sectors, no
 	# clamping. The imported (row 74) and taxed (row 75) intermediate content is
 	# an explicit external-account leak carried in data.M_int / data.T_int
-	# (ADR-0012, ADR-0013); leaving row 75 out breaks the omitted-market canary
+	# (ADR-0012, ADR-0013); leaving row 75 out breaks the external-account canary
 	# by exactly that term.
 	Mλ = Ω_raw' * data.A_bill
 	c0_dom = λ .- Mλ .- (1.0 .- m) .* (gG .+ inv) .- expo

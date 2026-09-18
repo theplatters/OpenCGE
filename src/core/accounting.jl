@@ -92,7 +92,7 @@ struct Data <: AbstractData
 	# Both non-domestic components of that bill are explicit external-account
 	# leaks: the imported intermediates (row 74 → M_int, ADR-0012) and the
 	# product taxes on intermediate use (row 75 → T_int, ADR-0013). Without the
-	# tax term the omitted-market canary misses the identity by exactly row 75.
+	# tax term the external-account canary misses the identity by exactly row 75.
 	A_bill::Vector{Float64}            # per-user domestic intermediate bill at baseline (model units)
 	M_int::Vector{Float64}             # per-user intermediate imports at baseline (model units)
 	T_int::Vector{Float64}             # per-user product taxes on intermediate use at baseline (model units)

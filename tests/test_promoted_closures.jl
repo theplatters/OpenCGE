@@ -118,7 +118,7 @@ end
     ref = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, _V3_η;
         financing = fin)
     ref_sol = solve(ref)
-    init = [ref_sol.prices_raw; ref_sol.quantities; ref_sol.wages_raw[1]]
+    init = [ref_sol.prices_raw; ref_sol.quantities; ref_sol.wages_raw[1]; ref_sol.external_transfer]
     lbar = sum(fx.data.labor_share)
     for η_s in (0.5, 1.0)
         sol = solve_beta(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, _V3_η;
@@ -126,7 +126,7 @@ end
         mdl = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ,
             _V3_η; financing = fin, eta_s = η_s)
         w = sol.wages_raw[1]
-        X = [sol.prices_raw; sol.quantities; w]
+        X = [sol.prices_raw; sol.quantities; w; sol.external_transfer]
         @test maximum(abs, equilibrium_residuals(mdl, X)) < 1e-6
         L = sum(sectoral_labor_demand(sol.prices_raw, sol.quantities, w, mdl))
         # Registry formulation Σ L_i = L̄·((w/P)/(w0/P0))^η_s with the CPI
@@ -179,9 +179,10 @@ end
     sol = solve(mdl)
     p, w = sol.prices_raw, sol.wages_raw[1]
     @test maximum(abs, equilibrium_residuals(mdl,
-        [p; sol.quantities; w])) < 1e-5
+        [p; sol.quantities; w; sol.external_transfer])) < 1e-5
     L = sum(sectoral_labor_demand(p, sol.quantities, w, mdl))
-    E = household_expenditure(fin, mdl, w * L, p, L)
+    E = household_expenditure(fin, mdl, w * L, p, L;
+        external_transfer = sol.external_transfer)
     # Registry formulation Σ pᵢcᵢʰ = Eʰ (gross household consumption is
     # (1−s)E with the v3 saving leak; verify_v3 headline identity).
     @test dot(p, sol.consumption) ≈ (1 - fx.saving_rate) * E atol=1e-9
@@ -207,12 +208,16 @@ end
     sol = solve(mdl)
     p, w = sol.prices_raw, sol.wages_raw[1]
     @test maximum(abs, equilibrium_residuals(mdl,
-        [p; sol.quantities; w])) < 1e-5
+        [p; sol.quantities; w; sol.external_transfer])) < 1e-5
     L = sum(sectoral_labor_demand(p, sol.quantities, w, mdl))
-    E = household_expenditure(fin, mdl, w * L, p, L)
+    E = household_expenditure(fin, mdl, w * L, p, L;
+        external_transfer = sol.external_transfer)
     # Registry formulation Σ pᵢgᵢ = T(p): the balanced-budget rule makes the
     # household pay baseline government plus the programme at current prices.
-    @test E ≈ w * L - (dot(p, fx.data.gov_demand) + dot(p, fx.g)) atol=1e-9
+    # The external transfer enters AFTER tax (ADR-0019, decision D1), so the
+    # expenditure identity carries + F.
+    @test E ≈ w * L - (dot(p, fx.data.gov_demand) + dot(p, fx.g)) +
+        sol.external_transfer atol=1e-9
     @test dot(p, sol.consumption) ≈ (1 - fx.saving_rate) * E atol=1e-9
     @test tau_rate(fin, mdl, p, w, L) > 0
     # `public_budget` reports baseline gG plus the programme at current
@@ -232,12 +237,14 @@ end
     sol = solve(mdl)
     p, w = sol.prices_raw, sol.wages_raw[1]
     @test maximum(abs, equilibrium_residuals(mdl,
-        [p; sol.quantities; w])) < 1e-5
+        [p; sol.quantities; w; sol.external_transfer])) < 1e-5
     L = sum(sectoral_labor_demand(p, sol.quantities, w, mdl))
-    E = household_expenditure(fin, mdl, w * L, p, L)
-    # Registry formulation Σ pᵢgᵢ = F: the programme is externally financed,
-    # so the household is untaxed for it (only baseline gG is levied).
-    @test E ≈ w * L - dot(p, fx.data.gov_demand) atol=1e-9
+    E = household_expenditure(fin, mdl, w * L, p, L;
+        external_transfer = sol.external_transfer)
+    # Registry formulation: the programme is externally financed, so the
+    # household is untaxed for it (only baseline gG is levied). The mobile
+    # equilibrium transfer (ADR-0019) enters expenditure after tax, hence + F.
+    @test E ≈ w * L - dot(p, fx.data.gov_demand) + sol.external_transfer atol=1e-9
     @test dot(p, sol.consumption) ≈ (1 - fx.saving_rate) * E atol=1e-9
     # `external_balance` records the programme's import content Σ p·m·g
     # (its implemented definition; review §2.8 caveat is recorded in the
@@ -249,10 +256,14 @@ end
 end
 
 @testset "promoted closures: external-account canary (review 2.1)" begin
-    # The N-th market clearing is not imposed (`problem` enforces N-1 plus the
-    # CPI numeraire); `market_clearing_residuals` exposes it, and at a mobile
-    # (η = 1) equilibrium it equals the external-account imbalance
-    # S − (I+X−M) + T from `external_balance_canary` (ADR-0010, ADR-0013).
+    # ADR-0019: every regime enforces ALL N goods-market clearings with the
+    # explicit external transfer F threaded into demand. At a mobile (η = 1)
+    # equilibrium every clearing residual is ~0, so `dot(p, cl) ≈ 0` and the
+    # canary identity gap `diff = S + T + M − (I+X) − (F + B_gov)` is ≈ 0. At
+    # η = 0 the clearings still hold (with the F = 0 pin), but the canary
+    # retains the documented fixed-allocation/factor-market gap (zero-profit
+    # prices the cost-minimizing labour demand, not the frozen baseline
+    # allocation): reported, not gated.
     fx = v3_fixture()
     shocks = _v3_shocks()
     for fin in (NoFinancing(), TaxFinanced(fx.g), ExternalDebt(fx.g))
@@ -260,16 +271,20 @@ end
             mdl = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, η;
                 financing = fin)
             sol = solve(mdl)
-            X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+            X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
             @test maximum(abs, equilibrium_residuals(mdl, X)) < 1e-6
             cl = market_clearing_residuals(mdl, X)
             can = external_balance_canary(mdl, X)
-            # N-1 clearings are enforced; the N-th is the residual external
-            # account. At η = 1 (mobile FOC holds) the omitted market equals the
-            # canary; at η = 0 it also carries the fixed-allocation gap.
-            @test maximum(abs, cl[1:end-1]) < 1e-6
+            # All N clearings are enforced at both endpoints.
+            @test maximum(abs, cl) < 1e-6
             if η == 1.0
-                @test dot(sol.prices_raw, cl) ≈ can.diff atol=1e-9
+                @test dot(sol.prices_raw, cl) ≈ 0 atol=1e-9
+                @test can.diff ≈ 0 atol=1e-9
+            else
+                # The η = 0 factor-market gap is a reported quantity, not a
+                # gate: it must be finite (its magnitude is pinned on the real
+                # table in tests/test_external_closure.jl).
+                @test isfinite(can.diff)
             end
         end
     end
@@ -295,15 +310,17 @@ end
     mdl = mobile_labor_model(d, shocks, _V3_θ, _V3_ϵ, _V3_σ, 1.0)
     mdl_t = mobile_labor_model(d_t, shocks, _V3_θ, _V3_ϵ, _V3_σ, 1.0)
     sol = solve(mdl)
-    X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+    X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
     can = external_balance_canary(mdl, X)
     can_t = external_balance_canary(mdl_t, X)
     @test can.T ≈ 0.0 atol = 1e-12
     @test can_t.T ≈ dot(sol.prices_raw .* (T ./ d.λ), sol.quantities) atol = 1e-12
     @test can_t.diff - can.diff ≈ can_t.T atol = 1e-12
-    # The demand system is untouched by T_int, so the solution is identical.
+    # The demand system is untouched by T_int, so the solution — quantities
+    # and the external transfer — is identical.
     sol_t = solve(mdl_t)
     @test sol_t.quantities ≈ sol.quantities atol = 1e-12
+    @test sol_t.external_transfer ≈ sol.external_transfer atol = 1e-12
 end
 
 @testset "promoted closures: intermediate-leak valuation is CES-consistent (ADR-0016)" begin
@@ -321,10 +338,18 @@ end
     vals[findfirst(==(:T_int), fieldnames(Data))] = [0.25]
     d = Data(vals...)
     mdl = mobile_labor_model(d, Shocks([4.0], [1.0], [0.0]), 0.5, 0.5, 0.9, 1.0)
+    # Legacy 2N+1 vector (F = 0): zero-profit, labour and CPI hold exactly;
+    # the single clearing residual is the unfinanced 1.5, and the canary reads
+    # the same gap. Booking F = 1.5 closes the account exactly (ADR-0019).
     X = [1.0, 12.0, 9.0]
-    @test maximum(abs, equilibrium_residuals(mdl, X)) < 1e-12
+    r = equilibrium_residuals(mdl, X)
+    @test r[1] ≈ 0 atol = 1e-12
+    @test r[2] ≈ 1.5 atol = 1e-12
+    @test r[3] ≈ 0 atol = 1e-12
+    @test r[4] ≈ 0 atol = 1e-12
     @test dot([1.0], market_clearing_residuals(mdl, X)) ≈ 1.5 atol = 1e-12
     @test external_balance_canary(mdl, X).diff ≈ 1.5 atol = 1e-12
+    @test maximum(abs, equilibrium_residuals(mdl, [1.0, 12.0, 9.0, 1.5])) < 1e-12
 end
 
 @testset "promoted closures: fixed-wage financing anchor at η = 1" begin
@@ -387,7 +412,7 @@ end
     ref = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, _V3_η;
         financing = fin)
     ref_sol = solve(ref)
-    init = [ref_sol.prices_raw; ref_sol.quantities; ref_sol.wages_raw[1]]
+    init = [ref_sol.prices_raw; ref_sol.quantities; ref_sol.wages_raw[1]; ref_sol.external_transfer]
     cd = mobile_labor_model(fx.data, shocks, 1.0, 1.0, 0.9, _V3_η;
         financing = fin)
     sol_cd = solve(cd; init = init)

@@ -162,33 +162,41 @@ end
 			sum(recal71.λ) - 1.0 atol = 1e-10
 		@test all(>=(0), recal71.household_baseline)
 
-		# ADR-0013 contract: at the baseline root (and at the solved root) the
-		# omitted N-th market residual equals the external canary to machine
-		# precision. Before the T_int term the identity was short by exactly
-		# sum(T_int) = 2.5745e-2 (the "−2.6e-2 reconciliation gap").
+		# ADR-0013 contract (ADR-0019 reading): at the baseline root (F = 0,
+		# B_gov = 0, all clearings ~0 and diff ~0) the value-weighted clearing
+		# residual equals the external canary to machine precision. Before the
+		# T_int term the identity was short by exactly sum(T_int) = 2.5745e-2
+		# (the "−2.6e-2 reconciliation gap"). At the solved root both sides are
+		# ≈ 0, so the all-N clearings and the identity gap are gated directly.
 		mdl71 = mobile_labor_model(recal71, Shocks(ones(71), ones(71), zeros(71)),
 			0.5, 0.5, 0.9, 1.0)
 		X71 = [ones(71); recal71.λ; 1.0]
 		@test abs(dot(ones(71), market_clearing_residuals(mdl71, X71)) -
 			external_balance_canary(mdl71, X71).diff) < 1e-12
 		sol71 = solve(mdl71)
-		X71s = [sol71.prices_raw; sol71.quantities; sol71.wages_raw[1]]
+		X71s = [sol71.prices_raw; sol71.quantities; sol71.wages_raw[1]; sol71.external_transfer]
 		@test abs(dot(sol71.prices_raw, market_clearing_residuals(mdl71, X71s)) -
 			external_balance_canary(mdl71, X71s).diff) < 1e-12
+		@test maximum(abs, market_clearing_residuals(mdl71, X71s)) ≤ 1e-10
+		@test abs(external_balance_canary(mdl71, X71s).diff) ≤ 1e-12
 
 		# ADR-0016: off-baseline leak valuation. A +20 % sector-1 supply shock
-		# moves the CES bill factor k away from 1; the canary must still close
-		# exactly, and the pre-ADR-0016 valuation (k ≡ 1) would break it.
+		# moves the CES bill factor k away from 1. Under all-N + F the
+		# supply-shock solution carries F ≠ 0 and the canary still closes
+		# exactly; the pre-ADR-0016 valuation (k ≡ 1) would break it, as the
+		# leak_fix/leak_old contrast at the solution point demonstrates.
 		shock_sh = Shocks([1.2; ones(70)], ones(71), zeros(71))
 		mdl_sh = mobile_labor_model(recal71, shock_sh, 0.5, 0.5, 0.9, 1.0)
 		sol_sh = solve(mdl_sh)
-		X_sh = [sol_sh.prices_raw; sol_sh.quantities; sol_sh.wages_raw[1]]
+		X_sh = [sol_sh.prices_raw; sol_sh.quantities; sol_sh.wages_raw[1]; sol_sh.external_transfer]
 		P_sh = BeyondHulten._intermediate_price(recal71.Ω_raw, sol_sh.prices_raw, 0.5)
 		k_sh = sol_sh.prices_raw .^ 0.5 .* shock_sh.supply_shock .^ (-0.5) .* P_sh .^ 0.5
 		@test maximum(abs.(k_sh .- 1)) > 1e-2
+		@test abs(sol_sh.external_transfer) > 1e-6
 		cl_sh = market_clearing_residuals(mdl_sh, X_sh)
 		can_sh = external_balance_canary(mdl_sh, X_sh)
-		@test dot(sol_sh.prices_raw, cl_sh) ≈ can_sh.diff atol = 1e-9
+		@test maximum(abs, cl_sh) ≤ 1e-10
+		@test abs(can_sh.diff) ≤ 1e-12
 		leak_fix = dot(k_sh .* (recal71.M_int .+ recal71.T_int) ./ recal71.λ, sol_sh.quantities)
 		leak_old = dot(sol_sh.prices_raw .* (recal71.M_int .+ recal71.T_int) ./ recal71.λ, sol_sh.quantities)
 		@test abs(dot(sol_sh.prices_raw, cl_sh) - (can_sh.diff - (leak_fix - leak_old))) > 1e-6
@@ -212,7 +220,7 @@ end
 		# appears identically on both sides (ADR-0013).
 		mdl70 = mobile_labor_model(recal70, Shocks(ones(70), ones(70), zeros(70)),
 			0.5, 0.5, 0.9, 1.0)
-		X70 = [ones(70); recal70.λ; 1.0]
+		X70 = [ones(70); recal70.λ; 1.0]   # legacy vector: F = 0
 		mk70 = dot(ones(70), market_clearing_residuals(mdl70, X70))
 		@test abs(mk70 - external_balance_canary(mdl70, X70).diff) < 1e-12
 		@test abs(mk70) < 1e-5   # the disclosed microscopic clamp

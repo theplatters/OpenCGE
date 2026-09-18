@@ -24,35 +24,43 @@ function three_sector_fixture()
         consumption_share_gross_output, grossy, value_added)
 end
 
-# Goldens captured on 2026-09-17 after the ADR-0010 port (N-1 clearing + CPI,
-# residual external account) and the retirement of the allocation wedge with
-# η ∈ {0, 1}. Solved with default init (p=1, y=λ, w=1); no explicit `init` is
-# passed, so these values also pin the default-init behavior. Tolerances are
-# deliberately loose (atol=1e-5) so the tests only fail on genuine behavior
-# change, not on solver-version noise.
+# Goldens captured on 2026-09-18 after the ADR-0019 re-pin (all-N clearing +
+# explicit external transfer F, superseding ADR-0010's N-1 port). Solved with
+# default init (p=1, y=λ, w=1, F=0); no explicit `init` is passed, so these
+# values also pin the default-init behavior. Tolerances are deliberately loose
+# (atol=1e-5) so the tests only fail on genuine behavior change, not on
+# solver-version noise.
 #
-# η = 1 (fully mobile) solves the mobile system exactly. η = 0 (immobile
-# baseline allocation) leaves the labor FOC unenforced and its solution carries
-# the fixed-allocation gap in the omitted N-th market; the two endpoints
-# therefore differ in general (they coincide only where the omitted market is
-# redundant, e.g. the closed fixture at η = 1).
+# η = 0 (immobile baseline allocation) and η = 1 (fully mobile) now coincide
+# at the unshocked baseline: the η = 0 system pins F = 0 (the labour row is
+# identically zero there) and enforces the same all-N clearings, and the η = 1
+# root carries F ≈ 0, so both solve the same effective system. The old η = 0
+# quantities (which left the N-th market uncleared) are superseded. The
+# fixed-allocation/factor-market gap at η = 0 now lives in the canary diff,
+# not in the quantities. The legacy additive-shock cell keeps its prices and
+# wage; only its quantities moved (all-N clearing is now enforced at η = 0).
 const _GOLDEN_P_ETA0 = [1.0, 1.0, 1.0]
-const _GOLDEN_Q_ETA0 = [1.2965771781445423, 0.9799857844319968, 0.78266717964435]
+const _GOLDEN_Q_ETA0 = [1.2822805578342904, 0.9651845775225595, 0.720098441345365]
 const _GOLDEN_W_ETA0 = 1.0
+const _GOLDEN_F_ETA0 = 0.0
 const _GOLDEN_RGDP_ETA0 = 1.0
 const _GOLDEN_NGDP_ETA0 = 1.54
 
 const _GOLDEN_P_ETA1 = [1.0, 1.0, 1.0]
 const _GOLDEN_Q_ETA1 = [1.2822805578342904, 0.9651845775225595, 0.720098441345365]
 const _GOLDEN_W_ETA1 = 1.0
+const _GOLDEN_F_ETA1 = 0.0
 const _GOLDEN_RGDP_ETA1 = 1.0
 const _GOLDEN_NGDP_ETA1 = 1.54
 
 # Legacy additive-shock compatibility path (autonomous + investment demand plus
-# a sectoral supply shock), η=0. Captured 2026-09-17.
+# a sectoral supply shock), η=0. Re-pinned 2026-09-18 (ADR-0019): prices, wage
+# and real GDP are unchanged; quantities moved because all N clearings are now
+# enforced at η = 0 (previously the N-th market was the residual account).
 const _GOLDEN_P_ADD = [0.90589586160246, 1.1101434216426687, 1.091897747460701]
-const _GOLDEN_Q_ADD = [1.640761247830256, 1.0347653859537826, 0.6935523230378825]
+const _GOLDEN_Q_ADD = [1.661309154471104, 1.0542104987265815, 0.7779185250301431]
 const _GOLDEN_W_ADD = 1.159091891146103
+const _GOLDEN_F_ADD = 0.0
 const _GOLDEN_RGDP_ADD = 1.159091890922907
 
 function _solve_mobile(data, shocks, η; kwargs...)
@@ -79,6 +87,7 @@ end
     @test sol0.prices_raw ≈ _GOLDEN_P_ETA0 atol=1e-5
     @test sol0.quantities ≈ _GOLDEN_Q_ETA0 atol=1e-5
     @test sol0.wages_raw[1] ≈ _GOLDEN_W_ETA0 atol=1e-5
+    @test sol0.external_transfer ≈ _GOLDEN_F_ETA0 atol=1e-5
     @test real_gdp(sol0) ≈ _GOLDEN_RGDP_ETA0 atol=1e-5
     @test nominal_gdp(sol0) ≈ _GOLDEN_NGDP_ETA0 atol=1e-5
 
@@ -86,17 +95,19 @@ end
     @test sol1.prices_raw ≈ _GOLDEN_P_ETA1 atol=1e-5
     @test sol1.quantities ≈ _GOLDEN_Q_ETA1 atol=1e-5
     @test sol1.wages_raw[1] ≈ _GOLDEN_W_ETA1 atol=1e-5
+    @test sol1.external_transfer ≈ _GOLDEN_F_ETA1 atol=1e-5
     @test real_gdp(sol1) ≈ _GOLDEN_RGDP_ETA1 atol=1e-5
     @test nominal_gdp(sol1) ≈ _GOLDEN_NGDP_ETA1 atol=1e-5
 
     for (m, s) in ((model0, sol0), (model1, sol1))
-        X = [s.prices_raw; s.quantities; s.wages_raw[1]]
+        X = [s.prices_raw; s.quantities; s.wages_raw[1]; s.external_transfer]
         @test maximum(abs, equilibrium_residuals(m, X)) < 1e-5
     end
     # η = 0 reports the baseline allocation; η = 1 reports the cost-minimizing
-    # demand at the equilibrium (the two coincide at the baseline only). The
-    # endpoints differ in aggregate because the omitted N-th market carries the
-    # η = 0 fixed-allocation/factor-market gap (ADR-0010).
+    # demand at the equilibrium. At the unshocked baseline the two coincide
+    # (both clear all N markets with F = 0); the η = 0 fixed-allocation/
+    # factor-market gap now appears in the canary diff (ADR-0019), not in the
+    # quantities.
     @test sectoral_labor_demand(sol0.prices_raw, sol0.quantities, sol0.wages_raw[1], model0) ≈
         data.labor_share
     @test !isapprox(
@@ -116,8 +127,9 @@ end
     @test sol.prices_raw ≈ _GOLDEN_P_ADD atol=1e-5
     @test sol.quantities ≈ _GOLDEN_Q_ADD atol=1e-5
     @test sol.wages_raw[1] ≈ _GOLDEN_W_ADD atol=1e-5
+    @test sol.external_transfer ≈ _GOLDEN_F_ADD atol=1e-5
     @test real_gdp(sol) ≈ _GOLDEN_RGDP_ADD atol=1e-5
-    X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+    X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
     @test maximum(abs, equilibrium_residuals(model, X)) < 1e-5
 end
 
@@ -125,7 +137,7 @@ end
     data = three_sector_fixture()
     shocks = Shocks(ones(3), ones(3), zeros(3))
     model, sol = _solve_mobile(data, shocks, 1.0)
-    X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+    X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
     @test maximum(abs, equilibrium_residuals(model, X)) < 1e-5
 
     labor = sectoral_labor_demand(sol.prices_raw, sol.quantities,

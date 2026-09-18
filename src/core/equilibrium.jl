@@ -12,10 +12,11 @@ struct Solution
 	numeraire::Float64
 	real_gdp::Float64
 	nominal_gdp::Float64
+	external_transfer::Float64
 	model::Model
 end
 
-function Solution(prices_raw, quantities, wages, consumption, numeraire, real_gdp, nominal_gdp, model)
+function Solution(prices_raw, quantities, wages, consumption, numeraire, real_gdp, nominal_gdp, model; external_transfer::Real = 0.0)
 	return Solution(
 		prices_raw ./ numeraire,
 		prices_raw,
@@ -26,6 +27,7 @@ function Solution(prices_raw, quantities, wages, consumption, numeraire, real_gd
 		numeraire,
 		real_gdp,
 		nominal_gdp,
+		Float64(external_transfer),
 		model)
 end
 
@@ -164,13 +166,15 @@ end
 # solver gates with LM polish, all-N fixed formulation, household_baseline
 # Törnqvist base, financing/eta_s kwargs. Compatibility: legacy manna A/G
 # retained; legacy error substrings kept.
-# Port of the cbase2 review fixes (ADR-0010, 2026-09-17): the MOBILE system
-# keeps N-1 clearing equations plus the CPI = 1 numeraire and exposes the
-# omitted N-th market as the residual external account
-# (`market_clearing_residuals`); the allocation wedge is retired with η ∈ {0,1}
-# (the all-N `644ba37` form, later reverted on `revisefinal` by `0f33ad6`,
-# over-determines the open economy and has no exact root for additive-demand
-# cases). See `problem`.
+# Explicit external-account closure (ADR-0019, superseding ADR-0010's N-1
+# decision): every regime enforces ALL N goods-market clearing equations. The
+# mobile system gains one scalar unknown F (net external transfer, entering
+# household expenditure after tax) alongside the CPI = 1 numeraire; the
+# fixed-wage and η = 0 systems clear all N markets with F ≡ 0. The old all-N
+# `644ba37` form (reverted on `revisefinal` by `0f33ad6`) had no exact root
+# only because it lacked the external variable; with F the all-N system is
+# well posed (baseline residual 4.4e-16). See `problem`. The allocation wedge
+# stays retired with η ∈ {0,1}.
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Mobile Labor with Geometric Intersectoral Reallocation η
@@ -250,7 +254,7 @@ labor_closure(options::MobileLaborCES) =
                                  FixedWageClosure()
 
 # ── Labor-market equation hook ──
-# The total-labor-market residual of the flexible-wage systems (problem(), 2N+1).
+# The total-labor-market residual of the flexible-wage systems (problem(), 2N+2).
 # ALPHA (FlexibleWageClosure): vertical supply at the bar L̄ (the CPI argument is
 #       unused).
 # BETA  (ElasticLaborClosure, defined in src/closures/labor/types.jl): elastic
@@ -379,14 +383,15 @@ function economy_wide_wage(p, y, labor, model::Model{MobileLaborCES})
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# The equilibrium problem (2N+1 equations, 2N+1 unknowns)
+# The equilibrium problem (2N+2 equations, 2N+2 unknowns)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-    _mobile_market_demand(model, p, y, w) -> NamedTuple
+    _mobile_market_demand(model, p, y, w; external_transfer = 0.0) -> NamedTuple
 
-Goods-market blocks shared by `problem` (which enforces N-1 clearing equations
-plus CPI = 1) and `market_clearing_residuals` (the full N-vector canary):
+Goods-market blocks shared by `problem` (all N clearing equations plus the
+labour market and CPI = 1), `problem_fixed` (F ≡ 0), `market_clearing_residuals`
+and the canary/diagnostics:
 
   intermediary_demand  sectoral intermediate demand
   total_final_demand   domestic final demand (household + additive + manna)
@@ -395,18 +400,19 @@ plus CPI = 1) and `market_clearing_residuals` (the full N-vector canary):
   L_i                  sectoral labor allocation at the kept BF endpoints
   cost                 CES unit cost (no allocation wedge, ADR-0010)
   E                    household expenditure entering the CES demand
+  (after-tax wage income plus the external transfer F)
 
 Budget-consistent CES demand over the household's (possibly financed)
 expenditure. `fin = model.financing` (Foundation II):
   F1  composes E within its budget via preference weights (no additive
       demand; the normalizer keeps Σ p_i c_i = E exactly);
-  F2  E = w·ΣL − T(p) with T = Σ p_i g_i the lump-sum tax;
-  F3  E = w·ΣL, externally financed.
+  F2  E = w·ΣL − T(p) + F with T = Σ p_i g_i the lump-sum tax (F after tax);
+  F3  E = w·ΣL + F, externally financed.
 Compatibility (ADR-0005): the legacy unfinanced autonomous/investment manna
 (A/G below) is RETAINED alongside the financed programme demand.
 """
 function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
-        y::AbstractVector, w::Real)
+        y::AbstractVector, w::Real; external_transfer::Real = 0.0)
     (; data, options, shocks) = model
     N = length(data.factor_share)
     (; consumption_share, Ω_raw, factor_share) = data
@@ -421,7 +427,7 @@ function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
     # solver's exploration of negative-income trial points (the legacy code
     # did). The E > 0 check belongs to the post-solve validation in the
     # notebooks (headline assertions verify E = w*L - T > 0 at equilibrium).
-    E = household_expenditure(fin, model, total_income, p, L_sum)
+    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = external_transfer)
     agg = sum(consumption_share .* ds_eff .* p .^ (1 - σ))
     # v3 open economy: the household consumes (1-s)E gross (saving s·E leaks);
     # only the DOMESTIC content circulates -- the import content of household,
@@ -454,25 +460,36 @@ end
 
 The equilibrium system for the mobile-labor CES model.
 
-Unknowns: X = [p(1:N); y(1:N); w]  — 2N+1 elements
-Equations (2N+1):
+Unknowns: X = [p(1:N); y(1:N); w; F]  — 2N+2 elements, where F is the net
+external transfer (net external borrowing) entering household expenditure
+after tax: E = (1-τ)·w·ΣL + F (ADR-0019, decision D1).
+Equations (2N+2):
   1. Zero-profit equations  (N):     p_i = cost_i(p, w)   for all i=1..N
-  2. Market clearing        (N-1):   y_i = intermediary_demand_i + final_demand_i
-                                      for i=1..N-1
-  3. Labor market clearing  (1):     Σ L_i(p,y,w) = L̄
+  2. Market clearing        (N):     y_i = intermediary_demand_i + final_demand_i
+                                      for all i=1..N
+  3. Labor market clearing  (1):     Σ L_i(p,y,w) = L̄ (ALPHA), or the BETA
+                                      elastic-supply curve; at η = 0 the PIN
+                                      F = 0 (see below)
   4. Numeraire              (1):     CPI = 1  (Σ β_i · p_i^(1-σ))^(1/(1-σ) = 1)
 
-Note (review finding 2.1, ADR-0010): the N-th market is NOT Walras-redundant
-in the v3 open economy once imports leak — the p-weighted sum of the clearing
-residuals equals the external-account imbalance. The system omits the N-th
-clearing and defines the external balance residually: the omitted residual is
-exposed by `market_clearing_residuals`, and the identity with
-S − (I+X−M) is asserted by the acceptance tests/experiments. Enforcing all N
-clearings instead (the all-N `644ba37` form, reverted on `revisefinal` by
-`0f33ad6`) over-determines the open economy: the additive-demand cases then
-have no exact root (measured floor 4.4e-4 on
-the real 70-sector calibration, 9e-3 on the v3 contract fixture), because the
-extra scale-invariant equation is not compatible with the accounting.
+At every all-N solution the exact external-account identity holds:
+S + T_int + M − (I+X) = F + B_gov, where B_gov = Σ p_i g_i under ExternalDebt
+(F3) financing and 0 otherwise, S = s·E with E including F, and M is the full
+import content (final margin plus the intermediate-import leak M_int, row 74).
+`external_balance_canary` asserts it (the acceptance test, at machine precision).
+
+Note (ADR-0019, superseding ADR-0010): no market is omitted. The old note —
+that the all-N `644ba37` form, reverted on `revisefinal` by `0f33ad6`,
+over-determines the open economy and has no exact root for additive-demand
+cases — described a system that lacked the external variable; with F the
+all-N formulation is well posed (measured baseline residual 4.4e-16 with a
+well-conditioned Jacobian).
+
+At η = 0 (the BF immobile endpoint) `sectoral_labor_demand` returns the
+constant `data.labor_share`, so the labour residual is identically zero and
+carries no information. With all N clearings the system then needs one more
+independent equation, and decision D2 pins F = 0 (the immobile benchmark
+carries no external transfer): out[2N+1] = X[2N+2].
 
 The CPI = 1 numeraire pins the price level (the mobile system is homogeneous
 of degree 1 in (p, w) without it), mirroring the fixed-wage system
@@ -487,31 +504,35 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     (; data, options) = model
     N = length(data.factor_share)
 
-    # FULL FORMULATION (2N+1 unknowns: p1..pN, y1..yN, w): ALL N zero-profit
-    # conditions, N-1 clearing equations (the N-th market is the residual
-    # external account; see the docstring and ADR-0010), the labour market and
-    # the CPI = 1 numeraire.
+    # FULL FORMULATION (2N+2 unknowns: p1..pN, y1..yN, w, F): ALL N zero-profit
+    # conditions, ALL N clearing equations, the labour market (or the F = 0 pin
+    # at eta = 0, where the labour row is identically satisfied; decision D2)
+    # and the CPI = 1 numeraire.
     p = _positive_floor(X[1:N])
     y = _positive_floor(X[N+1:2N])
     w = max(X[2N+1], 1e-10)  # scalar wage, keep positive
+    F = X[2N+2]  # net external transfer (signed: no floor)
 
-    blocks = _mobile_market_demand(model, p, y, w)
+    blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
     cpi = sum(data.consumption_share .* p .^ (1 - options.elasticities.σ))^(1 / (1 - options.elasticities.σ))
 
     # ── Equation 1: Zero-profit for ALL N sectors ──
     out[1:N] .= p .- blocks.cost
 
-    # ── Equation 2: Market clearing for sectors 1..N-1 ──
-    # The N-th clearing is NOT Walras-redundant once imports leak; it is the
-    # residual external account and is checked by `market_clearing_residuals`
-    # instead of being imposed here (ADR-0010).
-    out[N+1:2N-1] .= y[1:N-1] .- blocks.intermediary_demand[1:N-1] .- blocks.total_final_demand[1:N-1]
+    # ── Equation 2: Market clearing for ALL N sectors ──
+    out[N+1:2N] .= y .- blocks.intermediary_demand .- blocks.total_final_demand
 
     # ── Equation 3: Labour market (flexible-wage system: ALPHA / BETA) ──
-    out[2N] = labor_market_residual(labor_closure(options), model, sum(blocks.L_i), w, cpi)
+    # At eta = 0 the allocation is the constant baseline, so the labour row is
+    # identically zero; the pin F = 0 keeps the equation count right (D2).
+    if options.elasticities.η == 0.0
+        out[2N+1] = F
+    else
+        out[2N+1] = labor_market_residual(labor_closure(options), model, sum(blocks.L_i), w, cpi)
+    end
 
     # ── Equation 4: Numeraire constraint -- CPI = 1 ──
-    out[2N+1] = cpi - 1.0
+    out[2N+2] = cpi - 1.0
 
     nothing
 end
@@ -519,67 +540,101 @@ end
 """
     market_clearing_residuals(model, X) -> Vector
 
-Full N-vector of goods-market clearing residuals `y_i − inter_i − final_i` at
-the mobile vector `X = [p; y; w]` (clamped exactly as in `problem`). The last
-entry is the market that `problem` does NOT impose: it is the residual
-external account (review finding 2.1, ADR-0010). At a solved system the other
-N-1 entries are ~0, so `p ⋅ market_clearing_residuals` reduces to the omitted
-market's residual and matches the external-account imbalance
-`S − (I+X−M)` (asserted by the acceptance tests; the experiments record it as
-the canary). Diagnostic only — never part of the solve.
+Full N-vector of goods-market clearing residuals `y_i − inter_i − final_i`,
+with the external transfer threaded into the demand hook. X is [p; y] (2N,
+w = 1, F = 0), [p; y; w] (2N+1 legacy, F = 0) or [p; y; w; F] (2N+2),
+clamped exactly as in `problem`. At a solved all-N system every entry is ~0
+(ADR-0019: no market is omitted any more). Diagnostic only — never part of
+the solve.
 """
 function market_clearing_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
     N = length(model.data.factor_share)
-    length(X) == 2N + 1 || throw(DimensionMismatch(
-        "mobile-labor canary expects a $(2N+1)-element vector [p; y; w]"))
-    p = _positive_floor(X[1:N])
-    y = _positive_floor(X[N+1:2N])
-    w = max(X[2N+1], 1e-10)
-    blocks = _mobile_market_demand(model, p, y, w)
+    Xv = collect(X)
+    if length(Xv) == 2N
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = 1.0
+        F = 0.0
+    elseif length(Xv) == 2N + 1
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = max(Xv[2N+1], 1e-10)
+        F = 0.0
+    elseif length(Xv) == 2N + 2
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = max(Xv[2N+1], 1e-10)
+        F = Xv[2N+2]
+    else
+        throw(DimensionMismatch(
+            "mobile-labor canary expects a $(2N)-, $(2N+1)- or $(2N+2)-element vector [p; y(; w(; F))]"))
+    end
+    blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
     return y .- blocks.intermediary_demand .- blocks.total_final_demand
 end
 
 """
     external_balance_canary(model, X) -> NamedTuple
 
-`S − (I + X − M) + T` at the mobile vector `X = [p; y; w]`, in value terms and
-consistent with the model's demand blocks:
+External-account identity gap at [p; y] (2N, w = 1, F = 0), [p; y; w]
+(2N+1 legacy, F = 0) or [p; y; w; F] (2N+2), in value terms and consistent
+with the model's demand blocks (the transfer F is threaded into the hook,
+so S = s·E includes it):
   S    = s·E,
   I+X  = p·(exo_demand + exports_demand),
-  M    = import content of final demand: `m/(1-m)` on the domestic household
-         block, `m` on the government/investment/programme injections, minus
-         the full programme value under F3 (ExternalDebt finances it
-         externally, so the inflow offsets the trade balance), plus the
-         intermediate-import leak `M_int` (row 74, ADR-0012).
+  M    = full import content: `m/(1-m)` on the domestic household block, `m`
+         on the government/investment/programme injections, plus the
+         intermediate-import leak `M_int` (row 74, ADR-0012). The programme's
+         own import content legitimately belongs to M (it is no longer netted
+         out); the external financing of the programme is booked in B_gov.
   T    = product taxes on intermediate use `T_int` (row 75, ADR-0013) — the
          third component of the purchaser-price intermediate bill, which the
          A-bill charges to no one: `(1−fs)·λ ≡ A_bill + M_int + T_int`.
          `M_int` and `T_int` are constant shares of the SAME per-user CES
          intermediate bundle the domestic bill `A_bill` is charged from, so
          both leaks are valued with the CES bill factor
-         `k_u = p_u^ϵ · a_u^(ϵ−1) · P_u^(1-ϵ)` (ADR-0016).
-At a mobile (η = 1) equilibrium the omitted N-th market residual
-(`market_clearing_residuals`) equals this quantity; the acceptance tests
-assert that identity (review finding 2.1, ADR-0010; the `T` term added by
-ADR-0013 closes it to machine precision — measured 1.7e-16 on full-71).
-At η = 0 the omitted market additionally reflects the fixed-allocation/
-factor-market gap, and legacy manna (ADR-0005) has no modelled import content;
-the identity is asserted only for the mobile, zero-manna case.
+         `k_u = p_u^ϵ · a_u^(ϵ−1) · P_u^(1-ϵ)` (ADR-0016),
+  B_gov = Σ p_i g_i under ExternalDebt (F3) financing — the programme value —
+         and 0 otherwise,
+  diff = S + T + M − (I+X) − (F + B_gov): the external-account identity gap.
+         ≈ 0 at every η = 1 solution (mobile and fixed-wage, where the
+         cost-minimizing allocation closes the account); at BF η = 0 it
+         carries the fixed-allocation factor-market gap instead (measured
+         4e-4..8e-3 on full-71). `financing = F + B_gov` is the booked
+         external position. The companion exact identity is
+         `gdp_components(...).wedge = −diff`, on and off equilibrium.
+The old reading (the omitted-market residual equals the imbalance) is
+superseded by ADR-0019: every market clears, and the identity closes through
+the booked external position instead.
 """
 function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector)
     N = length(model.data.factor_share)
-    length(X) == 2N + 1 || throw(DimensionMismatch(
-        "mobile-labor canary expects a $(2N+1)-element vector [p; y; w]"))
-    p = _positive_floor(X[1:N])
-    y = _positive_floor(X[N+1:2N])
-    w = max(X[2N+1], 1e-10)
-    blocks = _mobile_market_demand(model, p, y, w)
+    Xv = collect(X)
+    if length(Xv) == 2N
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = 1.0
+        F = 0.0
+    elseif length(Xv) == 2N + 1
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = max(Xv[2N+1], 1e-10)
+        F = 0.0
+    elseif length(Xv) == 2N + 2
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = max(Xv[2N+1], 1e-10)
+        F = Xv[2N+2]
+    else
+        throw(DimensionMismatch(
+            "mobile-labor canary expects a $(2N)-, $(2N+1)- or $(2N+2)-element vector [p; y(; w(; F))]"))
+    end
+    blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
     (; data, options, shocks) = model
     (; θ, ϵ) = options.elasticities
     m = data.import_margin
     M_cons = dot(p .* (m ./ max.(1 .- m, eps(Float64))), blocks.c_dom)
     M_inj = dot(p .* m, blocks.additive .+ data.gov_demand .+ data.exo_demand)
-    M_prog = model.financing isa ExternalDebt ? -dot(p, blocks.additive) : 0.0
     # Intermediate-bill leaks (A-bill fix): the two non-domestic components of
     # the purchaser-price intermediate bill. They are constant shares of the
     # SAME per-user CES intermediate bundle the domestic bill A_bill is charged
@@ -593,36 +648,48 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
     T_intl = dot(k_bill .* (data.T_int ./ data.λ), y)
     S = data.saving_rate * blocks.E
     IX = dot(p, data.exo_demand .+ data.exports_demand)
+    B_gov = model.financing isa ExternalDebt ? dot(p, blocks.additive) : 0.0
+    M = M_cons + M_inj + M_intl
     return (; S = S, IX = IX,
-        M = M_cons + M_inj + M_prog + M_intl, T = T_intl,
-        diff = S - (IX - (M_cons + M_inj + M_prog + M_intl + T_intl)))
+        M = M, T = T_intl,
+        diff = S + T_intl + M - IX - (F + B_gov),
+        external_transfer = F, programme_financing = B_gov, financing = F + B_gov)
 end
 
 """Return the exact residual vector for either mobile-labor closure.
 
 For the `:fixed` closure the canonical vector is FULL form (2N: p1..pN,
-y1..yN; w = 1 pinned); a mobile (p, y, w) vector is also accepted and reduced
-internally (the wage component is dropped).
+y1..yN; w = 1 pinned, F ≡ 0); a mobile (p, y, w) vector (2N+1) or a
+(p, y, w, F) vector (2N+2) is also accepted and reduced internally (the wage
+and transfer components are dropped).
+For the mobile closures the canonical vector is (2N+2: p1..pN, y1..yN, w, F);
+a legacy (p, y, w) vector (2N+1) is accepted with F = 0 for backward
+compatibility with stored v1-v4 solutions/diagnostics.
 """
 function equilibrium_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
     N = length(model.data.factor_share)
     fixed = labor_closure(model.options) isa FixedWageClosure
     Xv = collect(X)
     if fixed
-        # Fixed: canonical FULL vector (2N: p1..pN, y1..yN; w = 1 pinned).
+        # Fixed: canonical FULL vector (2N: p1..pN, y1..yN; w = 1 pinned, F ≡ 0).
         if length(Xv) == 2N
             xr = Xv
         elseif length(Xv) == 2N + 1
             xr = Xv[1:2N]   # drop the wage component of a mobile vector
+        elseif length(Xv) == 2N + 2
+            xr = Xv[1:2N]   # drop the wage and transfer components
         else
             throw(DimensionMismatch("fixed closure expects a $(2N)-element vector"))
         end
         out = similar(xr)
         problem_fixed(out, xr, model)
     else
-        # Mobile: canonical FULL vector (2N+1: p1..pN, y1..yN, w).
-        length(Xv) == 2N + 1 || throw(DimensionMismatch(
-            "mobile closure expects a $(2N+1)-element vector"))
+        # Mobile: canonical FULL vector (2N+2: p1..pN, y1..yN, w, F).
+        if length(Xv) == 2N + 1
+            Xv = [Xv; 0.0]  # legacy vector: F = 0
+        end
+        length(Xv) == 2N + 2 || throw(DimensionMismatch(
+            "mobile closure expects a $(2N+2)-element vector"))
         out = similar(Xv)
         problem(out, Xv, model)
     end
@@ -632,7 +699,7 @@ end
 function _equilibrium_residuals(model::Model{MobileLaborCES}, sol::Solution)
     X = labor_closure(model) isa FixedWageClosure ?
         [sol.prices_raw; sol.quantities] :
-        [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+        [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
     equilibrium_residuals(model, X)
 end
 
@@ -649,6 +716,8 @@ Equations (2N):
   1. N zero-profit conditions:  p_i = cost_i(p, w=1.0) for all i
   2. N market-clearing:         y_i = intermed_i + final_i for all i
 Total: 2N equations, 2N unknowns. There is no CPI pin: w = 1 is the numeraire.
+The fixed regime clears with F ≡ 0 (ADR-0019): there is no external-transfer
+unknown and the demand hook below runs at its F = 0 default.
 Employment `L_i` is computed post-solve and is not constrained to `labor_bar`.
 The sticky-wage counterfactual holds the production cost at its direct CES
 form (the retired mobile interpolation wedge, ADR-0010, is not used here).
@@ -791,6 +860,9 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     elseif length(init) == 2N + 1
         # Full (p, y, w) init from a mobile solution: drop the wage component
         init = init[1:2N]
+    elseif length(init) == 2N + 2
+        # Full (p, y, w, F) init from a mobile solution: drop wage and transfer
+        init = init[1:2N]
     end
 
     # Avoid asking the nonlinear solver to differentiate an already exact
@@ -854,7 +926,7 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
     total_income = w * L_sum
-    E = household_expenditure(fin, model, total_income, p, L_sum)
+    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = 0.0)
     agg = sum(data.consumption_share .* ds_eff .* p .^ (1 - σ))
     consumption = (1 .- data.saving_rate) .* (data.consumption_share .* ds_eff .* E .* p .^ (-σ)) ./ agg  # gross household consumption (saving sE leaks)
 
@@ -868,7 +940,7 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
         tornqvist_quantity_index(p, consumption, ones(N), base_consumption) : NaN
     nominal_gdp = w * sum(L_i)
 
-    return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model)
+    return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model; external_transfer = 0.0)
 end
 
 
@@ -877,9 +949,10 @@ end
 
 Solve the mobile-labor CES model. Returns a `Solution` with the equilibrium
 prices, quantities, wage (as a vector of the same wage in all sectors),
-consumption, and GDP measures.
+external transfer F, consumption, and GDP measures.
 
-The initial guess defaults to baseline prices=1, quantities=λ, and wage=1.
+The initial guess defaults to baseline prices=1, quantities=λ, wage=1 and
+F=0. A legacy 2N+1 init (without F) is accepted with F = 0.
 """
 function solve(model::Model{MobileLaborCES};
     init = nothing
@@ -894,10 +967,13 @@ function solve(model::Model{MobileLaborCES};
         return _solve_fixed(model; init=init)
     end
 
-    # ── Standard :mobile path (FULL 2N+1 system: p1..pN, y1..yN, w) ──
+    # ── Standard :mobile path (FULL 2N+2 system: p1..pN, y1..yN, w, F) ──
     if init === nothing
-        # Default initialization: p=1, y=λ, wage=1
-        init = [ones(N); data.λ; 1.0]
+        # Default initialization: p=1, y=λ, wage=1, F=0
+        init = [ones(N); data.λ; 1.0; 0.0]
+    elseif length(init) == 2N + 1
+        # Legacy init without the external transfer: F = 0
+        init = [init; 0.0]
     end
 
     # As in the fixed-wage path, avoid asking the nonlinear solver to
@@ -948,6 +1024,7 @@ function solve(model::Model{MobileLaborCES};
     p = x[1:N]
     q = max.(x[N+1:2N], 0.0)
     w = x[2N+1]
+    F = x[2N+2]
 
     (; θ, ϵ, σ, η) = options.elasticities
 
@@ -965,7 +1042,7 @@ function solve(model::Model{MobileLaborCES};
     ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
     total_income = w * L_sum
-    E = household_expenditure(fin, model, total_income, p, L_sum)
+    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = F)
     agg = sum(data.consumption_share .* ds_eff .* p .^ (1 - σ))
     consumption = (1 .- data.saving_rate) .* (data.consumption_share .* ds_eff .* E .* p .^ (-σ)) ./ agg  # gross household consumption (saving sE leaks)
 
@@ -981,7 +1058,7 @@ function solve(model::Model{MobileLaborCES};
         tornqvist_quantity_index(p, consumption, ones(N), base_consumption) : NaN
     nominal_gdp = w * sum(L_i)
 
-    return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model)
+    return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model; external_transfer = F)
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════

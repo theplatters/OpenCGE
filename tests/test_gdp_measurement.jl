@@ -70,15 +70,17 @@ end
 		sh0 = Shocks(ones(N), ones(N), zeros(N))
 		base = solve(mobile_labor_model(data, sh0, 0.5, 0.5, 0.9, 1.0);
 			init = [ones(N); data.λ; 1.0])
-		# ALPHA-F2: demand-only programme, prices pinned at one.
+		# ALPHA-F2: demand-only programme, prices pinned at one. Re-anchored
+		# 2026-09-18 (ADR-0019): the all-N + F solution moved relative to the
+		# N−1 root; income stays ≈ 1 and the deflator ≈ 1 (demand-only).
 		mA = mobile_labor_model(data, sh0, 0.5, 0.5, 0.9, 1.0;
 			financing = TaxFinanced(g))
 		solA = solve(mA; init = [ones(N); data.λ; 1.0])
 		@test isapprox(real_consumption(solA) / real_consumption(base) - 1,
-			-0.0169359; rtol = 1e-5)
+			-0.0182262; rtol = 1e-5)
 		@test gdp_income(solA, base) - 1 ≈ 0 atol=1e-9
 		@test gdp_deflator(solA, base) ≈ 1 atol=1e-9
-		XA = [solA.prices_raw; solA.quantities; solA.wages_raw[1]]
+		XA = [solA.prices_raw; solA.quantities; solA.wages_raw[1]; solA.external_transfer]
 		@test gdp_wedge(solA) ≈ -external_balance_canary(mA, XA).diff atol=1e-9
 		# Fixed-wage GAMMA-F2 against the same mobile reference.
 		mG = mobile_labor_model(data, sh0, 0.5, 0.5, 0.9, 1.0;
@@ -114,7 +116,7 @@ end
 	# The closed cores have no open-economy blocks.
 	@test_throws ArgumentError gdp_components(Model(data, sh0, CES()), sol)
 	# The wedge/canary identity holds on the fixture as well.
-	X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+	X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
 	@test cs.wedge ≈ -external_balance_canary(m, X).diff atol=1e-9
 end
 
@@ -134,7 +136,7 @@ end
 		@test isfinite(gdp_income(solS, base)) && gdp_income(solS, base) > 0
 		@test isfinite(gdp_expenditure(solS, base)) &&
 			gdp_expenditure(solS, base) > 0
-		XS = [solS.prices_raw; solS.quantities; solS.wages_raw[1]]
+		XS = [solS.prices_raw; solS.quantities; solS.wages_raw[1]; solS.external_transfer]
 		@test gdp_wedge(solS) ≈ -external_balance_canary(mS, XS).diff atol=1e-5
 	end
 end

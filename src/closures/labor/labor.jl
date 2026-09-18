@@ -12,7 +12,7 @@
 #         L^s = L̄ · [(w/P)/(w0/P0)]^{η_s},  interpreted as labour–leisure.
 #         η_s = 0 reproduces ALPHA (vertical supply); η_s → ∞ approaches the
 #         fixed-real-wage regime. Implemented as a labour-market-equation hook:
-#         the :beta closure solves the SAME 2N+1 flexible-wage system as ALPHA
+#         the :beta closure solves the SAME 2N+2 flexible-wage system as ALPHA
 #         with the market-clearing equation Σ L_i = L̄ replaced by
 #         Σ L_i = L̄ · (w/w0)^{η_s}. With the CPI numeraire (P = 1) the real
 #         wage IS w; the anchor w0 = 1 (baseline numeraire wage).
@@ -187,7 +187,7 @@ function solve_beta(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η
 			insert!(ladder, k, (prev + η_k) / 2)
 		else
 			refine_count = 0
-			x = [sol.prices_raw; sol.quantities; sol.wages_raw[1]]
+			x = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
 			k == length(ladder) && return sol
 			k += 1
 		end
@@ -210,7 +210,7 @@ function _solve_rung_verified(mdl::Model{MobileLaborCES}, x; tol::Float64 = 1e-6
 				# empirically proven configuration for this system — do not
 				# "improve" them: tighter tolerances stall the solver.
 				s = solve(mdl; init = x)
-				[s.prices_raw; s.quantities; s.wages_raw[1]]
+				[s.prices_raw; s.quantities; s.wages_raw[1]; s.external_transfer]
 			elseif attempt == 2
 				prob = NonlinearSolve.NonlinearProblem(problem, x, mdl)
 				Float64.(NonlinearSolve.solve(prob, NonlinearSolve.LevenbergMarquardt();

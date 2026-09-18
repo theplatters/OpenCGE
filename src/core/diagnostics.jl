@@ -125,7 +125,8 @@ end
 	gdp_components(model::Model{MobileLaborCES}, sol::Solution) -> NamedTuple
 
 Seven signed aggregate GDP components at a solved open-economy equilibrium,
-with `p = sol.prices_raw`, `y = sol.quantities`, `w = sol.wages_raw[1]` and
+with `p = sol.prices_raw`, `y = sol.quantities`, `w = sol.wages_raw[1]`,
+`F = sol.external_transfer` and
 the demand blocks of the shared `_mobile_market_demand` hook
 (`c_dom`, `additive`, `L_i`, `E`):
 
@@ -140,19 +141,27 @@ The intermediate-bill leaks (6-7) are valued with the ADR-0016 CES bill
 factor `k = p^ϵ · a^(ϵ−1) · P^(1−ϵ)` (same factor as
 `external_balance_canary`, duplicated here so the canary is untouched).
 
-Returns `(V, Q, wage_bill, wedge)` with `V`/`Q` the seven component values /
-quantities (model units), `wage_bill = w·ΣL_i` and
-`wedge = sum(V) - wage_bill`. At every solved equilibrium the exact identity
-`sum(V) + p·ρ = wage_bill` holds, where `ρ = market_clearing_residuals`;
-at mobile η = 1 `p·ρ` is the canary external position (ADR-0010), so
-`wedge = −canary.diff`. Throws `ArgumentError` for other model types (the
+Returns `(V, Q, wage_bill, wedge, external_transfer, programme_financing,
+external_financing)` with `V`/`Q` the seven component values / quantities
+(model units), `wage_bill = w·ΣL_i` and `wedge = sum(V) - wage_bill`. The
+demand hook is evaluated with the solution's external transfer
+(`external_transfer = sol.external_transfer`); `programme_financing =
+Σ p_i g_i` under ExternalDebt (F3) and 0 otherwise, and `external_financing
+= external_transfer + programme_financing` is the booked external position.
+The exact accounting identity (ADR-0019) is `wedge = −canary.diff`: the
+wedge IS the negated external-account identity gap, on and off equilibrium.
+It is ≈ 0 at every η = 1 solution (mobile and fixed-wage, where the
+cost-minimizing allocation lets zero-profit plus clearing close the external
+account); at BF η = 0 it carries the fixed-allocation factor-market gap
+(zero-profit prices the cost-minimizing labour demand, not the frozen
+baseline allocation). Throws `ArgumentError` for other model types (the
 closed cores have no open-economy blocks).
 """
 function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	p = sol.prices_raw
 	y = sol.quantities
 	w = sol.wages_raw[1]
-	blocks = _mobile_market_demand(model, p, y, w)
+	blocks = _mobile_market_demand(model, p, y, w; external_transfer = sol.external_transfer)
 	(; data, options, shocks) = model
 	(; θ, ϵ) = options.elasticities
 	m = data.import_margin
@@ -187,7 +196,12 @@ function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	V = Float64[V1, V2, V3, V4, V5, V6, V7]
 	Q = Float64[Q1, Q2, Q3, Q4, Q5, Q6, Q7]
 	wage_bill = w * sum(blocks.L_i)
-	return (; V = V, Q = Q, wage_bill = Float64(wage_bill), wedge = sum(V) - wage_bill)
+	external_transfer = Float64(sol.external_transfer)
+	programme_financing = model.financing isa ExternalDebt ? dot(p, blocks.additive) : 0.0
+	external_financing = external_transfer + programme_financing
+	return (; V = V, Q = Q, wage_bill = Float64(wage_bill), wedge = sum(V) - wage_bill,
+		external_transfer = external_transfer, programme_financing = programme_financing,
+		external_financing = external_financing)
 end
 
 function gdp_components(model::Model, ::Solution)
@@ -243,9 +257,13 @@ end
 """
 	gdp_expenditure(sol::Solution, base::Solution) -> Float64
 
-Expenditure-side Divisia dual (ADR-0018): nominal `ΣV` growth deflated by
-`gdp_deflator`. Equals `gdp_income` at the baseline and at fixed-wage cells;
-differs by the external wedge at mobile η = 1 cells. 1.0 at `base`.
+Expenditure-side Divisia dual (ADR-0018 + ADR-0019): nominal `ΣV` growth
+deflated by `gdp_deflator`. No external-financing adjustment is needed: the
+transfer F is already booked inside `ΣV` (it enters household expenditure
+and hence gross consumption), and the exact identity `wedge = −canary.diff
+≈ 0` at η = 1 solutions gives `gdp_income ≡ gdp_expenditure` there —
+including fixed F3 cells and the baseline. At BF η = 0 cells the two sides
+differ by the factor-market wedge. 1.0 at `base`.
 """
 function gdp_expenditure(sol::Solution, base::Solution)::Float64
 	c = gdp_components(sol.model, sol)
@@ -256,8 +274,9 @@ end
 """
 	gdp_wedge(sol::Solution) -> Float64
 
-External wedge `ΣV − w·ΣL` at a solved equilibrium (ADR-0018): the
-negative canary external position at mobile η = 1 cells. Diagnostic only,
+External wedge `ΣV − w·ΣL` at a solved equilibrium (ADR-0018 + ADR-0019):
+the negated canary identity gap (`wedge = −canary.diff` exactly); ≈ 0 at
+η = 1 solutions, the factor-market gap at BF η = 0 cells. Diagnostic only,
 never gated to zero.
 """
 function gdp_wedge(sol::Solution)::Float64
