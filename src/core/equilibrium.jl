@@ -771,13 +771,22 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
             # Quality gate = the ACTUAL residual, never the retcode. Bounded LM polish.
             x = res.u
             rmax = maximum(abs, equilibrium_residuals(model, x))
-            for _ in 1:3
-                rmax <= 1e-6 && break
+            # ADR-0015: polish to ~1e-10 even when the primary solve already sits
+            # inside the 1e-6 acceptance gate. Cells that stop at the gate have
+            # TOLERANCE-DEPENDENT metrics (GAMMA-F2 moved 8.3e-7 in real_gdp_rel
+            # under a 1e-16 perturbation at resid 4.85e-7). The acceptance gate
+            # below is unchanged, and the polish is monotone: a step that does
+            # not improve the residual is discarded, so polishing can never turn
+            # a passing cell into a failing one.
+            for _ in 1:4
+                rmax <= 1e-10 && break
                 res = NonlinearSolve.solve(
                     NonlinearSolve.NonlinearProblem(problem_fixed, x, model),
-                    NonlinearSolve.LevenbergMarquardt(); reltol=1e-8, abstol=1e-8, maxiters=20000)
-                x = res.u
-                rmax = maximum(abs, equilibrium_residuals(model, x))
+                    NonlinearSolve.LevenbergMarquardt(); reltol=1e-12, abstol=1e-12, maxiters=20000)
+                x_new = res.u
+                r_new = maximum(abs, equilibrium_residuals(model, x_new))
+                r_new < rmax || break
+                x, rmax = x_new, r_new
             end
             if rmax > 1e-6
                 error("MobileLaborCES._solve_fixed did not converge: retcode = $(res.retcode), max|resid| = $rmax")
@@ -875,13 +884,16 @@ function solve(model::Model{MobileLaborCES};
             # at machine precision.
             x = res.u
             rmax = maximum(abs, equilibrium_residuals(model, x))
-            for _ in 1:3
-                rmax <= 1e-5 && break
+            # ADR-0015: same monotone polish as `_solve_fixed` (see there).
+            for _ in 1:4
+                rmax <= 1e-10 && break
                 res = NonlinearSolve.solve(
                     NonlinearSolve.NonlinearProblem(problem, x, model),
-                    NonlinearSolve.LevenbergMarquardt(); reltol=1e-8, abstol=1e-8, maxiters=20000)
-                x = res.u
-                rmax = maximum(abs, equilibrium_residuals(model, x))
+                    NonlinearSolve.LevenbergMarquardt(); reltol=1e-12, abstol=1e-12, maxiters=20000)
+                x_new = res.u
+                r_new = maximum(abs, equilibrium_residuals(model, x_new))
+                r_new < rmax || break
+                x, rmax = x_new, r_new
             end
             if rmax > 1e-5
                 error("MobileLaborCES.solve did not converge: retcode = $(res.retcode), max|resid| = $rmax")
