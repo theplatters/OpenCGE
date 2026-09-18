@@ -104,10 +104,12 @@ end
         @test maximum(abs, equilibrium_residuals(m, X)) < 1e-5
     end
     # η = 0 reports the baseline allocation; η = 1 reports the cost-minimizing
-    # demand at the equilibrium. At the unshocked baseline the two coincide
-    # (both clear all N markets with F = 0); the η = 0 fixed-allocation/
-    # factor-market gap now appears in the canary diff (ADR-0019), not in the
-    # quantities.
+    # demand at the equilibrium. At the unshocked baseline the two systems
+    # share the same prices, quantities and wage (both clear all N markets
+    # with F = 0; the sectoral allocation enters demand only through its
+    # total, which both satisfy), while the sectoral labour ALLOCATIONS differ
+    # — asserted below. The η = 0 fixed-allocation/factor-market gap now
+    # appears in the canary diff (ADR-0019), not in the quantities.
     @test sectoral_labor_demand(sol0.prices_raw, sol0.quantities, sol0.wages_raw[1], model0) ≈
         data.labor_share
     @test !isapprox(
