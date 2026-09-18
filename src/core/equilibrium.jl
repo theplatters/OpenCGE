@@ -477,6 +477,10 @@ S + T_int + M − (I+X) = F + B_gov, where B_gov = Σ p_i g_i under ExternalDebt
 (F3) financing and 0 otherwise, S = s·E with E including F, and M is the full
 import content (final margin plus the intermediate-import leak M_int, row 74).
 `external_balance_canary` asserts it (the acceptance test, at machine precision).
+With nonzero legacy manna (the ADR-0005 compatibility path) the unfinanced
+demand is not booked in B_gov: at an all-N η = 1 solution the gap reads exactly
+`p·(A+G)` and F absorbs it (`F = −p·(A+G)` at zero programme). The matrix
+designs pass zero manna, where the identity above holds as written.
 
 Note (ADR-0019, superseding ADR-0010): no market is omitted. The old note —
 that the all-N `644ba37` form, reverted on `revisefinal` by `0f33ad6`,
@@ -597,12 +601,17 @@ so S = s·E includes it):
   B_gov = Σ p_i g_i under ExternalDebt (F3) financing — the programme value —
          and 0 otherwise,
   diff = S + T + M − (I+X) − (F + B_gov): the external-account identity gap.
+         With zero legacy manna (the matrix designs; ADR-0005 path) it is
          ≈ 0 at every η = 1 solution (mobile and fixed-wage, where the
          cost-minimizing allocation closes the account); at BF η = 0 it
          carries the fixed-allocation factor-market gap instead (measured
-         4e-4..8e-3 on full-71). `financing = F + B_gov` is the booked
-         external position. The companion exact identity is
-         `gdp_components(...).wedge = −diff`, on and off equilibrium.
+         4e-4..8e-3 on full-71). With nonzero legacy manna the unfinanced
+         demand p·(A+G) is not booked in B_gov, so the gap reads exactly
+         `p·(A+G)` at an all-N solution and F absorbs it (measured: F =
+         −p·(A+G), diff = +p·(A+G) on a 3-sector fixture). `financing =
+         F + B_gov` is the booked external position. The companion exact
+         identity is `gdp_components(...).wedge = −diff`, on and off
+         equilibrium.
 The old reading (the omitted-market residual equals the imbalance) is
 superseded by ADR-0019: every market clears, and the identity closes through
 the booked external position instead.

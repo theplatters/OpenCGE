@@ -152,7 +152,9 @@ The exact accounting identity (ADR-0019) is `wedge = −canary.diff`: the
 wedge IS the negated external-account identity gap, on and off equilibrium.
 It is ≈ 0 at every η = 1 solution (mobile and fixed-wage, where the
 cost-minimizing allocation lets zero-profit plus clearing close the external
-account); at BF η = 0 it carries the fixed-allocation factor-market gap
+account) with zero legacy manna; nonzero legacy manna (ADR-0005) adds
+`p·(A+G)` to the gap on both sides. At BF η = 0 it carries the fixed-allocation
+factor-market gap
 (zero-profit prices the cost-minimizing labour demand, not the frozen
 baseline allocation). Throws `ArgumentError` for other model types (the
 closed cores have no open-economy blocks).

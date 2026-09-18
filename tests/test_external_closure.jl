@@ -278,3 +278,27 @@ end
 	@test coff.external_financing ≈
 		coff.external_transfer + coff.programme_financing atol=1e-12
 end
+
+@testset "external closure: legacy manna is absorbed by F and reported" begin
+	# ADR-0005 compatibility path: nonzero autonomous/investment manna is
+	# unfinanced demand that is not booked in B_gov. At an all-N η = 1
+	# solution the identity gap reads exactly the manna's value p·(A+G) and
+	# the free F absorbs it (F = −p·(A+G) at zero programme); all clearings
+	# still hold, and the wedge duality stands. The matrix designs pass zero
+	# manna, where the gap is ≈ 0 (see the other testsets).
+	data = tiny_fixture()
+	N = length(data.factor_share)
+	autonomous = [0.1, 0.0]
+	shocks = Shocks(ones(N), ones(N); autonomous_demand = autonomous)
+	model = mobile_labor_model(data, shocks, 0.5, 0.5, 0.9, 1.0)
+	sol = solve(model)
+	X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
+	can = external_balance_canary(model, X)
+	A = autonomous .* data.consumption_share .* sum(data.labor_share)
+	manna_val = dot(sol.prices_raw, A)
+	@test maximum(abs, market_clearing_residuals(model, X)) ≤ 1e-10
+	@test manna_val > 1e-6                    # the fixture carries manna
+	@test can.diff ≈ manna_val atol=1e-9      # the gap is the unbooked manna
+	@test sol.external_transfer ≈ -manna_val atol=1e-9
+	@test gdp_components(model, sol).wedge ≈ -can.diff atol=1e-9
+end
