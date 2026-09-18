@@ -182,7 +182,8 @@ end
     end
     for k in ("gdp", "gdp_rel", "gdp_expenditure", "gdp_expenditure_rel",
             "gdp_deflator", "gdp_wedge", "consumption", "consumption_rel",
-            "employment", "wage", "nominal_gdp", "max_abs_price_dev")
+            "employment", "wage", "nominal_gdp", "max_abs_price_dev",
+            "external_transfer", "programme_financing", "external_position")
         @test isfinite(man["metrics"][k])
     end
     for k in ("canary_s", "canary_ixm", "canary_diff", "gdp_c", "gdp_g",
@@ -190,14 +191,28 @@ end
             "external_balance", "public_budget")
         @test haskey(man["diagnostics"], k)
     end
-    # ADR-0018: the consumption (welfare) index is self-consistent. The smoke
-    # cell is BF eta = 0, not mobile eta = 1, so the canary identity is not
-    # asserted here — only finiteness of the wedge. On this closed fixture
-    # the F1 tilt leaves the wage bill unchanged, so income and expenditure
-    # GDP coincide exactly.
+    # ADR-0019: the consumption (welfare) index is self-consistent. The smoke
+    # cell is BF eta = 0, not mobile eta = 1, so the identity gap there is the
+    # factor-market gap (reported, not gated by assert_external_account). On
+    # this closed fixture the gap is exactly 0 — the F1 tilt leaves the wage
+    # bill unchanged — so income and expenditure GDP coincide exactly and the
+    # wedge/gap duality `gdp_wedge == -canary_diff` holds verbatim. (On
+    # full-71 the eta = 0 gap is the documented 4e-4..8e-3 factor-market gap,
+    # so the gdp/gdp_expenditure coincidence must NOT be asserted for eta = 0
+    # cells in general; it is asserted here only because this fixture's gap
+    # measures 0.) The eta = 0 pin keeps F = 0, hence a zero external position.
     @test man["metrics"]["consumption"] ≈ man["metrics"]["consumption_rel"] + 1 atol=1e-12
     @test isfinite(man["metrics"]["gdp_wedge"])
     @test man["metrics"]["gdp"] ≈ man["metrics"]["gdp_expenditure"] rtol=1e-9
+    @test man["diagnostics"]["canary_diff"] ≈ -man["metrics"]["gdp_wedge"] atol=1e-12
+    @test man["metrics"]["external_transfer"] ≈ 0.0 atol=1e-12
+    @test man["metrics"]["programme_financing"] ≈ 0.0 atol=1e-12
+    @test man["metrics"]["external_position"] ≈
+        man["metrics"]["external_transfer"] + man["metrics"]["programme_financing"] atol=1e-12
+    # The pipeline gate is assert_external_account (ADR-0019); the N-1
+    # assert_external_canary is retired.
+    @test isdefined(Main, :assert_external_account)
+    @test !isdefined(Main, :assert_external_canary)
     @test man["artifacts"]["log"] == "log.txt"
     @test man["artifacts"]["solution"] == "solution.csv"
     @test isfile(joinpath(rundir, "log.txt"))
