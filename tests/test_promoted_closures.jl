@@ -256,14 +256,13 @@ end
 end
 
 @testset "promoted closures: external-account canary (review 2.1)" begin
-    # ADR-0019: every regime enforces ALL N goods-market clearings with the
-    # explicit external transfer F threaded into demand. At a mobile (η = 1)
+    # ADR-0019/ADR-0020: every regime enforces ALL N goods-market clearings with
+    # the explicit external transfer F threaded into demand. At a mobile (η = 1)
     # equilibrium every clearing residual is ~0, so `dot(p, cl) ≈ 0` and the
     # canary identity gap `diff = S + T + M − (I+X) − (F + B_gov)` is ≈ 0. At
-    # η = 0 the clearings still hold (with the F = 0 pin), but the canary
-    # retains the documented fixed-allocation/factor-market gap (zero-profit
-    # prices the cost-minimizing labour demand, not the frozen baseline
-    # allocation): reported, not gated.
+    # η = 0 the endpoint solves the per-sector FOC at sectoral wages (ADR-0020
+    # option C), so the account closes there too — that is the difference from
+    # the retired F = 0 pin, which could only report the factor-market gap.
     fx = v3_fixture()
     shocks = _v3_shocks()
     for fin in (NoFinancing(), TaxFinanced(fx.g), ExternalDebt(fx.g))
@@ -271,21 +270,19 @@ end
             mdl = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, η;
                 financing = fin)
             sol = solve(mdl)
-            X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
+            # η = 0 carries the sectoral wage vector (3N+1 canonical vector).
+            w = η == 0.0 ? sol.wages_raw : sol.wages_raw[1]
+            X = [sol.prices_raw; sol.quantities; w; sol.external_transfer]
             @test maximum(abs, equilibrium_residuals(mdl, X)) < 1e-6
             cl = market_clearing_residuals(mdl, X)
             can = external_balance_canary(mdl, X)
             # All N clearings are enforced at both endpoints.
             @test maximum(abs, cl) < 1e-6
-            if η == 1.0
-                @test dot(sol.prices_raw, cl) ≈ 0 atol=1e-9
-                @test can.diff ≈ 0 atol=1e-9
-            else
-                # The η = 0 factor-market gap is a reported quantity, not a
-                # gate: it must be finite (its magnitude is pinned on the real
-                # table in tests/test_external_closure.jl).
-                @test isfinite(can.diff)
-            end
+            @test dot(sol.prices_raw, cl) ≈ 0 atol=1e-9
+            # The identity closes at both endpoints.
+            @test abs(can.diff) ≤ 1e-9
+            η == 0.0 && @test sectoral_labor_gap(mdl, sol.prices_raw,
+                sol.quantities, w) ≤ 1e-6
         end
     end
 

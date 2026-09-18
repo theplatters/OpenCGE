@@ -3,11 +3,14 @@ using CSV, DataFrames
 
 isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
 
-# Contract tests for the ADR-0019 explicit external-account closure: every
-# regime enforces all N goods-market clearings; the mobile η = 1 system carries
-# the net external transfer F (entering household expenditure after tax) with
-# the η = 0 pin F = 0; the canary `diff = S + T + M − (I+X) − (F + B_gov)` is
-# the identity gap (≈ 0 at every η = 1 solution); F2/F3 are financing-neutral.
+# Contract tests for the ADR-0019/ADR-0020 explicit external-account closure:
+# every regime enforces all N goods-market clearings; the mobile η = 1 system
+# carries the net external transfer F (entering household expenditure after
+# tax); the η = 0 endpoint is the SECTORAL-WAGE system (ADR-0020 option C, a
+# 3N+1 system), which closes the same identity by solving the per-sector FOC
+# instead of pinning F; the canary `diff = S + T + M − (I+X) − (F + B_gov)` is
+# the identity gap (≈ 0 at every η = 0/1 solution without legacy manna); F2/F3
+# are financing-neutral at both endpoints.
 # Real-table blocks need the (gitignored) IO table and the frozen impulse
 # table; they skip when either file is absent. Tolerances via isapprox, never
 # exact float equality.
@@ -126,7 +129,7 @@ end
 	end
 end
 
-@testset "external closure: real-table BF cells (reported gap)" begin
+@testset "external closure: real-table BF cells (sectoral wages, closed account)" begin
 	data = ext_test_data()
 	pg = data === nothing ? nothing : ext_matrix_programme(data)
 	if data === nothing || pg === nothing
@@ -136,23 +139,46 @@ end
 		g, ψ = pg
 		fins = ext_financing(data, g, ψ)
 		sh0 = Shocks(ones(N), ones(N), zeros(N))
-		# At the BF η = 0 endpoint the all-N clearings hold with the F = 0
-		# pin, but the canary retains the fixed-allocation/factor-market gap:
-		# zero-profit prices the cost-minimizing labour demand, not the frozen
-		# baseline allocation. The gap is REPORTED (finite, measured
-		# sign/order), not gated. Measured 2026-09-18: +4.3438e-4 (F1),
-		# −5.6182e-4 (F2), −7.9361e-3 (F3).
-		for (key, gap) in ((:F1, 4.3438e-4), (:F2, -5.6182e-4), (:F3, -7.9361e-3))
+		# ADR-0020 option C: at η = 0 the endpoint solves the per-sector FOC, so
+		# the frozen allocation is cost-minimizing at the sectoral wages, the
+		# identity gap vanishes and F is identified. The retired F = 0 pin left F
+		# unidentified (the reported position collapsed to B_gov = Σp·g).
+		# Measured 2026-09-18 on the full-71 table: F = −5.815e-3 (F1) /
+		# −8.528e-3 (F2) / −2.337e-2 (F3); booked = −5.815e-3 / −8.528e-3 /
+		# −8.528e-3; |gap| ≤ 1.04e-11 (BF-F1, the stiffest cell).
+		sols = Dict{Symbol,Any}()
+		cans = Dict{Symbol,Any}()
+		for (key, F_ref) in ((:F1, -0.0058149704), (:F2, -0.0085284060), (:F3, -0.0233746904))
 			m = bf_model(data, sh0, 0.5, 0.5, 0.9, 0.0; financing = fins[key])
 			sol = solve(m)
-			X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
+			@test length(sol.wages_raw) == N
+			X = [sol.prices_raw; sol.quantities; sol.wages_raw; sol.external_transfer]
+			@test length(X) == 3N + 1
 			@test maximum(abs, equilibrium_residuals(m, X)) < 1e-10
 			@test maximum(abs, market_clearing_residuals(m, X)) ≤ 1e-10
-			@test abs(sol.external_transfer) ≤ 1e-12
+			@test sectoral_labor_gap(m, sol.prices_raw, sol.quantities,
+				sol.wages_raw) ≤ 1e-10
 			can = external_balance_canary(m, X)
-			@test isfinite(can.diff)
-			@test can.diff ≈ gap atol=1e-6
+			@test abs(can.diff) ≤ 1e-10        # the account closes at η = 0
+			@test sol.external_transfer ≈ F_ref atol=1e-6
+			@test can.financing ≈ sol.external_transfer + can.programme_financing atol=1e-12
+			sols[key] = sol
+			cans[key] = can
 		end
+		# The sectoral wage vector is a real instrument, not a rescaling of one
+		# common wage: measured range 0.9702 … 1.6719 on the full-71 table.
+		@test minimum(sols[:F3].wages_raw) < 0.99
+		@test maximum(sols[:F3].wages_raw) > 1.6
+		@test cans[:F3].programme_financing ≈ 1.4846e-2 atol=1e-6
+		# FINANCING NEUTRALITY at η = 0 (as at η = 1): identical real equilibria
+		# with F_F3 = F_F2 − B_gov, hence identical net external positions.
+		s2, s3 = sols[:F2], sols[:F3]
+		@test maximum(abs, s2.prices_raw .- s3.prices_raw) ≤ 1e-9
+		@test maximum(abs, s2.quantities .- s3.quantities) ≤ 1e-9
+		@test maximum(abs, s2.wages_raw .- s3.wages_raw) ≤ 1e-9
+		@test abs(s3.external_transfer -
+			(s2.external_transfer - cans[:F3].programme_financing)) ≤ 1e-9
+		@test abs(cans[:F2].financing - cans[:F3].financing) ≤ 1e-9
 	end
 end
 
@@ -227,16 +253,24 @@ end
 	@test abs(s1.external_transfer - s2.external_transfer) ≤ 1e-8
 end
 
-@testset "external closure: eta = 0 pin (F = 0) on the fixture" begin
+@testset "external closure: eta = 0 sectoral wages on the fixture" begin
 	data = tiny_fixture()
 	N = length(data.factor_share)
 	shocks = Shocks(ones(N), ones(N), zeros(N))
 	model = bf_model(data, shocks, 0.5, 0.5, 0.9, 0.0)
 	sol = solve(model)
-	X = [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
+	X = [sol.prices_raw; sol.quantities; sol.wages_raw; sol.external_transfer]
+	@test length(X) == 3N + 1
+	# The closed fixture carries no external block, so the identity forces F = 0
+	# and the sectoral FOC is met: the account closes exactly. This fixture's
+	# baseline is self-consistent (q = λ), so the sectoral wages stay at 1.
 	@test abs(sol.external_transfer) ≤ 1e-12
 	@test maximum(abs, equilibrium_residuals(model, X)) ≤ 1e-10
 	@test maximum(abs, market_clearing_residuals(model, X)) ≤ 1e-10
+	@test sectoral_labor_gap(model, sol.prices_raw, sol.quantities,
+		sol.wages_raw) ≤ 1e-10
+	@test abs(external_balance_canary(model, X).diff) ≤ 1e-10
+	@test sol.wages_raw ≈ ones(N) atol=1e-6
 end
 
 @testset "external closure: legacy 2N+1 vectors append F = 0" begin

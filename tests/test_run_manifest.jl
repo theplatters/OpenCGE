@@ -191,16 +191,13 @@ end
             "external_balance", "public_budget")
         @test haskey(man["diagnostics"], k)
     end
-    # ADR-0019: the consumption (welfare) index is self-consistent. The smoke
-    # cell is BF eta = 0, not mobile eta = 1, so the identity gap there is the
-    # factor-market gap (reported, not gated by assert_external_account). On
-    # this closed fixture the gap is exactly 0 — the F1 tilt leaves the wage
-    # bill unchanged — so income and expenditure GDP coincide exactly and the
-    # wedge/gap duality `gdp_wedge == -canary_diff` holds verbatim. (On
-    # full-71 the eta = 0 gap is the documented 4e-4..8e-3 factor-market gap,
-    # so the gdp/gdp_expenditure coincidence must NOT be asserted for eta = 0
-    # cells in general; it is asserted here only because this fixture's gap
-    # measures 0.) The eta = 0 pin keeps F = 0, hence a zero external position.
+    # ADR-0020 option C: the smoke cell is BF eta = 0, solved as the sectoral-
+    # wage system, so the identity closes there as well (the retired F = 0 pin
+    # reported a factor-market gap instead). On this closed fixture the gap is
+    # exactly 0 — the F1 tilt leaves the wage bill unchanged — so income and
+    # expenditure GDP coincide exactly and the wedge/gap duality
+    # `gdp_wedge == -canary_diff` holds verbatim. F = 0 is forced by the closed
+    # fixture (no external block), hence a zero external position.
     @test man["metrics"]["consumption"] ≈ man["metrics"]["consumption_rel"] + 1 atol=1e-12
     @test isfinite(man["metrics"]["gdp_wedge"])
     @test man["metrics"]["gdp"] ≈ man["metrics"]["gdp_expenditure"] rtol=1e-9

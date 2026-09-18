@@ -330,16 +330,30 @@ function _intermediate_price(Ω_raw::AbstractMatrix, p::AbstractVector, θ::Real
 	return (Ω_raw * p .^ (1 - θ)) .^ (1 / (1 - θ))
 end
 
-"""Cost-minimizing labor demand, evaluated in log space for stable η extrapolation."""
+"""Cost-minimizing labor demand, evaluated in log space for stable η extrapolation.
+
+`w` is a scalar (one economy-wide wage, every η = 1 regime) or a vector (the
+sectoral wages of the η = 0 endpoint, ADR-0020 option C). The expression is
+elementwise in `w`, so the scalar case is unchanged to the last bit.
+"""
 function _cost_minimizing_labor(p, y, w, model::Model{MobileLaborCES})
     (; data, options, shocks) = model
     (; ϵ) = options.elasticities
     (; factor_share) = data
     p, y, w, A, α = _positive_floor.((p, y, w, shocks.supply_shock, factor_share))
     log_demand = ϵ .* (log.(p) .+ ((ϵ - 1) / ϵ) .* log.(A) .+ (1 / ϵ) .* log.(α) .+
-        (1 / ϵ) .* log.(y) .- log(w))
+        (1 / ϵ) .* log.(y) .- log.(w))
     exp.(clamp.(log_demand, log(floatmin(Float64)), log(floatmax(Float64))))
 end
+
+"""
+	_wage_bill(w, L)
+
+Household wage income. The scalar-wage path keeps its exact arithmetic
+(`w * sum(L)`); the sectoral-wage path (ADR-0020, η = 0) sums `w_i * L_i`.
+"""
+_wage_bill(w::Real, L) = w * sum(L)
+_wage_bill(w::AbstractVector, L) = sum(w .* L)
 
 """Sectoral labor allocation at the kept BF endpoints η ∈ {0, 1}.
 
@@ -410,9 +424,15 @@ expenditure. `fin = model.financing` (Foundation II):
   F3  E = w·ΣL + F, externally financed.
 Compatibility (ADR-0005): the legacy unfinanced autonomous/investment manna
 (A/G below) is RETAINED alongside the financed programme demand.
+
+`w` is a scalar in every η = 1 regime (one economy-wide wage) and the sectoral
+wage vector at the η = 0 endpoint (`problem_sectoral`, ADR-0020 option C):
+there `L_i` is the frozen `data.labor_share` (returned by
+`sectoral_labor_demand` at η = 0, which ignores `w`) and household wage income
+is `sum_i w_i L_i` (`_wage_bill`). The scalar-wage arithmetic is unchanged.
 """
 function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
-        y::AbstractVector, w::Real; external_transfer::Real = 0.0)
+        y::AbstractVector, w::Union{Real,AbstractVector}; external_transfer::Real = 0.0)
     (; data, options, shocks) = model
     N = length(data.factor_share)
     (; consumption_share, Ω_raw, factor_share) = data
@@ -422,7 +442,7 @@ function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
     fin = model.financing
     ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
-    total_income = w * L_sum
+    total_income = _wage_bill(w, L_i)
     # NOTE: no positivity guard here — the residual function must tolerate the
     # solver's exploration of negative-income trial points (the legacy code
     # did). The E > 0 check belongs to the post-solve validation in the
@@ -489,11 +509,11 @@ cases — described a system that lacked the external variable; with F the
 all-N formulation is well posed (measured baseline residual 4.4e-16 with a
 well-conditioned Jacobian).
 
-At η = 0 (the BF immobile endpoint) `sectoral_labor_demand` returns the
-constant `data.labor_share`, so the labour residual is identically zero and
-carries no information. With all N clearings the system then needs one more
-independent equation, and decision D2 pins F = 0 (the immobile benchmark
-carries no external transfer): out[2N+1] = X[2N+2].
+At η = 0 (the BF immobile endpoint) this system is NOT used: `sectoral_labor_demand`
+returns the constant `data.labor_share`, so the labour residual carries no
+information, and the endpoint is formulated as the sectoral-wage system
+`problem_sectoral` (ADR-0020 option C), which replaces the retired `F = 0` pin
+of ADR-0019 D2. Calling `problem` on an η = 0 model throws.
 
 The CPI = 1 numeraire pins the price level (the mobile system is homogeneous
 of degree 1 in (p, w) without it), mirroring the fixed-wage system
@@ -527,16 +547,82 @@ function problem(out::Vector, X::Vector, model::Model{MobileLaborCES})
     out[N+1:2N] .= y .- blocks.intermediary_demand .- blocks.total_final_demand
 
     # ── Equation 3: Labour market (flexible-wage system: ALPHA / BETA) ──
-    # At eta = 0 the allocation is the constant baseline, so the labour row is
-    # identically zero; the pin F = 0 keeps the equation count right (D2).
-    if options.elasticities.η == 0.0
-        out[2N+1] = F
-    else
-        out[2N+1] = labor_market_residual(labor_closure(options), model, sum(blocks.L_i), w, cpi)
-    end
+    # The eta = 0 endpoint has its own formulation, `problem_sectoral`
+    # (ADR-0020 option C); this system is the eta = 1 mobile one only.
+    options.elasticities.η == 0.0 && throw(ArgumentError(
+        "the eta = 0 endpoint is the sectoral-wage system (ADR-0020, option C); call problem_sectoral"))
+    out[2N+1] = labor_market_residual(labor_closure(options), model, sum(blocks.L_i), w, cpi)
 
     # ── Equation 4: Numeraire constraint -- CPI = 1 ──
     out[2N+2] = cpi - 1.0
+
+    nothing
+end
+
+"""
+    problem_sectoral(out, X, model::Model{MobileLaborCES})
+
+The η = 0 (BF) endpoint under ADR-0020 option C: **sectoral wages with the
+frozen allocation**. Labour cannot reallocate, so the sectoral allocation stays
+at `data.labor_share` and each sector's wage is set by that sector's own
+marginal product at the frozen allocation.
+
+Unknowns: `X = [p(1:N); y(1:N); w(1:N); F]` — 3N + 1.
+Equations (3N + 1):
+  1. zero-profit per sector (N):      `p_i = cost_i(p, w_i)`
+  2. sectoral FOC at the frozen allocation (N):
+                                      `log L^cm_i(p_i, y_i, w_i) = log labor_share_i`
+  3. all-N clearing (N):              `y_i = inter_i + final_i`, household wage
+                                      income `sum_i w_i L_i`,
+                                      `E = (1 - tau) sum_i w_i L_i + F`
+  4. numeraire (1):                   CPI = 1
+
+`F` is the free scalar the equation count requires. The block of equations 1-3
+is homogeneous of degree 1 in `(p, w, F)`, so its 3N equations determine 3N - 1
+effective unknowns; replacing the mobile system's single aggregate labour
+equation by N sectoral conditions adds N - 1 equations, so the block carries one
+equation more than it has directions to pin and the demand side needs one free
+scalar to be consistent with the supply side. `F` is that scalar (it enters `E`
+after tax, exactly as in ADR-0019). Dropping one clearing equation instead is
+the ADR-0010 shortcut that ADR-0019 retired, so it is not available.
+
+Properties (both measured on the full-71 A-bill calibration, 2026-09-18):
+at a solution the frozen allocation is cost-minimizing at these wages, so the
+external-account identity gap `S + T_int + M - (I+X) - (F + B_gov)`, which is
+exactly `-(sum_i w_i L^cm_i - sum_i w_i L_i)`, vanishes (the retired pin left up
+to -0.79 percent of GDP open); and financing neutrality extends to η = 0
+(`F_F3 = F_F2 - B_gov`, identical real allocation and booked position).
+"""
+function problem_sectoral(out::Vector, X::Vector, model::Model{MobileLaborCES})
+    (; data, options) = model
+    N = length(data.factor_share)
+
+    p = _positive_floor(X[1:N])
+    y = _positive_floor(X[N+1:2N])
+    w = _positive_floor(X[2N+1:3N])
+    F = X[3N+1]
+
+    blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
+    cpi = sum(data.consumption_share .* p .^ (1 - options.elasticities.σ))^(1 / (1 - options.elasticities.σ))
+
+    # ── Equation 1: zero-profit for ALL N sectors, sector-specific wage ──
+    out[1:N] .= p .- blocks.cost
+
+    # ── Equation 2: sectoral FOC at the frozen allocation ──
+    # The COST-MINIMIZING demand at this sector's wage must equal the frozen
+    # allocation. `blocks.L_i` is NOT used here: at eta = 0
+    # `sectoral_labor_demand` returns the frozen `labor_share` itself, which
+    # would make this row identically zero and the system degenerate (the
+    # external-account identity gate catches that, since the gap is exactly
+    # the value of this row).
+    Lcm = _cost_minimizing_labor(p, y, w, model)
+    out[N+1:2N] .= log.(Lcm) .- log.(_positive_floor(data.labor_share))
+
+    # ── Equation 3: market clearing for ALL N sectors ──
+    out[2N+1:3N] .= y .- blocks.intermediary_demand .- blocks.total_final_demand
+
+    # ── Equation 4: Numeraire constraint -- CPI = 1 ──
+    out[3N+1] = cpi - 1.0
 
     nothing
 end
@@ -569,9 +655,15 @@ function market_clearing_residuals(model::Model{MobileLaborCES}, X::AbstractVect
         y = _positive_floor(Xv[N+1:2N])
         w = max(Xv[2N+1], 1e-10)
         F = Xv[2N+2]
+    elseif length(Xv) == 3N + 1
+        # eta = 0 sectoral-wage vector [p; y; w(1:N); F] (ADR-0020 option C)
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = _positive_floor(Xv[2N+1:3N])
+        F = Xv[3N+1]
     else
         throw(DimensionMismatch(
-            "mobile-labor canary expects a $(2N)-, $(2N+1)- or $(2N+2)-element vector [p; y(; w(; F))]"))
+            "mobile-labor canary expects a $(2N)-, $(2N+1)-, $(2N+2)- or $(3N+1)-element vector [p; y(; w(; F))]"))
     end
     blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
     return y .- blocks.intermediary_demand .- blocks.total_final_demand
@@ -634,9 +726,15 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
         y = _positive_floor(Xv[N+1:2N])
         w = max(Xv[2N+1], 1e-10)
         F = Xv[2N+2]
+    elseif length(Xv) == 3N + 1
+        # eta = 0 sectoral-wage vector [p; y; w(1:N); F] (ADR-0020 option C)
+        p = _positive_floor(Xv[1:N])
+        y = _positive_floor(Xv[N+1:2N])
+        w = _positive_floor(Xv[2N+1:3N])
+        F = Xv[3N+1]
     else
         throw(DimensionMismatch(
-            "mobile-labor canary expects a $(2N)-, $(2N+1)- or $(2N+2)-element vector [p; y(; w(; F))]"))
+            "mobile-labor canary expects a $(2N)-, $(2N+1)-, $(2N+2)- or $(3N+1)-element vector [p; y(; w(; F))]"))
     end
     blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
     (; data, options, shocks) = model
@@ -671,9 +769,12 @@ For the `:fixed` closure the canonical vector is FULL form (2N: p1..pN,
 y1..yN; w = 1 pinned, F ≡ 0); a mobile (p, y, w) vector (2N+1) or a
 (p, y, w, F) vector (2N+2) is also accepted and reduced internally (the wage
 and transfer components are dropped).
-For the mobile closures the canonical vector is (2N+2: p1..pN, y1..yN, w, F);
-a legacy (p, y, w) vector (2N+1) is accepted with F = 0 for backward
-compatibility with stored v1-v4 solutions/diagnostics.
+For the mobile closures at η = 1 the canonical vector is (2N+2: p1..pN, y1..yN,
+w, F); a legacy (p, y, w) vector (2N+1) is accepted with F = 0 for backward
+compatibility with stored v1-v5 solutions/diagnostics.
+At η = 0 the canonical vector is the sectoral-wage form (3N+1: p1..pN, y1..yN,
+w1..wN, F) of `problem_sectoral` (ADR-0020 option C); a legacy 2N+2 vector
+(scalar wage, the retired pin form) is expanded by replicating the wage.
 """
 function equilibrium_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
     N = length(model.data.factor_share)
@@ -692,8 +793,17 @@ function equilibrium_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
         end
         out = similar(xr)
         problem_fixed(out, xr, model)
+    elseif model.options.elasticities.η == 0.0
+        # eta = 0 (ADR-0020 option C): canonical 3N+1 vector [p; y; w(1:N); F].
+        # A legacy 2N+2 vector (scalar wage, the retired pin form) is expanded
+        # by replicating the wage.
+        length(Xv) == 2N + 2 && (Xv = [Xv[1:2N]; fill(Xv[2N+1], N); Xv[2N+2]])
+        length(Xv) == 3N + 1 || throw(DimensionMismatch(
+            "the eta = 0 sectoral-wage closure expects a $(3N+1)-element vector [p; y; w; F]"))
+        out = similar(Xv)
+        problem_sectoral(out, Xv, model)
     else
-        # Mobile: canonical FULL vector (2N+2: p1..pN, y1..yN, w, F).
+        # Mobile (eta = 1): canonical FULL vector (2N+2: p1..pN, y1..yN, w, F).
         if length(Xv) == 2N + 1
             Xv = [Xv; 0.0]  # legacy vector: F = 0
         end
@@ -708,6 +818,8 @@ end
 function _equilibrium_residuals(model::Model{MobileLaborCES}, sol::Solution)
     X = labor_closure(model) isa FixedWageClosure ?
         [sol.prices_raw; sol.quantities] :
+        model.options.elasticities.η == 0.0 ?
+        [sol.prices_raw; sol.quantities; sol.wages_raw; sol.external_transfer] :
         [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
     equilibrium_residuals(model, X)
 end
@@ -976,14 +1088,38 @@ function solve(model::Model{MobileLaborCES};
         return _solve_fixed(model; init=init)
     end
 
-    # ── Standard :mobile path (FULL 2N+2 system: p1..pN, y1..yN, w, F) ──
-    if init === nothing
+    # ── Standard :mobile path ──
+    # eta = 1: FULL 2N+2 system (p1..pN, y1..yN, w, F).
+    # eta = 0: the sectoral-wage endpoint (ADR-0020 option C), canonical 3N+1
+    # vector [p; y; w(1:N); F]. A warm start given in the 2N+2 mobile form
+    # (scalar wage) is expanded by replicating the wage.
+    η0 = options.elasticities.η == 0.0
+    if η0
+        if init === nothing
+            init = [ones(N); data.λ; ones(N); 0.0]
+        elseif length(init) == 2N + 2
+            init = [init[1:2N]; fill(init[2N+1], N); init[2N+2]]
+        elseif length(init) == 2N + 1
+            init = [init[1:2N]; fill(init[2N+1], N); 0.0]
+        end
+        length(init) == 3N + 1 || throw(DimensionMismatch(
+            "the eta = 0 sectoral-wage closure expects a $(3N+1)-element init [p; y; w; F]"))
+    elseif init === nothing
         # Default initialization: p=1, y=λ, wage=1, F=0
         init = [ones(N); data.λ; 1.0; 0.0]
     elseif length(init) == 2N + 1
         # Legacy init without the external transfer: F = 0
         init = [init; 0.0]
     end
+    problem_f = η0 ? problem_sectoral : problem
+    # The eta = 0 system is far stiffer (Jacobian condition number ~9.4e7 against
+    # ~52.8 for the mobile all-N system, measured 2026-09-18): it starts from a
+    # tighter Newton tolerance and gets a longer polish ladder, because its
+    # external-account identity gate is 1e-12 (ADR-0020) and needs residuals at
+    # ~1e-11 or below. The eta = 1 settings are unchanged (v5 behaviour).
+    primary_tol = η0 ? 1e-8 : 1e-6
+    polish_steps = η0 ? 6 : 4
+    polish_tol = η0 ? 1e-13 : 1e-10
 
     # As in the fixed-wage path, avoid asking the nonlinear solver to
     # differentiate an already exact baseline (some versions report this as
@@ -995,8 +1131,8 @@ function solve(model::Model{MobileLaborCES};
         Float64.(init)
     else
         try
-            ProbN = NonlinearSolve.NonlinearProblem(problem, init, model)
-            res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=20000)
+            ProbN = NonlinearSolve.NonlinearProblem(problem_f, init, model)
+            res = NonlinearSolve.solve(ProbN, reltol=primary_tol, abstol=primary_tol, maxiters=20000)
             # Quality gate = the ACTUAL residual, never the retcode (NonlinearSolve
             # reports Stalled on slow final convergence). Bounded LM polish (up to
             # 3 attempts) from the last point; verify before accepting. Mobile gate:
@@ -1006,11 +1142,12 @@ function solve(model::Model{MobileLaborCES};
             # at machine precision.
             x = res.u
             rmax = maximum(abs, equilibrium_residuals(model, x))
-            # ADR-0015: same monotone polish as `_solve_fixed` (see there).
-            for _ in 1:4
-                rmax <= 1e-10 && break
+            # ADR-0015: same monotone polish as `_solve_fixed` (see there), with
+            # the eta = 0 target one decade tighter (`polish_tol` above).
+            for _ in 1:polish_steps
+                rmax <= polish_tol && break
                 res = NonlinearSolve.solve(
-                    NonlinearSolve.NonlinearProblem(problem, x, model),
+                    NonlinearSolve.NonlinearProblem(problem_f, x, model),
                     NonlinearSolve.LevenbergMarquardt(); reltol=1e-12, abstol=1e-12, maxiters=20000)
                 x_new = res.u
                 r_new = maximum(abs, equilibrium_residuals(model, x_new))
@@ -1032,25 +1169,26 @@ function solve(model::Model{MobileLaborCES};
     # Tornqvist index requires nonnegative quantities)
     p = x[1:N]
     q = max.(x[N+1:2N], 0.0)
-    w = x[2N+1]
-    F = x[2N+2]
+    w = η0 ? x[2N+1:3N] : x[2N+1]     # eta = 0: the sectoral wage vector
+    F = η0 ? x[3N+1] : x[2N+2]
 
     (; θ, ϵ, σ, η) = options.elasticities
 
-    # Sectoral labor demand at equilibrium
+    # Sectoral labor demand at equilibrium (the frozen allocation at eta = 0,
+    # the cost-minimizing one at eta = 1)
     L_i = sectoral_labor_demand(p, q, w, model)
 
-    # Wages vector (all equal to w — mobile labor)
-    wages = fill(w, N)
+    # Wages vector (all equal to w at eta = 1; the sectoral vector at eta = 0)
+    wages = η0 ? collect(w) : fill(w, N)
 
     # Consumption — must match the budget-consistent, financed demand used
-    # inside `problem` so the reported allocation is the actual equilibrium
-    # allocation.
+    # inside `problem`/`problem_sectoral` so the reported allocation is the
+    # actual equilibrium allocation.
     numeraire = (data.consumption_share' * p .^ (1 - σ))^(1 / (1 - σ))
     fin = model.financing
     ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
-    total_income = w * L_sum
+    total_income = _wage_bill(w, L_i)
     E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = F)
     agg = sum(data.consumption_share .* ds_eff .* p .^ (1 - σ))
     consumption = (1 .- data.saving_rate) .* (data.consumption_share .* ds_eff .* E .* p .^ (-σ)) ./ agg  # gross household consumption (saving sE leaks)
@@ -1065,7 +1203,7 @@ function solve(model::Model{MobileLaborCES};
     base_consumption = data.household_baseline
     real_gdp_index = all(>=(0), consumption) ?
         tornqvist_quantity_index(p, consumption, ones(N), base_consumption) : NaN
-    nominal_gdp = w * sum(L_i)
+    nominal_gdp = _wage_bill(w, L_i)
 
     return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model; external_transfer = F)
 end

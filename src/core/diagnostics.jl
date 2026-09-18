@@ -162,7 +162,9 @@ closed cores have no open-economy blocks).
 function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	p = sol.prices_raw
 	y = sol.quantities
-	w = sol.wages_raw[1]
+	# eta = 0 carries the sectoral wage vector (ADR-0020 option C); every
+	# eta = 1 regime carries one common wage in all entries of `wages_raw`.
+	w = model.options.elasticities.η == 0.0 ? sol.wages_raw : sol.wages_raw[1]
 	blocks = _mobile_market_demand(model, p, y, w; external_transfer = sol.external_transfer)
 	(; data, options, shocks) = model
 	(; θ, ϵ) = options.elasticities
@@ -197,7 +199,7 @@ function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	Q7 = sum((data.T_int ./ data.λ) .* y)
 	V = Float64[V1, V2, V3, V4, V5, V6, V7]
 	Q = Float64[Q1, Q2, Q3, Q4, Q5, Q6, Q7]
-	wage_bill = w * sum(blocks.L_i)
+	wage_bill = _wage_bill(w, blocks.L_i)
 	external_transfer = Float64(sol.external_transfer)
 	programme_financing = model.financing isa ExternalDebt ? dot(p, blocks.additive) : 0.0
 	external_financing = external_transfer + programme_financing
@@ -293,6 +295,27 @@ in `Solution.real_gdp` (ADR-0018). `real_gdp` itself is unchanged (D3).
 """
 function real_consumption(sol::Solution)::Float64
 	return sol.real_gdp
+end
+
+"""
+	sectoral_labor_gap(model, p, q, w) -> Float64
+
+`maximum(abs, log(L^cm_i) - log(labor_share_i))`: the sectoral labour-market
+gap, i.e. the residual block that replaces the aggregate labour equation at the
+η = 0 endpoint (ADR-0020 option C). It is zero when the frozen allocation is
+cost-minimizing at the sectoral wages, which is exactly what closes the external
+account there. `w` is the sectoral wage vector at η = 0 or a scalar in the
+η = 1 regimes, where the quantity measures the distance of the cost-minimizing
+allocation from the frozen one (reported, never gated there).
+"""
+function sectoral_labor_gap(model::Model{MobileLaborCES}, p::AbstractVector,
+		q::AbstractVector, w)::Float64
+	Lcm = _cost_minimizing_labor(p, q, w, model)
+	return maximum(abs, log.(Lcm) .- log.(_positive_floor(model.data.labor_share)))
+end
+
+function sectoral_labor_gap(::Model, ::AbstractVector, ::AbstractVector, w)
+	throw(ArgumentError("sectoral_labor_gap is only defined for the open-economy Model{MobileLaborCES}"))
 end
 
 # --- src/impulses.jl (verbatim) ---
