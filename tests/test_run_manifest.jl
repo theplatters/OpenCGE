@@ -150,7 +150,7 @@ end
     @test res == Dict("smoke-BF-F1" => "executed")
     rundir = joinpath(runs_dir, "smoke-BF-F1")
     man = TOML.parsefile(joinpath(rundir, "manifest.toml"))
-    @test man["schema_version"] == 1
+    @test man["schema_version"] == 2
     @test man["run_id"] == "smoke-BF-F1"
     @test man["design"] == "smoke"
     @test man["cell"] == "smoke-BF-F1"
@@ -180,13 +180,24 @@ end
         @test isfinite(gates[g]["value"])
         @test gates[g]["value"] < tol
     end
-    for k in ("real_gdp", "real_gdp_ref", "real_gdp_rel", "employment",
-            "wage", "nominal_gdp", "max_abs_price_dev")
+    for k in ("gdp", "gdp_rel", "gdp_expenditure", "gdp_expenditure_rel",
+            "gdp_deflator", "gdp_wedge", "consumption", "consumption_rel",
+            "employment", "wage", "nominal_gdp", "max_abs_price_dev")
         @test isfinite(man["metrics"][k])
     end
-    for k in ("canary_s", "canary_ixm", "canary_diff", "external_balance", "public_budget")
+    for k in ("canary_s", "canary_ixm", "canary_diff", "gdp_c", "gdp_g",
+            "gdp_i", "gdp_x", "gdp_m_final", "gdp_m_int", "gdp_t_int",
+            "external_balance", "public_budget")
         @test haskey(man["diagnostics"], k)
     end
+    # ADR-0018: the consumption (welfare) index is self-consistent. The smoke
+    # cell is BF eta = 0, not mobile eta = 1, so the canary identity is not
+    # asserted here — only finiteness of the wedge. On this closed fixture
+    # the F1 tilt leaves the wage bill unchanged, so income and expenditure
+    # GDP coincide exactly.
+    @test man["metrics"]["consumption"] ≈ man["metrics"]["consumption_rel"] + 1 atol=1e-12
+    @test isfinite(man["metrics"]["gdp_wedge"])
+    @test man["metrics"]["gdp"] ≈ man["metrics"]["gdp_expenditure"] rtol=1e-9
     @test man["artifacts"]["log"] == "log.txt"
     @test man["artifacts"]["solution"] == "solution.csv"
     @test isfile(joinpath(rundir, "log.txt"))
