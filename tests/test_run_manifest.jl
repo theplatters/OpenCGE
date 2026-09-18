@@ -238,6 +238,45 @@ end
     @test !isempty(row["commit"])
 end
 
+@testset "run manifests: assert_external_account fails closed" begin
+    # ADR-0019 pipeline gate: it must accept all-N solutions and reject both a
+    # broken clearing and a nonzero eta = 1 identity gap. The open fixture
+    # (positive import margin + saving) keeps the fixed-wage eta = 1 guard
+    # determinate; the closed tiny_fixture is rejected by that guard.
+    d0 = tiny_fixture()
+    vals = Any[getfield(d0, f) for f in fieldnames(Data)]
+    vals[findfirst(==(:import_margin), fieldnames(Data))] = [0.2, 0.2]
+    vals[findfirst(==(:saving_rate), fieldnames(Data))] = 0.1
+    data = Data(vals...)
+    N = length(data.factor_share)
+    sh0 = Shocks(ones(N), ones(N), zeros(N))
+
+    fixed = mobile_labor_model(data, sh0, 0.5, 0.5, 0.9, 1.0; closure = :fixed)
+    @test assert_external_account(fixed, solve(fixed)) === nothing
+
+    mobile = mobile_labor_model(data, sh0, 0.5, 0.5, 0.9, 1.0)
+    sol = solve(mobile)
+    @test assert_external_account(mobile, sol) === nothing
+
+    # A corrupted quantity breaks the all-N clearing check.
+    bad = Solution(sol.prices_raw, copy(sol.quantities), sol.wages_raw,
+        sol.consumption, sol.numeraire, sol.real_gdp, sol.nominal_gdp, sol.model;
+        external_transfer = sol.external_transfer)
+    bad.quantities[1] += 0.05
+    @test_throws ErrorException assert_external_account(mobile, bad)
+
+    # Legacy manna at eta = 1 clears all markets but the identity gap is the
+    # unbooked p.(A+G), so the gate rejects it: matrix designs pass zero manna.
+    shm = Shocks(ones(N), ones(N); autonomous_demand = [0.1, 0.0])
+    manna = mobile_labor_model(data, shm, 0.5, 0.5, 0.9, 1.0)
+    manna_sol = solve(manna)
+    Xm = [manna_sol.prices_raw; manna_sol.quantities; manna_sol.wages_raw[1];
+        manna_sol.external_transfer]
+    @test maximum(abs, market_clearing_residuals(manna, Xm)) ≤ 1e-10
+    @test abs(external_balance_canary(manna, Xm).diff) > 1e-3
+    @test_throws ErrorException assert_external_account(manna, manna_sol)
+end
+
 @testset "run manifests: scale-guard failure is manifest-backed" begin
     root = smoke_root()
     runs_dir = joinpath(root, "runs")
