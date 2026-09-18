@@ -288,6 +288,15 @@ end
 
 const _ETA_SCALE_INDETERMINACY_TOL = 1.1e-6
 
+# ADR-0017: the fixed-wage η ≈ 1 admissibility guard assesses the ACTUAL
+# clearing matrix G of `problem_fixed` (`y = G·y + c` at the baseline
+# reference prices p = ones). The strict column-sum bound is only a
+# SUFFICIENT contraction shortcut; when it fails, determinacy is decided by
+# the rank of (I − G) and the sign of the unique candidate solution.
+const _FIXED_CLEARING_COLSUM_TOL = 1e-12
+const _FIXED_CLEARING_RANK_TOL = 1e-10
+const _FIXED_CLEARING_POSITIVITY_TOL = 1e-12
+
 # Project decision (ADR-0010): only the BF endpoints η = 0 (immobile baseline
 # allocation) and η = 1 (fully cost-minimizing/mobile) are kept. The
 # interpolated cases 0 < η < 1 were carried by the ad hoc allocation wedge
@@ -643,82 +652,61 @@ Total: 2N equations, 2N unknowns. There is no CPI pin: w = 1 is the numeraire.
 Employment `L_i` is computed post-solve and is not constrained to `labor_bar`.
 The sticky-wage counterfactual holds the production cost at its direct CES
 form (the retired mobile interpolation wedge, ADR-0010, is not used here).
+The demand block is evaluated by `_mobile_market_demand` (w = 1), the
+single demand kernel shared with the mobile system and the ADR-0017
+admissibility guard, so the guard's clearing matrix cannot drift from
+these equations.
 """
 function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
-    (; data, options, shocks) = model
+    (; data) = model
     N = length(data.factor_share)
-    w = 1.0  # sticky wage
 
     # FIXED-WAGE FORMULATION (2N unknowns: p1..pN, y1..yN; w = 1 pinned as the
     # sticky-wage numeraire). ALL N zero-profit and ALL N clearing equations
     # are enforced -- with the v3 homogeneous budget there is no Walras
     # redundancy at fixed w, and no sector's zero-profit may be dropped.
+    # The demand block is evaluated by `_mobile_market_demand` (w = 1), the
+    # single demand kernel shared with the mobile system and the ADR-0017
+    # admissibility guard, so the guard's clearing matrix cannot drift from
+    # these equations.
     p = _positive_floor(X[1:N])
     y = _positive_floor(X[N+1:2N])
 
-    (; supply_shock, demand_shock) = shocks
-    (; consumption_share, Ω_raw, factor_share, labor_share) = data
-    (; θ, ϵ, σ, η) = options.elasticities
-
-    # Intermediate goods price index
-    intermediate_price = _intermediate_price(Ω_raw, p, θ)
-
-    # CPI
-    cpi = sum(consumption_share .* p .^ (1 - σ))^(1 / (1 - σ))
-
-    # Sectoral labor demand at w=1.0
-    L_i = sectoral_labor_demand(p, y, w, model)
-
-    # Final demand (budget-consistent, financed — same hook as `problem`).
-    fin = model.financing
-    ds_eff = preference_weights(fin, demand_shock)
-    L_sum = sum(L_i)
-    total_income = w * L_sum
-    # NOTE: no positivity guard here — the residual function must tolerate the
-    # solver's exploration of negative-income trial points (the legacy code
-    # did). The E > 0 check belongs to the post-solve validation in the
-    # notebooks (headline assertions verify E = w*L - T > 0 at equilibrium).
-    E = household_expenditure(fin, model, total_income, p, L_sum)
-    agg = sum(consumption_share .* ds_eff .* p .^ (1 - σ))
-    # v3 open economy: the household consumes (1-s)E gross (saving s·E leaks);
-    # only the DOMESTIC content circulates -- the import content of household,
-    # government, investment and programme demand is supplied by the external
-    # account. Exports are exogenous domestic sales (no margin). The leakages
-    # s·E + M now balance the injections I + X -- the identity S = I + X - M
-    # holds at every equilibrium (validated in the notebooks).
-    c_dom = (1 .- data.saving_rate) .* (1 .- data.import_margin) .*
-            (consumption_share .* ds_eff) .* E .* p .^ (-σ) ./ agg
-    # Legacy compatibility (ADR-0005): the unfinanced autonomous/investment
-    # manna is RETAINED alongside the financed programme demand. cbase2 retired
-    # manna; the root kernel keeps it so the characterization goldens and
-    # rerun_results.jl stay reproducible. With NoFinancing and zero v3 fields
-    # the demand below is numerically identical to the pre-Phase-2 code.
-    cons_base = sum(data.labor_share)
-    A = shocks.autonomous_demand .* data.consumption_share .* cons_base
-    G = shocks.investment_shock .* data.consumption_share .* cons_base
-    total_final_demand = c_dom .+
-                         (1 .- data.import_margin) .* additive_demand(fin, N) .+
-                         (1 .- data.import_margin) .* (data.gov_demand .+ data.exo_demand) .+
-                         data.exports_demand .+ A .+ G
-
-    # Intermediary demand: DOMESTIC bill coefficient a_u = A_bill/λ_u (A-bill
-    # fix); the imported+taxed content is an external-account leak.
-    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (data.A_bill ./ data.λ) .* y))
-
-    # Direct CES cost at the sticky wage (CD-limit-safe).
-    cost = _ces_unit_cost(supply_shock, factor_share, w, intermediate_price, ϵ)
-
-    # 1. Zero-profit for ALL N sectors (p1 = 1 is NOT pinned here: the wage
-    #    w = 1 is the numeraire of the sticky-wage regime, and every sector's
-    #    zero-profit must hold)
-    out[1:N] .= p .- cost
-
-    # 2. Market clearing for ALL N sectors. At pinned w there is no Walras
-    #    redundancy under the v3 homogeneous budget: the saving leak s·E
-    #    balances the exogenous injections I + X (identity S = I + X - M).
-    out[N+1:2N] .= y .- intermediary_demand .- total_final_demand
+    blocks = _mobile_market_demand(model, p, y, 1.0)
+    out[1:N] .= p .- blocks.cost
+    out[N+1:2N] .= y .- blocks.intermediary_demand .- blocks.total_final_demand
 
     nothing
+end
+
+"""
+    _fixed_clearing_affine(model, p) -> (G, c)
+
+Affine representation `intermediary_demand + total_final_demand = G·y + c` of
+the fixed-wage clearing block at prices `p` (w = 1). At fixed prices the block
+is exactly affine in `y` — intermediate demand is linear in `y`, and household
+expenditure/consumption are affine in `Σ L_i` — so `G` is extracted exactly
+(to round-off) from unit differences at `y = λ` through the same demand hook
+(`_mobile_market_demand`) that `problem_fixed` evaluates. The ADR-0017
+admissibility guard calls this at the calibration baseline `p = ones(N)`;
+callers must pass positive prices and positive reference output.
+"""
+function _fixed_clearing_affine(model::Model{MobileLaborCES}, p::AbstractVector)
+    N = length(model.data.factor_share)
+    y_ref = model.data.λ
+    clearing(y) = begin
+        blocks = _mobile_market_demand(model, p, y, 1.0)
+        blocks.intermediary_demand .+ blocks.total_final_demand
+    end
+    b_ref = clearing(y_ref)
+    G = Matrix{Float64}(undef, N, N)
+    y_trial = copy(y_ref)
+    for u in 1:N
+        y_trial[u] = y_ref[u] + 1.0
+        G[:, u] .= clearing(y_trial) .- b_ref
+        y_trial[u] = y_ref[u]
+    end
+    return G, b_ref .- G * y_ref
 end
 
 
@@ -734,28 +722,68 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     N = length(data.factor_share)
 
     η = options.elasticities.η
-    # Scale determinacy of the fixed-wage η ≈ 1 system is a VERIFIED property of
-    # the round-gain matrix, not a financing-type heuristic (ADR-0014). The
-    # clearing block is y = G·y + const, with G's column sums equal to the
-    # round-gain
-    #     colsum_u = A_bill_u/λ_u + (1 − m_u)·(1 − s)·fs_u,
-    # so (I − G) is singular — a unit root, hence a continuum of solutions —
-    # exactly when the largest column sum reaches 1. On a CLOSED fixture
-    # (m = s = 0, A_bill = (1−fs)λ) the column sums are exactly 1 and the guard
-    # fires; on the OPEN A-bill calibration they are strictly below 1 (the
-    # finiteness gate of `recalibrate_open`) and the system is determinate —
-    # measured on full-71: σ_min/σ_max = 0.1586 at the F1 point, and three inits
-    # (λ, 2λ, λ/2) converge to the same root (L = 0.9990271532561, agreeing to
-    # 1e-15). The error keeps the legacy surfaces ("scale-indeterminate" and
-    # "autonomous or investment") asserted by the contract tests.
+    # Scale determinacy of the fixed-wage η ≈ 1 system is assessed on the
+    # ACTUAL clearing matrix G of `problem_fixed` (`y = G·y + c`), built by
+    # `_fixed_clearing_affine` from the same demand hook at the calibration
+    # baseline prices (p = ones). ADR-0017 supersedes the ADR-0014 closed-form
+    # round-gain trigger, which was wrong twice: a maximum column sum of 1 does
+    # not imply a unit root, and the closed-form sums omitted the household
+    # expenditure composition (import margins enter at the spending sector, so
+    # the actual column sum is (1−s)·fs_u·Σ_i((1−m_i)·b_i), not
+    # (1−m_u)(1−s)fs_u). The assessment distinguishes three properties:
+    #   1. CONTRACTION: max(colsum(G)) < 1 is a SUFFICIENT shortcut for
+    #      ρ(G) < 1 (G ≥ 0 at the reference) → (I − G) nonsingular, unique
+    #      fixed point → admit without further checks;
+    #   2. NONSINGULARITY: otherwise (I − G) is tested; a singular (I − G) is
+    #      a unit root — a continuum of solutions — and the cell is rejected
+    #      (the legacy "scale-indeterminate" surface);
+    #   3. POSITIVE-SOLUTION EXISTENCE: a nonsingular (I − G) has the unique
+    #      candidate y* = (I − G)⁻¹c at the reference point; it is admitted
+    #      only if y* is positive at the model's resolution (an all-zero or
+    #      sign-crossing candidate is admitted by nothing: the solver would
+    #      return a floored, path-dependent point).
     if isapprox(η, 1.0; rtol=0, atol=_ETA_SCALE_INDETERMINACY_TOL)
-        colsums = data.A_bill ./ data.λ .+
-            (1.0 .- data.import_margin) .* (1.0 - data.saving_rate) .* data.factor_share
-        maximum(colsums) >= 1.0 - 1e-12 && throw(ArgumentError(
-            "fixed-wage η=1 has a homogeneous, scale-indeterminate equilibrium " *
-            "(max round-gain column sum = $(maximum(colsums)) ≥ 1, a unit root): " *
-            "add autonomous or investment demand as an additive-demand anchor " *
-            "(or a TaxFinanced / ExternalDebt programme bundle), or use another η"))
+        # Assess the η = 1 endpoint system: near-one η is snapped to 1.0 so
+        # the shared demand hook — which admits only the kept BF endpoints
+        # (ADR-0010) — evaluates the cost-minimizing allocation the guard
+        # adjudicates. This preserves the legacy surface: near-one η on a
+        # closed fixture throws the scale-indeterminacy ArgumentError before
+        # any endpoint validation runs.
+        el = options.elasticities
+        model1 = η == 1.0 ? model : Model(model.data, model.shocks,
+            MobileLaborCES(MobileLaborCESElasticities(el.θ, el.ϵ, el.σ, 1.0, el.eta_s),
+                options.labor_bar, options.closure),
+            model.financing)
+        G, c = _fixed_clearing_affine(model1, ones(N))
+        colsums = vec(sum(G; dims = 1))
+        if maximum(colsums) >= 1.0 - _FIXED_CLEARING_COLSUM_TOL
+            F = I - G
+            sv = svdvals(F)
+            if minimum(sv) <= _FIXED_CLEARING_RANK_TOL * maximum(sv)
+                throw(ArgumentError(
+                    "fixed-wage η=1 is scale-indeterminate: the actual clearing " *
+                    "matrix (I − G) is singular at the baseline prices " *
+                    "(σ_min/σ_max = $(minimum(sv) / maximum(sv)) ≤ " *
+                    "$(_FIXED_CLEARING_RANK_TOL)), so (I − G) has a unit root " *
+                    "and the equilibrium set contains a continuum. Additive " *
+                    "demand — autonomous or investment manna, or a " *
+                    "TaxFinanced / ExternalDebt programme bundle — is a constant " *
+                    "and cannot remove the unit root; give the calibration a " *
+                    "genuine leakage (positive saving or import margin), or use " *
+                    "another η"))
+            end
+            y_star = F \ c
+            scale = max(1.0, maximum(abs, y_star))
+            if minimum(y_star) <= _FIXED_CLEARING_POSITIVITY_TOL * scale
+                throw(ArgumentError(
+                    "fixed-wage η=1 is determinate but has no positive " *
+                    "equilibrium at the baseline prices: the unique clearing " *
+                    "solution y = (I − G)⁻¹c is not positive " *
+                    "(min y = $(minimum(y_star)) ≤ " *
+                    "$(_FIXED_CLEARING_POSITIVITY_TOL)·|y|_max). Check the " *
+                    "calibration / financing, or use another η"))
+            end
+        end
     end
 
     if init === nothing
