@@ -174,7 +174,10 @@ end
     end
     gates = man["gates"]
     @test gates["overall"] == "pass"
-    for (g, tol) in (("residual", 1e-6), ("budget", 1e-9), ("labour", 1e-6))
+    # The third gate is the labour-market residual at eta = 1 and the sectoral
+    # labour-market gap at eta = 0 (ADR-0020 option C); this smoke cell is BF.
+    third = scen["eta"] == 0.0 ? "sectoral" : "labour"
+    for (g, tol) in (("residual", 1e-6), ("budget", 1e-9), (third, 1e-6))
         @test gates[g]["pass"] == true
         @test gates[g]["tolerance"] ≈ tol
         @test isfinite(gates[g]["value"])
