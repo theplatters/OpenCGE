@@ -30,7 +30,7 @@ isdefined(Main, :run_design) || include(joinpath(@__DIR__, "..", "experiments", 
 check_test_root() = normpath(joinpath(@__DIR__, ".."))
 
 """Fresh temp dir for gate fixtures (approved scratch space)."""
-check_tmp() = mktempdir("/tmp/opencode")
+check_tmp() = mktempdir()
 
 """Write a minimal registry/scenarios.csv with the given (run_id, status, labor, financing) rows."""
 function write_scenarios(root::AbstractString, rows::Vector{Tuple{String,String,String,String}})::Nothing

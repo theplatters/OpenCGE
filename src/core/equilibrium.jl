@@ -213,10 +213,24 @@ struct MobileLaborCESElasticities <: AbstractElasticities
     # BETA closure (Stage 1.2): elasticity of TOTAL labour supply along the
     # real wage; 0.0 = vertical supply (ALPHA). Used only by the :beta closure.
     eta_s::Float64
+    # ADR-0022: the sectoral generalisation of BETA. `nothing` keeps every
+    # single-wage path bit-identical; a length-N vector selects the N sectoral
+    # labour markets (the 3N+1 system `problem_sectoral`, whose eta_s,i = 0
+    # corner is exactly the ADR-0020 option C endpoint).
+    eta_s_vec::Union{Nothing,Vector{Float64}}
 end
 # Parent-compatible 4-arg constructor (no elastic labour supply).
 MobileLaborCESElasticities(θ::Real, ϵ::Real, σ::Real, η::Real) =
-    MobileLaborCESElasticities(Float64(θ), Float64(ϵ), Float64(σ), Float64(η), 0.0)
+    MobileLaborCESElasticities(Float64(θ), Float64(ϵ), Float64(σ), Float64(η), 0.0, nothing)
+# Scalar BETA (5-arg): the single-wage system, unchanged.
+MobileLaborCESElasticities(θ::Real, ϵ::Real, σ::Real, η::Real, eta_s::Real) =
+    MobileLaborCESElasticities(Float64(θ), Float64(ϵ), Float64(σ), Float64(η),
+        Float64(eta_s), nothing)
+# Sectoral BETA (ADR-0022): the length-N elasticity vector.
+MobileLaborCESElasticities(θ::Real, ϵ::Real, σ::Real, η::Real, eta_s::Real,
+        eta_s_vec::AbstractVector) =
+    MobileLaborCESElasticities(Float64(θ), Float64(ϵ), Float64(σ), Float64(η),
+        Float64(eta_s), Float64.(collect(eta_s_vec)))
 
 """
     MobileLaborCES
@@ -250,7 +264,9 @@ end
 
 labor_closure(options::MobileLaborCES) =
     options.closure == :mobile ? FlexibleWageClosure() :
-    options.closure == :beta   ? ElasticLaborClosure(options.elasticities.eta_s) :
+    options.closure == :beta   ? (options.elasticities.eta_s_vec === nothing ?
+        ElasticLaborClosure(options.elasticities.eta_s) :
+        SectoralElasticLaborClosure(options.elasticities.eta_s_vec)) :
                                  FixedWageClosure()
 
 # ── Labor-market equation hook ──
@@ -608,15 +624,27 @@ function problem_sectoral(out::Vector, X::Vector, model::Model{MobileLaborCES})
     # ── Equation 1: zero-profit for ALL N sectors, sector-specific wage ──
     out[1:N] .= p .- blocks.cost
 
-    # ── Equation 2: sectoral FOC at the frozen allocation ──
-    # The COST-MINIMIZING demand at this sector's wage must equal the frozen
-    # allocation. `blocks.L_i` is NOT used here: at eta = 0
+    # ── Equation 2: sectoral labour-market conditions ──
+    # The COST-MINIMIZING demand at this sector's wage must equal the sectoral
+    # supply. `blocks.L_i` is NOT used here: at eta = 0
     # `sectoral_labor_demand` returns the frozen `labor_share` itself, which
     # would make this row identically zero and the system degenerate (the
     # external-account identity gate catches that, since the gap is exactly
     # the value of this row).
+    #   ADR-0020 option C  : L^cm_i = Lbar_i                  (eta_s,i = 0)
+    #   ADR-0022           : L^cm_i = Lbar_i * (w_i/CPI)^{eta_s,i}
+    # The eta_s,i = 0 branch is kept arithmetically separate so that every
+    # existing eta = 0 cell stays bit-identical.
     Lcm = _cost_minimizing_labor(p, y, w, model)
-    out[N+1:2N] .= log.(Lcm) .- log.(_positive_floor(data.labor_share))
+    esv = options.elasticities.eta_s_vec
+    if esv === nothing
+        out[N+1:2N] .= log.(Lcm) .- log.(_positive_floor(data.labor_share))
+    else
+        length(esv) == N || throw(DimensionMismatch(
+            "the sectoral elasticity vector must have $N entries (got $(length(esv)))"))
+        out[N+1:2N] .= log.(Lcm) .- log.(_positive_floor(data.labor_share)) .-
+                       esv .* log.(w ./ cpi)
+    end
 
     # ── Equation 3: market clearing for ALL N sectors ──
     out[2N+1:3N] .= y .- blocks.intermediary_demand .- blocks.total_final_demand
@@ -793,13 +821,14 @@ function equilibrium_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
         end
         out = similar(xr)
         problem_fixed(out, xr, model)
-    elseif model.options.elasticities.η == 0.0
-        # eta = 0 (ADR-0020 option C): canonical 3N+1 vector [p; y; w(1:N); F].
-        # A legacy 2N+2 vector (scalar wage, the retired pin form) is expanded
-        # by replicating the wage.
+    elseif model.options.elasticities.η == 0.0 ||
+           model.options.elasticities.eta_s_vec !== nothing
+        # Sectoral system (ADR-0020 option C, ADR-0022): canonical 3N+1 vector
+        # [p; y; w(1:N); F]. A legacy 2N+2 vector (scalar wage) is expanded by
+        # replicating the wage.
         length(Xv) == 2N + 2 && (Xv = [Xv[1:2N]; fill(Xv[2N+1], N); Xv[2N+2]])
         length(Xv) == 3N + 1 || throw(DimensionMismatch(
-            "the eta = 0 sectoral-wage closure expects a $(3N+1)-element vector [p; y; w; F]"))
+            "the sectoral-wage closure expects a $(3N+1)-element vector [p; y; w; F]"))
         out = similar(Xv)
         problem_sectoral(out, Xv, model)
     else
@@ -818,7 +847,8 @@ end
 function _equilibrium_residuals(model::Model{MobileLaborCES}, sol::Solution)
     X = labor_closure(model) isa FixedWageClosure ?
         [sol.prices_raw; sol.quantities] :
-        model.options.elasticities.η == 0.0 ?
+        (model.options.elasticities.η == 0.0 ||
+         model.options.elasticities.eta_s_vec !== nothing) ?
         [sol.prices_raw; sol.quantities; sol.wages_raw; sol.external_transfer] :
         [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
     equilibrium_residuals(model, X)
@@ -1094,7 +1124,15 @@ function solve(model::Model{MobileLaborCES};
     # vector [p; y; w(1:N); F]. A warm start given in the 2N+2 mobile form
     # (scalar wage) is expanded by replicating the wage.
     η0 = options.elasticities.η == 0.0
-    if η0
+    # ADR-0022: a sectoral elasticity vector selects the N-market system, which
+    # is the eta = 0 formulation generalised by the real-wage supply term.
+    esv = options.elasticities.eta_s_vec
+    if esv !== nothing && length(esv) != N
+        throw(DimensionMismatch(
+            "the sectoral elasticity vector must have $N entries (got $(length(esv)))"))
+    end
+    sect = η0 || esv !== nothing
+    if sect
         if init === nothing
             init = [ones(N); data.λ; ones(N); 0.0]
         elseif length(init) == 2N + 2
@@ -1103,7 +1141,7 @@ function solve(model::Model{MobileLaborCES};
             init = [init[1:2N]; fill(init[2N+1], N); 0.0]
         end
         length(init) == 3N + 1 || throw(DimensionMismatch(
-            "the eta = 0 sectoral-wage closure expects a $(3N+1)-element init [p; y; w; F]"))
+            "the sectoral-wage closure expects a $(3N+1)-element init [p; y; w; F]"))
     elseif init === nothing
         # Default initialization: p=1, y=λ, wage=1, F=0
         init = [ones(N); data.λ; 1.0; 0.0]
@@ -1111,15 +1149,15 @@ function solve(model::Model{MobileLaborCES};
         # Legacy init without the external transfer: F = 0
         init = [init; 0.0]
     end
-    problem_f = η0 ? problem_sectoral : problem
-    # The eta = 0 system is far stiffer (Jacobian condition number ~9.4e7 against
-    # ~52.8 for the mobile all-N system, measured 2026-09-18): it starts from a
-    # tighter Newton tolerance and gets a longer polish ladder, because its
-    # external-account identity gate is 1e-12 (ADR-0020) and needs residuals at
-    # ~1e-11 or below. The eta = 1 settings are unchanged (v5 behaviour).
-    primary_tol = η0 ? 1e-8 : 1e-6
-    polish_steps = η0 ? 6 : 4
-    polish_tol = η0 ? 1e-13 : 1e-10
+    problem_f = sect ? problem_sectoral : problem
+    # The sectoral system is far stiffer (Jacobian condition number ~9.4e7
+    # against ~52.8 for the mobile all-N system, measured 2026-09-18): it starts
+    # from a tighter Newton tolerance and gets a longer polish ladder, because
+    # its external-account identity gate is 1e-12 (ADR-0020) and needs residuals
+    # at ~1e-11 or below. The eta = 1 settings are unchanged (v5 behaviour).
+    primary_tol = sect ? 1e-8 : 1e-6
+    polish_steps = sect ? 6 : 4
+    polish_tol = sect ? 1e-13 : 1e-10
 
     # As in the fixed-wage path, avoid asking the nonlinear solver to
     # differentiate an already exact baseline (some versions report this as
@@ -1169,8 +1207,8 @@ function solve(model::Model{MobileLaborCES};
     # Tornqvist index requires nonnegative quantities)
     p = x[1:N]
     q = max.(x[N+1:2N], 0.0)
-    w = η0 ? x[2N+1:3N] : x[2N+1]     # eta = 0: the sectoral wage vector
-    F = η0 ? x[3N+1] : x[2N+2]
+    w = sect ? x[2N+1:3N] : x[2N+1]     # the sectoral wage vector
+    F = sect ? x[3N+1] : x[2N+2]
 
     (; θ, ϵ, σ, η) = options.elasticities
 
@@ -1179,7 +1217,7 @@ function solve(model::Model{MobileLaborCES};
     L_i = sectoral_labor_demand(p, q, w, model)
 
     # Wages vector (all equal to w at eta = 1; the sectoral vector at eta = 0)
-    wages = η0 ? collect(w) : fill(w, N)
+    wages = sect ? collect(w) : fill(w, N)
 
     # Consumption — must match the budget-consistent, financed demand used
     # inside `problem`/`problem_sectoral` so the reported allocation is the
@@ -1222,15 +1260,19 @@ sticky wage of one and unconstrained employment demand; `closure=:beta` (or
 `financing` selects an F1/F2/F3 financing closure (default `NoFinancing()`).
 All existing positional/keyword forms keep working.
 """
-function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Real, Nothing}=nothing, closure=:mobile, financing::Union{AbstractFinancing, Nothing}=nothing, eta_s::Union{Real, Nothing}=nothing)
-    # BETA: an explicit supply elasticity forces the :beta closure.
-    if eta_s !== nothing
+function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Real, Nothing}=nothing, closure=:mobile, financing::Union{AbstractFinancing, Nothing}=nothing, eta_s::Union{Real, Nothing}=nothing, eta_s_vec::Union{AbstractVector, Nothing}=nothing)
+    # BETA: an explicit supply elasticity forces the :beta closure. ADR-0022:
+    # a sectoral elasticity vector selects the N-market system and likewise
+    # belongs to :beta.
+    if eta_s !== nothing || eta_s_vec !== nothing
         closure in (:mobile, :beta) || throw(ArgumentError(
-            "eta_s applies to the :beta closure (got closure = $closure)"))
+            "eta_s / eta_s_vec apply to the :beta closure (got closure = $closure)"))
         closure = :beta
     end
-    el = eta_s === nothing ? MobileLaborCESElasticities(θ, ϵ, σ, η) :
-                             MobileLaborCESElasticities(θ, ϵ, σ, η, Float64(eta_s))
+    el = eta_s_vec !== nothing ?
+        MobileLaborCESElasticities(θ, ϵ, σ, η, eta_s === nothing ? 0.0 : Float64(eta_s), eta_s_vec) :
+        eta_s === nothing ? MobileLaborCESElasticities(θ, ϵ, σ, η) :
+                            MobileLaborCESElasticities(θ, ϵ, σ, η, Float64(eta_s))
     closure_symbol = _closure_symbol(closure)
     labor_bar !== nothing && closure_symbol == :fixed && throw(ArgumentError(
         "fixed closure treats employment as an outcome; labor_bar is not used and must not be supplied"))
@@ -1241,8 +1283,9 @@ function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64
 end
 
 mobile_labor_model(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η::Real;
-    labor_bar=nothing, closure=:mobile, financing=nothing, eta_s=nothing) = mobile_labor_model(data, shocks, Float64(θ), Float64(ϵ), Float64(σ), Float64(η);
+    labor_bar=nothing, closure=:mobile, financing=nothing, eta_s=nothing, eta_s_vec=nothing) = mobile_labor_model(data, shocks, Float64(θ), Float64(ϵ), Float64(σ), Float64(η);
     labor_bar=labor_bar === nothing ? nothing : Float64(labor_bar),
     closure=_closure_symbol(closure),
     financing=financing,
-    eta_s=eta_s)
+    eta_s=eta_s,
+    eta_s_vec=eta_s_vec)

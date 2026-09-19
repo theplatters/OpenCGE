@@ -6,7 +6,7 @@ using DataFrames
 using LinearAlgebra
 # Export Elasticity Types
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor, MobileLaborCESElasticities
-export AbstractLaborClosure, ExogenousLaborClosure, FlexibleWageClosure, FixedWageClosure, ElasticLaborClosure, labor_closure
+export AbstractLaborClosure, ExogenousLaborClosure, FlexibleWageClosure, FixedWageClosure, ElasticLaborClosure, SectoralElasticLaborClosure, labor_closure
 export labor_market_residual
 export AbstractFinancing, NoFinancing, PreferenceReallocation, TaxFinanced, ExternalDebt
 export preference_weights, tau_rate, household_expenditure, additive_demand, public_budget, external_balance, has_additive_anchor
@@ -38,7 +38,7 @@ export plot_real_gdp_gradient,plot_nominal_gdp_gradient, panel, diff_lambda, com
 export eta_sweep, eta_sweep_full, EtaSweepResult, real_gdp_sweep, nominal_gdp_sweep, sectoral_quantities, sectoral_prices
 export variance_decomposition, SobolResult, VarianceDecompositionResult, summary_table, eta_sweep_diagnostics, pilot_eta_sweep
 export gdp_components, gdp_deflator, gdp_income, gdp_expenditure, gdp_wedge, real_consumption
-export sectoral_labor_gap
+export sectoral_labor_gap, sectoral_supply_gap
 const inflator = 1.46
 
 include("core/accounting.jl")

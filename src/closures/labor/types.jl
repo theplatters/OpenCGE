@@ -14,6 +14,20 @@ struct FlexibleWageClosure <: AbstractLaborClosure end
 """Mobile labor with a fixed wage and unconstrained employment demand."""
 struct FixedWageClosure <: AbstractLaborClosure end
 """
+	SectoralElasticLaborClosure(eta_s_vec)
+
+ADR-0022: the sectoral generalisation of BETA — N sectoral labour markets, each
+with its own real-wage supply curve
+`L^cm_i = Lbar_i * (w_i / CPI)^{eta_s,i}` (anchors `wbar_i / Pibar = 1`).
+`eta_s_vec = zeros(N)` is exactly the eta = 0 sectoral-wage endpoint
+(ADR-0020 option C); a uniform vector is BETA's supply rule applied market by
+market. Selects the 3N+1 system `problem_sectoral`.
+"""
+struct SectoralElasticLaborClosure <: AbstractLaborClosure
+	eta_s_vec::Vector{Float64}
+end
+
+"""
 	ElasticLaborClosure(η_s; w0 = 1.0)
 
 BETA closure: elastic total labour supply with elasticity `η_s` along the real
@@ -38,5 +52,6 @@ _closure_symbol(closure::Symbol) = closure
 _closure_symbol(::FlexibleWageClosure) = :mobile
 _closure_symbol(::FixedWageClosure) = :fixed
 _closure_symbol(::ElasticLaborClosure) = :beta
+_closure_symbol(::SectoralElasticLaborClosure) = :beta
 _closure_symbol(closure) = throw(ArgumentError(
     "unsupported MobileLaborCES closure $closure; use :mobile, :fixed, :beta, FlexibleWageClosure(), FixedWageClosure(), or ElasticLaborClosure()"))

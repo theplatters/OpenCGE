@@ -78,7 +78,7 @@ end
 
 """Fresh temp root with a minimal registry/scenarios.csv and the smoke design."""
 function smoke_root()::String
-    tmp = mktempdir("/tmp/opencode")
+    tmp = mktempdir()
     mkpath(joinpath(tmp, "registry"))
     mkpath(joinpath(tmp, "experiments", "designs"))
     write(joinpath(tmp, "experiments", "designs", "smoke.toml"), smoke_design_toml())

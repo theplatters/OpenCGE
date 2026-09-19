@@ -318,6 +318,50 @@ function sectoral_labor_gap(::Model, ::AbstractVector, ::AbstractVector, w)
 	throw(ArgumentError("sectoral_labor_gap is only defined for the open-economy Model{MobileLaborCES}"))
 end
 
+"""
+	_cpi_from_prices(model, p) -> Float64
+
+The `cpi` of a price vector (the `cpi` of a `Solution` without building one).
+"""
+function _cpi_from_prices(model::Model{MobileLaborCES}, p::AbstractVector)::Float64
+	σ = model.options.elasticities.σ
+	csh = vec(model.data.consumption_share)
+	abs(σ - 1.0) < 1e-12 && return prod(p .^ csh)
+	return sum(csh .* p .^ (1 - σ))^(1 / (1 - σ))
+end
+
+"""
+	sectoral_supply_gap(model, p, q, w) -> Float64
+
+`maximum(abs, log(L^cm_i) - log(labor_share_i) - eta_s,i * log(w_i / P))` with
+`P` the model CPI at `p`: the residual block of the N sectoral labour markets
+(ADR-0022), which replaces the aggregate labour equation in the 3N+1 system.
+With `eta_s,i = 0` for every sector the supply term vanishes identically and
+the quantity is exactly `sectoral_labor_gap` -- the same equation as the
+`η = 0` endpoint's (ADR-0020 option C). That identity is why the two closures
+nest exactly rather than approximately: rigidity imposed on the allocation and
+rigidity produced by a vertical supply curve are the same row.
+"""
+function sectoral_supply_gap(model::Model{MobileLaborCES}, p::AbstractVector,
+		q::AbstractVector, w)::Float64
+	Lcm = _cost_minimizing_labor(p, q, w, model)
+	N = length(model.data.factor_share)
+	gap = log.(Lcm) .- log.(_positive_floor(model.data.labor_share))
+	esv = model.options.elasticities.eta_s_vec
+	if esv !== nothing
+		length(esv) == N || throw(DimensionMismatch(
+			"the sectoral elasticity vector has length $(length(esv)); expected $N"))
+		ws = w isa AbstractVector ? Float64.(w) : fill(Float64(w), N)
+		P = _cpi_from_prices(model, p)
+		gap .-= esv .* log.(max.(ws, eps(Float64)) ./ max(P, eps(Float64)))
+	end
+	return maximum(abs, gap)
+end
+
+function sectoral_supply_gap(::Model, ::AbstractVector, ::AbstractVector, w)
+	throw(ArgumentError("sectoral_supply_gap is only defined for the open-economy Model{MobileLaborCES}"))
+end
+
 # --- src/impulses.jl (verbatim) ---
 
 function load_impulses(filename)
