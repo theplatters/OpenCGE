@@ -360,3 +360,108 @@ end
     @test second == Dict("smoke-BF-F1" => "refused")
     @test read(manpath) == before
 end
+
+# ── ADR-0023: supply-shock schema (tests/test_run_manifest.jl) ─────────────
+
+"""Smoke design TOML with a `[shock]` block (sector-1 productivity, ADR-0023)."""
+function supply_smoke_design_toml()::String
+    return """
+    schema_version = 1
+    design = "supply_smoke"
+    description = "2-sector supply-shock smoke design for tooling tests (ADR-0023)"
+    smoke = true
+
+    [data]
+    vintage = "tiny-fixture"
+    drops = []
+    calibration_root = "cbase2"
+    calibration_artifacts = []
+
+    [programme]
+    explicit = [0.7, 0.3]
+    total_eur_m = 1.0
+    f1_shift = "tilt_g0_over_c0"
+
+    [reference]
+    labor = "BF"
+    eta = 0.0
+    theta = 1.0
+    epsilon = 0.5
+    sigma = 0.9
+    exo_scale_steps = 0
+    thetas = [1.0]
+
+    [gates]
+    residual_tol = 1e-6
+    budget_tol = 1e-9
+    labour_tol = 1e-6
+    wage_tol = 1e-8
+
+    [shock]
+    kind = "sectoral"
+    magnitude = 1.2
+    targets = [1]
+    note = "sector-1 productivity shock (ADR-0023)"
+
+    [cells.supply-smoke-BETA-F2]
+    labor = "BETA"
+    financing = "F2"
+    eta = 1.0
+    eta_s = 0.5
+    theta = 1.0
+    epsilon = 0.5
+    sigma = 0.9
+    shock_magnitude = 1.1
+    note = "scalar BETA under a sector-1 supply shock (per-cell magnitude override)"
+    """
+end
+
+"""Temp root with the supply-smoke design and one registry row."""
+function supply_smoke_root()::String
+    tmp = mktempdir()
+    mkpath(joinpath(tmp, "registry"))
+    mkpath(joinpath(tmp, "experiments", "designs"))
+    write(joinpath(tmp, "experiments", "designs", "supply_smoke.toml"),
+        supply_smoke_design_toml())
+    scen = DataFrame(
+        run_id = ["supply-smoke-BETA-F2"], design = ["supply_smoke"],
+        status = ["planned"], labor = ["BETA"], financing = ["F2"],
+        eta = ["TBD"], eta_s = ["TBD"], theta = ["TBD"], epsilon = ["TBD"],
+        sigma = ["TBD"], shock = ["impulses.csv"], magnitude = ["1.0"],
+        data_vintage = ["tiny"], evidence = [""], commit = [""],
+        actor = ["test"], notes = [""])
+    CSV.write(joinpath(tmp, "registry", "scenarios.csv"), scen)
+    return tmp
+end
+
+@testset "run manifests: supply shock writes the ADR-0023 scenario fields" begin
+    root = supply_smoke_root()
+    runs_dir = joinpath(root, "runs")
+    preregister_design("supply_smoke"; root = root, actor = "test")
+    res = run_design("supply_smoke"; root = root, runs_dir = runs_dir,
+        cell = "supply-smoke-BETA-F2", data = tiny_fixture(), actor = "test")
+    @test res == Dict("supply-smoke-BETA-F2" => "executed")
+    man = TOML.parsefile(joinpath(runs_dir, "supply-smoke-BETA-F2", "manifest.toml"))
+    scen = man["scenario"]
+    @test scen["shock"] == "sectoral:supply"
+    @test scen["shock_kind"] == "sectoral"
+    @test scen["shock_magnitude"] ≈ 1.1 atol = 1e-12          # per-cell override
+    @test scen["shock_A"][1] ≈ 1.1 atol = 1e-12
+    @test scen["shock_A"][2] ≈ 1.0 atol = 1e-12
+    @test scen["shock_targets"] == [1]
+    # The scenarios.csv row carries the supply shock, not the demand default.
+    sc = smoke_scenarios(root)
+    @test sc["supply-smoke-BETA-F2"]["shock"] == "sectoral:supply"
+    @test sc["supply-smoke-BETA-F2"]["magnitude"] == "1.1"
+    # kind = "none" regression: the plain smoke design keeps the legacy keys
+    # and adds no supply fields, so existing manifests are byte-identical.
+    root2 = smoke_root()
+    runs2 = joinpath(root2, "runs")
+    preregister_design("smoke"; root = root2, actor = "test")
+    run_design("smoke"; root = root2, runs_dir = runs2, cell = "smoke-BF-F1",
+        data = tiny_fixture(), actor = "test")
+    man2 = TOML.parsefile(joinpath(runs2, "smoke-BF-F1", "manifest.toml"))
+    @test man2["scenario"]["shock"] == "impulses.csv"
+    @test man2["scenario"]["magnitude"] == 1.0
+    @test !haskey(man2["scenario"], "shock_kind")
+end
