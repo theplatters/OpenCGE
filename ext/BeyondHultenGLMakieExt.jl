@@ -13,6 +13,8 @@ using BeyondHulten
 using DataFrames
 using ThreadsX
 
+include(joinpath(@__DIR__, "matrix_plots.jl"))
+
 function BeyondHulten.axis_change_in_level!(fig, data, impulses; options)
 	shocks = BeyondHulten.impulse_shock(data, impulses)
 	colors = Makie.wong_colors()

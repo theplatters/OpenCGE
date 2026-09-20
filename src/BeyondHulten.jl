@@ -38,6 +38,7 @@ export plot_real_gdp_gradient,plot_nominal_gdp_gradient, panel, diff_lambda, com
 export eta_sweep, eta_sweep_full, EtaSweepResult, real_gdp_sweep, nominal_gdp_sweep, sectoral_quantities, sectoral_prices
 export variance_decomposition, SobolResult, VarianceDecompositionResult, summary_table, eta_sweep_diagnostics, pilot_eta_sweep
 export gdp_components, gdp_deflator, gdp_income, gdp_expenditure, gdp_wedge, real_consumption
+export matrix_labour_order, matrix_financing_order, MatrixBaseline, MatrixCellData, MatrixDataset, matrix_baseline, sectoral_trade_flows, matrix_cell_data, matrix_dataset, matrix_cell_ids, matrix_sectoral_frame, matrix_summary_frame, validate_cell, plot_matrix_overview, plot_matrix_wages, plot_matrix_prices, plot_matrix_quantities, plot_matrix_consumption, plot_matrix_trade, save_matrix_figures
 export sectoral_labor_gap, sectoral_supply_gap
 const inflator = 1.46
 
