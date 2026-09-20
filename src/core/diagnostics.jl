@@ -125,8 +125,9 @@ end
 	gdp_components(model::Model{MobileLaborCES}, sol::Solution) -> NamedTuple
 
 Seven signed aggregate GDP components at a solved open-economy equilibrium,
-with `p = sol.prices_raw`, `y = sol.quantities`, `w = sol.wages_raw[1]`,
-`F = sol.external_transfer` and
+with `p = sol.prices_raw`, `y = sol.quantities`, `w` the sectoral wage vector
+whenever the model is sectoral (η = 0 or `eta_s_vec !== nothing`) and
+`sol.wages_raw[1]` otherwise, `F = sol.external_transfer` and
 the demand blocks of the shared `_mobile_market_demand` hook
 (`c_dom`, `additive`, `L_i`, `E`):
 
@@ -150,21 +151,20 @@ demand hook is evaluated with the solution's external transfer
 = external_transfer + programme_financing` is the booked external position.
 The exact accounting identity (ADR-0019) is `wedge = −canary.diff`: the
 wedge IS the negated external-account identity gap, on and off equilibrium.
-It is ≈ 0 at every η = 1 solution (mobile and fixed-wage, where the
-cost-minimizing allocation lets zero-profit plus clearing close the external
-account) with zero legacy manna; nonzero legacy manna (ADR-0005) adds
-`p·(A+G)` to the gap on both sides. At BF η = 0 it carries the fixed-allocation
-factor-market gap
-(zero-profit prices the cost-minimizing labour demand, not the frozen
-baseline allocation). Throws `ArgumentError` for other model types (the
+The sectoral wage vector is used whenever the model is sectoral (η = 0 or
+`eta_s_vec !== nothing`); the identity closes in every executed regime with
+zero legacy manna, and nonzero legacy manna (ADR-0005) adds `p·(A+G)` to the
+gap on both sides. Throws `ArgumentError` for other model types (the
 closed cores have no open-economy blocks).
 """
 function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	p = sol.prices_raw
 	y = sol.quantities
-	# eta = 0 carries the sectoral wage vector (ADR-0020 option C); every
-	# eta = 1 regime carries one common wage in all entries of `wages_raw`.
-	w = model.options.elasticities.η == 0.0 ? sol.wages_raw : sol.wages_raw[1]
+	# η = 0 carries the sectoral wage vector (ADR-0020 option C), as does every
+	# ADR-0022 cell with `eta_s_vec !== nothing`; every other regime carries one
+	# common wage in all entries of `wages_raw`.
+	w = (model.options.elasticities.η == 0.0 ||
+		 model.options.elasticities.eta_s_vec !== nothing) ? sol.wages_raw : sol.wages_raw[1]
 	blocks = _mobile_market_demand(model, p, y, w; external_transfer = sol.external_transfer)
 	(; data, options, shocks) = model
 	(; θ, ϵ) = options.elasticities

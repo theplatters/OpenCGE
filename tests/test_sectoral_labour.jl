@@ -71,6 +71,26 @@ end
 	# ── eta_s / eta_s_vec belong to the :beta closure only ──
 	@test_throws ArgumentError mobile_labor_model(
 		data, shocks, 0.5, 0.5, 0.9, 1.0; closure = :fixed, eta_s_vec = fill(0.5, N))
+
+	# ── C1 regression: gdp_components must use the sectoral wage vector ──
+	# The closed tiny_fixture makes the canary gap wage-independent, so the
+	# open fixture (positive import margin + saving) is required to catch the
+	# scalar-wage collapse on ADR-0022 cells.
+	d0 = tiny_fixture()
+	vals = Any[getfield(d0, f) for f in fieldnames(Data)]
+	vals[findfirst(==(:import_margin), fieldnames(Data))] = [0.2, 0.2]
+	vals[findfirst(==(:saving_rate), fieldnames(Data))] = 0.1
+	d_open = Data(vals...)
+	m_open = mobile_labor_model(d_open, Shocks(ones(N), ones(N), zeros(N)),
+		0.5, 0.5, 0.9, 1.0; eta_s_vec = fill(0.5, N),
+		financing = TaxFinanced([0.007, 0.003]))
+	p = [1.10, 1.04]
+	q = [0.48, 0.52]
+	w = [1.20, 0.90]
+	F = -0.02
+	sol = Solution(p, q, w, [0.49, 0.51], 1.0, 1.0, 1.0, m_open; external_transfer = F)
+	@test gdp_components(m_open, sol).wage_bill ≈ sum(w .* sectoral_labor_demand(p, q, w, m_open)) atol = 1e-12
+	@test gdp_wedge(sol) ≈ -external_balance_canary(m_open, [p; q; w; F]).diff atol = 1e-12
 end
 
 @testset "ADR-0022 sectoral closure (full-71 calibration)" begin
@@ -129,6 +149,9 @@ end
 			X = [s_f2.prices_raw; s_f2.quantities; s_f2.wages_raw; s_f2.external_transfer]
 			@test abs(external_balance_canary(m_f2, X).diff) < 1e-8
 			@test max_equilibrium_residual(s_f2) < 1e-9
+			@test gdp_components(m_f2, s_f2).wage_bill ≈
+				sum(s_f2.wages_raw .* sectoral_labor_demand(s_f2.prices_raw, s_f2.quantities, s_f2.wages_raw, m_f2)) rtol = 1e-10
+			@test gdp_wedge(s_f2) ≈ -external_balance_canary(m_f2, X).diff atol = 1e-9
 		end
 	end
 end

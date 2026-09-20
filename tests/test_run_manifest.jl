@@ -73,6 +73,17 @@ function smoke_design_toml()::String
     sigma = 1e-4
     delta_epsilon = 1e-4
     note = "expected scale-indeterminacy failure"
+
+    [cells.smoke-BETA-F2-sec]
+    labor = "BETA"
+    financing = "F2"
+    eta = 1.0
+    eta_s = 0.5
+    theta = 1.0
+    epsilon = 0.5
+    sigma = 0.9
+    eta_s_rigid_group = "none"
+    note = "ADR-0022 sectoral cell: the 3N+1 system at smoke scale"
     """
 end
 
@@ -83,18 +94,18 @@ function smoke_root()::String
     mkpath(joinpath(tmp, "experiments", "designs"))
     write(joinpath(tmp, "experiments", "designs", "smoke.toml"), smoke_design_toml())
     scen = DataFrame(
-        run_id = ["smoke-BF-F1", "smoke-DELTA-F1"],
-        design = ["smoke", "smoke"],
-        status = ["planned", "planned"],
-        labor = ["BF", "DELTA"],
-        financing = ["F1", "F1"],
-        eta = ["TBD", "TBD"], eta_s = ["TBD", "TBD"],
-        theta = ["TBD", "TBD"], epsilon = ["TBD", "TBD"], sigma = ["TBD", "TBD"],
-        shock = ["impulses.csv", "impulses.csv"],
-        magnitude = ["1.0", "1.0"],
-        data_vintage = ["tiny", "tiny"],
-        evidence = ["", ""], commit = ["", ""],
-        actor = ["test", "test"], notes = ["", ""])
+        run_id = ["smoke-BF-F1", "smoke-DELTA-F1", "smoke-BETA-F2-sec"],
+        design = ["smoke", "smoke", "smoke"],
+        status = ["planned", "planned", "planned"],
+        labor = ["BF", "DELTA", "BETA"],
+        financing = ["F1", "F1", "F2"],
+        eta = ["TBD", "TBD", "TBD"], eta_s = ["TBD", "TBD", "TBD"],
+        theta = ["TBD", "TBD", "TBD"], epsilon = ["TBD", "TBD", "TBD"], sigma = ["TBD", "TBD", "TBD"],
+        shock = ["impulses.csv", "impulses.csv", "impulses.csv"],
+        magnitude = ["1.0", "1.0", "1.0"],
+        data_vintage = ["tiny", "tiny", "tiny"],
+        evidence = ["", "", ""], commit = ["", "", ""],
+        actor = ["test", "test", "test"], notes = ["", "", ""])
     CSV.write(joinpath(tmp, "registry", "scenarios.csv"), scen)
     return tmp
 end
@@ -236,6 +247,38 @@ end
     @test row["financing"] == "F1"
     @test occursin("runs/smoke-BF-F1/manifest.toml", row["evidence"])
     @test !isempty(row["commit"])
+end
+
+@testset "run manifests: sectoral smoke cell exercises the 3N+1 harness path" begin
+    # ADR-0022 sectoral cell at smoke scale: the 3N+1 system solved by
+    # solve(model; init = ...) through the harness, with the C1 companion
+    # identity gdp_wedge == -canary_diff asserted verbatim on the manifest.
+    root = smoke_root()
+    runs_dir = joinpath(root, "runs")
+    preregister_design("smoke"; root = root, actor = "test")
+    res = run_design("smoke"; root = root, runs_dir = runs_dir,
+        cell = "smoke-BETA-F2-sec", data = tiny_fixture(), actor = "test")
+    @test res == Dict("smoke-BETA-F2-sec" => "executed")
+    rundir = joinpath(runs_dir, "smoke-BETA-F2-sec")
+    man = TOML.parsefile(joinpath(rundir, "manifest.toml"))
+    @test man["status"] == "executed"
+    scen = man["scenario"]
+    @test scen["labour"] == "BETA"
+    @test scen["financing"] == "F2"
+    @test scen["eta_s_vec"] == [0.5, 0.5]
+    @test scen["eta_s_rigid_group"] == "none"
+    gates = man["gates"]
+    @test gates["overall"] == "pass"
+    @test gates["sectoral"]["pass"] == true
+    @test isfinite(gates["sectoral"]["value"])
+    @test gates["sectoral"]["value"] < gates["sectoral"]["tolerance"]
+    for k in ("gdp", "gdp_rel", "gdp_expenditure", "gdp_expenditure_rel",
+            "gdp_deflator", "gdp_wedge", "consumption", "consumption_rel",
+            "employment", "wage", "nominal_gdp", "max_abs_price_dev",
+            "external_transfer", "programme_financing", "external_position")
+        @test isfinite(man["metrics"][k])
+    end
+    @test man["diagnostics"]["canary_diff"] ≈ -man["metrics"]["gdp_wedge"] atol=1e-12
 end
 
 @testset "run manifests: assert_external_account fails closed" begin
