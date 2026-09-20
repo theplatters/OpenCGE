@@ -561,3 +561,24 @@ Implemented by the GLMakie extension; requires `using GLMakie`.
 function save_matrix_figures(args...; kwargs...)
 	_require_glmakie(:save_matrix_figures)
 end
+
+"""
+	plot_matrix_panel(args...; kwargs...)
+
+Two-panel manuscript figure for one labour closure (grouped F2 bars over the
+programme sectors plus a quantity/price scatter over all sectors).
+Implemented by the GLMakie extension; requires `using GLMakie`.
+"""
+function plot_matrix_panel(args...; kwargs...)
+	_require_glmakie(:plot_matrix_panel)
+end
+
+"""
+	save_matrix_panels(args...; kwargs...)
+
+Write one manuscript panel figure per labour closure with shared axis limits.
+Implemented by the GLMakie extension; requires `using GLMakie`.
+"""
+function save_matrix_panels(args...; kwargs...)
+	_require_glmakie(:save_matrix_panels)
+end

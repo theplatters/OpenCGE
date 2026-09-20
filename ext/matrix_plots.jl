@@ -674,3 +674,390 @@ function BeyondHulten.save_matrix_figures(ds::BeyondHulten.MatrixDataset;
 	end
 	return paths
 end
+
+# ── Manuscript panel figures (one per matrix cell) ──
+#
+# `panel_ls`-style two-panel figure recreated for the 5x3 matrix: grouped
+# bars over the programme sectors (left) plus a quantity/price scatter over
+# all sectors (right). One figure per matrix cell present in `ds.cells`
+# (D1); each file is standalone with per-cell axis limits. Error bars carry
+# the legacy sensitivity meaning (D2): the min/max spread over the central
+# cell and its consumption-elasticity variants (σ ∈ {0.6, 0.99}, the cell's
+# other parameters fixed).
+
+"""Programme-sector indices: `programme .> 0`, sorted by programme value descending."""
+function _mp_programme_order(programme::AbstractVector)
+	n = length(programme)
+	idx = [j for j in 1:n if isfinite(Float64(programme[j])) && Float64(programme[j]) > 0.0]
+	return sort(idx; by = j -> Float64(programme[j]), rev = true)
+end
+
+"""Cell with `run_id` in `ds`; `nothing` when absent."""
+function _mp_find_cell(ds::BeyondHulten.MatrixDataset, run_id::AbstractString)
+	for c in ds.cells
+		c.run_id == String(run_id) && return c
+	end
+	return nothing
+end
+
+"""Available σ-variant `MatrixCellData`s for `run_id` (each a variant cell, or skipped).
+
+`variants` maps `run_id => (low = ..., high = ...)` (a `NamedTuple`, or a
+dict with `"low"`/`"high"` keys); either side may be `nothing` when that
+variant failed to solve. Returns the converged variants only."""
+function _mp_variant_list(variants::AbstractDict, run_id::AbstractString)
+	v = get(variants, String(run_id), nothing)
+	v === nothing && return BeyondHulten.MatrixCellData[]
+	out = BeyondHulten.MatrixCellData[]
+	vals = if v isa NamedTuple
+		[get(v, :low, nothing), get(v, :high, nothing)]
+	elseif v isa AbstractDict
+		[get(v, :low, get(v, "low", nothing)), get(v, :high, get(v, "high", nothing))]
+	elseif v isa AbstractVector
+		collect(v)
+	else
+		Any[v]
+	end
+	for u in vals
+		u isa BeyondHulten.MatrixCellData && push!(out, u)
+	end
+	return out
+end
+
+"""Padded `(lo, hi)` limits over `vals` with a minimum total span.
+
+Degenerate ranges (all values ~equal, e.g. prices pinned at the baseline in
+the single-wage closures) are widened symmetrically around the data midpoint
+to at least `min_span`, so the `{:.2f}%` ticks read sensibly instead of
+repeating one label. Returns `(lo, hi, degenerate)`."""
+function _mp_panel_span(vals::AbstractVector{<:Real};
+		min_span::Float64 = 0.05, pad::Float64 = 0.07)
+	f = filter(isfinite, vals)
+	isempty(f) && return (-1.0, 1.0, true)
+	lo, hi = minimum(f), maximum(f)
+	span = hi - lo
+	degenerate = !(span >= min_span)
+	if degenerate
+		mid = (lo + hi) / 2
+		lo, hi = mid - min_span / 2, mid + min_span / 2
+		span = min_span
+	end
+	return (lo - pad * span, hi + pad * span, degenerate)
+end
+
+"""Manuscript panel figure for one matrix cell (implementation).
+
+Public entry point is `BeyondHulten.plot_matrix_panel` (forwarded below):
+grouped bars over the programme sectors for the cell `run_id` (left) plus a
+quantity/price scatter over all its sectors (right). `programme` is the
+per-sector additive programme demand in model units (`[]` omits the
+programme-demand series). `variants` maps `run_id => (low = ..., high =
+...)` to the cell's σ-variant `MatrixCellData`s; the error bars on the
+output/consumption/price series span the min/max over the central cell and
+its converged variants (no error bar when no variant is available)."""
+function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractString;
+		programme::AbstractVector = Float64[],
+		variants::AbstractDict = Dict{String,Any}(),
+		title = nothing, size = (1900, 900))
+	rid = String(run_id)
+	cell = _mp_find_cell(ds, rid)
+	cell === nothing && throw(ArgumentError(
+		"no cell with run_id \"$rid\" in dataset \"$(ds.design)\"" *
+		" (have: $(join(sort([c.run_id for c in ds.cells]), ", ")))"))
+	n = length(cell.quantities)
+	!isempty(programme) && length(programme) != n && throw(DimensionMismatch(
+		"programme has length $(length(programme)); expected $n"))
+	idx = _mp_programme_order(programme)
+	isempty(idx) && throw(ArgumentError(
+		"no programme sectors (programme .> 0 is empty); the left panel needs one"))
+	idx = [j for j in idx if j <= n]
+	isempty(idx) && throw(ArgumentError("no programme sector index fits this dataset"))
+	has_prog = !isempty(programme)
+	vars = _mp_variant_list(variants, rid)
+	y0 = ds.baseline.quantities
+	colors = Makie.wong_colors()
+	fig = Figure(size = size)
+	Label(fig[1, 1:2],
+		_mp_title(title,
+			"5x3 matrix panel — $(cell.labour)-$(cell.financing) (bars = cell; error bars: σ ∈ {0.6, 0.99})"),
+		fontsize = 20)
+	# ── Left: grouped bars over the programme sectors (this cell's values). ──
+	series_names = has_prog ?
+		["Programme demand (% of baseline gross output)",
+			"Change in output", "Change in consumption", "Price deviation from numeraire"] :
+		["Change in output", "Change in consumption", "Price deviation from numeraire"]
+	ns = length(series_names)
+	width = 0.7 / ns
+	axl = Axis(fig[2, 1];
+		xlabel = "Sector",
+		ylabel = "%",
+		ytickformat = "{:.2f}%",
+		xticks = (1:length(idx), [cell.labels[j] for j in idx]),
+		xticklabelrotation = π / 4,
+		xticklabelsize = 11, yticklabelsize = 11)
+	hlines!(axl, [0.0]; color = :gray, linestyle = :dash)
+	bxs = Float64[]
+	bhs = Float64[]
+	bcs = []
+	ebxs = Float64[]
+	ebvs = Float64[]
+	eblos = Float64[]
+	ebhis = Float64[]
+	getvec = (c, k) -> k == 1 ? c.quantities : k == 2 ? c.consumption : c.prices
+	for (si, _) in enumerate(series_names)
+		off = (si - (ns + 1) / 2) * width
+		ci = has_prog ? si : si + 1
+		for (k, j) in enumerate(idx)
+			x = k + off
+			if has_prog && si == 1
+				(j <= length(y0) && y0[j] > 0.0) || continue
+				v = 100.0 * Float64(programme[j]) / y0[j]
+				isfinite(v) || continue
+				push!(bxs, x)
+				push!(bhs, v)
+				push!(bcs, colors[1])
+			else
+				k2 = has_prog ? si - 1 : si
+				vec = getvec(cell, k2)
+				j <= length(vec) || continue
+				v = 100.0 * (vec[j] - 1.0)
+				isfinite(v) || continue
+				push!(bxs, x)
+				push!(bhs, v)
+				push!(bcs, colors[ci])
+				isempty(vars) && continue
+				vs = Float64[v]
+				for vc in vars
+					vvec = getvec(vc, k2)
+					j <= length(vvec) || continue
+					u = 100.0 * (vvec[j] - 1.0)
+					isfinite(u) && push!(vs, u)
+				end
+				length(vs) > 1 || continue
+				push!(ebxs, x)
+				push!(ebvs, v)
+				push!(eblos, v - minimum(vs))
+				push!(ebhis, maximum(vs) - v)
+			end
+		end
+	end
+	barplot!(axl, bxs, bhs; width = width, color = bcs)
+	!isempty(ebxs) && errorbars!(axl, ebxs, ebvs, eblos, ebhis;
+		whiskerwidth = 10, color = :black)
+	elements = [PolyElement(polycolor = colors[has_prog ? si : si + 1])
+		for si in 1:ns]
+	axislegend(axl, elements, series_names; position = :rt, labelsize = 11)
+	# ── Right: quantity/price scatter over all sectors (this cell's values). ──
+	axr = Axis(fig[2, 2];
+		xlabel = "Change in quantities (%)",
+		ylabel = "Change in prices (%)",
+		xtickformat = "{:.2f}%", ytickformat = "{:.2f}%",
+		xticklabelsize = 11, yticklabelsize = 11)
+	hlines!(axr, [0.0]; color = :gray, linestyle = :dash)
+	vlines!(axr, [0.0]; color = :gray, linestyle = :dash)
+	inprog = Set(idx)
+	px = Float64[]
+	py = Float64[]
+	plabs = String[]
+	pj = Int[]
+	ox = Float64[]
+	oy = Float64[]
+	olabs = String[]
+	oj = Int[]
+	for j in 1:n
+		j <= length(cell.prices) || continue
+		x = 100.0 * (cell.quantities[j] - 1.0)
+		y = 100.0 * (cell.prices[j] - 1.0)
+		(isfinite(x) && isfinite(y)) || continue
+		if j in inprog
+			push!(px, x)
+			push!(py, y)
+			push!(plabs, cell.labels[j])
+			push!(pj, j)
+		else
+			push!(ox, x)
+			push!(oy, y)
+			push!(olabs, cell.labels[j])
+			push!(oj, j)
+		end
+	end
+	!isempty(ox) && scatter!(axr, ox, oy; color = colors[1], markersize = 10)
+	!isempty(px) && scatter!(axr, px, py; color = colors[2], markersize = 16)
+	elements_r = [MarkerElement(marker = :circle, color = colors[2]),
+		MarkerElement(marker = :circle, color = colors[1])]
+	axislegend(axr, elements_r, ["Programme sectors", "Other sectors"];
+		position = :rb, labelsize = 12)
+	# Limits are per-cell (each file is standalone): degenerate ranges get a
+	# minimum span so the ticks read sensibly, with an annotation naming the
+	# cause (prices sit at the baseline without a sectoral-wage channel).
+	allx = vcat(px, ox)
+	ally = vcat(py, oy)
+	if !isempty(allx)
+		(xlo, xhi, xdeg) = _mp_panel_span(allx)
+		(ylo, yhi, ydeg) = _mp_panel_span(ally)
+		xlims!(axr, xlo, xhi)
+		ylims!(axr, ylo, yhi)
+		notes = String[]
+		ydeg && push!(notes, "prices at baseline (no sectoral-wage channel)")
+		xdeg && push!(notes, "quantities at baseline")
+		if !isempty(notes)
+			text!(axr, xlo + 0.02 * (xhi - xlo), yhi - 0.05 * (yhi - ylo);
+				text = join(notes, "; "), align = (:left, :top),
+				fontsize = 11, color = :gray)
+		end
+	else
+		(xlo, xhi, ylo, yhi) = (-1.0, 1.0, -1.0, 1.0)
+	end
+	# Labels: the three largest programme-sector points plus the three
+	# largest non-programme movers (by max(|Δq|, |Δp|)). Points can share one
+	# line (flat prices at ~0 in the single-wage closures), so labels go on
+	# one by one: edge-aware side selection (as elsewhere) plus vertical
+	# staggering within x-clusters so nothing overprints or clips at the
+	# axis edge.
+	pmove = sort([(max(abs(px[k]), abs(py[k])), k) for k in eachindex(px)]; rev = true)
+	omove = sort([(max(abs(ox[k]), abs(oy[k])), k) for k in eachindex(ox)]; rev = true)
+	lablist = Tuple{Int,String,Float64,Float64}[]
+	for ( _, k) in pmove[1:min(3, length(pmove))]
+		push!(lablist, (pj[k], plabs[k], px[k], py[k]))
+	end
+	for (_, k) in omove[1:min(3, length(omove))]
+		push!(lablist, (oj[k], olabs[k], ox[k], oy[k]))
+	end
+	if !isempty(lablist)
+		xspan = xhi - xlo
+		(!isfinite(xspan) || xspan <= 0.0) && (xspan = 1.0)
+		sort!(lablist; by = t -> t[3])
+		nl = length(lablist)
+		clust = zeros(Int, nl)
+		cid = 0
+		for i in 1:nl
+			if i == 1 || lablist[i][3] - lablist[i - 1][3] > 0.04 * xspan
+				cid += 1
+			end
+			clust[i] = cid
+		end
+		counts = Dict{Int,Int}()
+		for c in clust
+			counts[c] = get(counts, c, 0) + 1
+		end
+		lanes = (22, -28, 48, -54, 74)
+		seen = Dict{Int,Int}()
+		for (m, i) in enumerate(1:nl)
+			(_, t, x, y) = lablist[i]
+			c = clust[i]
+			k = get(seen, c, 0) + 1
+			seen[c] = k
+			al, off = _mp_scatter_align_offset(x, y, xlo, xhi, ylo, yhi, m)
+			xoff = off[1]
+			if x - xlo < 0.10 * xspan
+				al = (:left, al[2])
+				xoff = 6
+			elseif k > 1 && iseven(k) && x - xlo > 0.15 * xspan &&
+					xhi - x > 0.15 * xspan
+				# Interior of a crowd: mirror every second label so long
+				# texts extend to opposite sides instead of overprinting.
+				al = (al[1] == :left ? :right : :left, al[2])
+				xoff = -xoff
+			end
+			yoff = k == 1 ? off[2] : lanes[mod(k - 2, length(lanes)) + 1]
+			# Crowded clusters (the ~0 price line in the single-wage
+			# closures) get diagonal labels: they extend into the empty
+			# panel space instead of overprinting horizontally.
+			rot = counts[c] > 1 ? π / 4 : 0.0
+			text!(axr, x, y; text = t, align = al, fontsize = 10,
+				offset = (xoff, yoff), rotation = rot)
+		end
+	end
+	# Footnote in short centred lines: a single `Label` does not wrap, so one
+	# long line would clip symmetrically past the figure edges.
+	prog_note = has_prog ?
+		"  Programme demand in % of baseline gross output (100*g_i/y0_i)." :
+		"  No programme vector passed: the programme-demand series is omitted."
+	foot1 = _MP_BASELINE_NOTE * prog_note
+	foot2 = "  Bars show this cell; error bars on the last three series span " *
+		"the consumption-elasticity range (σ ∈ {0.6, 0.99}, the cell's θ, ε, η, " *
+		"financing and shock fixed)."
+	foot3 = "  Min/max over the central cell and its converged variants."
+	isempty(vars) && (foot3 *= "  No σ variant converged for this cell: bars show the central solution only.")
+	# One Label per line (a single Label does not wrap, and its `\n` is not
+	# honoured by every backend, so one long line clips past the edges).
+	for (r, txt) in enumerate((foot1, foot2, foot3))
+		Label(fig[2 + r, 1:2], txt, fontsize = 10)
+		rowsize!(fig.layout, 2 + r, Makie.Fixed(18))
+	end
+	return fig
+end
+
+"""Write one manuscript panel figure per matrix cell (implementation).
+
+Public entry point is `BeyondHulten.save_matrix_panels`. Each file is
+standalone with per-cell axis limits, named `<prefix>_<labour>_<financing>`
+in canonical labour × financing order."""
+function _save_matrix_panels(ds::BeyondHulten.MatrixDataset;
+		outdir = "plots", prefix = "panel_5x3",
+		programme::AbstractVector = Float64[],
+		variants::AbstractDict = Dict{String,Any}(), formats = ("png",))
+	mkpath(outdir)
+	cells = _mp_sorted_cells(ds)
+	paths = String[]
+	used = Set{String}()
+	for cell in cells
+		f = _plot_matrix_panel(ds, cell.run_id; programme = programme,
+			variants = variants)
+		for ext in formats
+			name = "$(prefix)_$(cell.labour)_$(cell.financing).$(ext)"
+			name in used && (name = "$(prefix)_$(cell.run_id).$(ext)")
+			push!(used, name)
+			p = joinpath(outdir, name)
+			try
+				save(p, f; px_per_unit = 2)
+			catch
+				save(p, f)
+			end
+			push!(paths, p)
+		end
+	end
+	return paths
+end
+
+# ── Public methods (attached to the headless stubs in `src/plots.jl`) ──
+#
+# `src/plots.jl` defines the generic stubs (they raise the instructive
+# "requires GLMakie" error headlessly); the methods below attach the drawing
+# implementations, exactly like the other `plot_matrix_*` figures.
+
+"""
+	plot_matrix_panel(ds::MatrixDataset, run_id::AbstractString;
+	    programme = Float64[], variants = Dict{String,Any}(),
+	    title = nothing, size = (1900, 900)) -> Figure
+
+Manuscript panel figure for one matrix cell: grouped bars over the
+programme sectors (left) plus a quantity/price scatter over all sectors
+(right). `variants` maps `run_id => (low = ..., high = ...)` to the cell's
+σ-variant `MatrixCellData`s for the error bars. Requires `using GLMakie`.
+"""
+function BeyondHulten.plot_matrix_panel(ds::BeyondHulten.MatrixDataset,
+		run_id::AbstractString;
+		programme::AbstractVector = Float64[],
+		variants::AbstractDict = Dict{String,Any}(),
+		title = nothing, size = (1900, 900))
+	return _plot_matrix_panel(ds, run_id; programme = programme,
+		variants = variants, title = title, size = size)
+end
+
+"""
+	save_matrix_panels(ds::MatrixDataset; outdir = "plots",
+	    prefix = "panel_5x3", programme = Float64[],
+	    variants = Dict{String,Any}(), formats = ("png",)) -> Vector{String}
+
+Write one manuscript panel figure per matrix cell present in `ds.cells`,
+named `<prefix>_<labour>_<financing>` in canonical labour × financing
+order. Requires `using GLMakie`.
+"""
+function BeyondHulten.save_matrix_panels(ds::BeyondHulten.MatrixDataset;
+		outdir = "plots", prefix = "panel_5x3",
+		programme::AbstractVector = Float64[], variants::AbstractDict = Dict{String,Any}(),
+		formats = ("png",))
+	return _save_matrix_panels(ds; outdir = outdir, prefix = prefix,
+		programme = programme, variants = variants, formats = formats)
+end
