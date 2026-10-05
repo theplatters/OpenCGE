@@ -565,8 +565,10 @@ end
 """
 	plot_matrix_panel(args...; kwargs...)
 
-Two-panel manuscript figure for one labour closure (grouped F2 bars over the
-programme sectors plus a quantity/price scatter over all sectors).
+Two-panel manuscript figure for one matrix cell: grouped programme-sector
+bars (left), all-sector quantity bars sorted descending or a quantity/price
+scatter (right). `right = :auto` uses bars for ALPHA/BETA/GAMMA/DELTA and
+scatter otherwise; `right = :bars` / `:scatter` force either path.
 Implemented by the GLMakie extension; requires `using GLMakie`.
 """
 function plot_matrix_panel(args...; kwargs...)
@@ -576,7 +578,9 @@ end
 """
 	save_matrix_panels(args...; kwargs...)
 
-Write one manuscript panel figure per labour closure with shared axis limits.
+Write one manuscript panel figure per matrix cell with per-cell axis limits.
+`right = :auto` uses sorted quantity bars for ALPHA/BETA/GAMMA/DELTA and a
+quantity/price scatter otherwise; `right = :bars` / `:scatter` force either.
 Implemented by the GLMakie extension; requires `using GLMakie`.
 """
 function save_matrix_panels(args...; kwargs...)

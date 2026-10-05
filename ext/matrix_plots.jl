@@ -678,8 +678,9 @@ end
 # ── Manuscript panel figures (one per matrix cell) ──
 #
 # `panel_ls`-style two-panel figure recreated for the 5x3 matrix: grouped
-# bars over the programme sectors (left) plus a quantity/price scatter over
-# all sectors (right). One figure per matrix cell present in `ds.cells`
+# bars over the programme sectors (left) plus sorted quantity bars for the
+# single-wage closures or the unchanged quantity/price scatter (right).
+# One figure per matrix cell present in `ds.cells`
 # (D1); each file is standalone with per-cell axis limits. Error bars carry
 # the legacy sensitivity meaning (D2): the min/max spread over the central
 # cell and its consumption-elasticity variants (σ ∈ {0.6, 0.99}, the cell's
@@ -745,11 +746,60 @@ function _mp_panel_span(vals::AbstractVector{<:Real};
 	return (lo - pad * span, hi + pad * span, degenerate)
 end
 
+"""Sorted quantity bars, with the three largest movers in each sector group labelled."""
+function _mp_quantity_bars(fig, cell, idx, colors)
+	inprog = Set(idx)
+	dq = 100.0 .* (cell.quantities .- 1.0)
+	order = sort([j for j in eachindex(dq) if isfinite(dq[j])];
+		by = j -> dq[j], rev = true)
+	ax = Axis(fig[2, 2];
+		xlabel = "Sectors sorted by change in quantity (descending)",
+		ylabel = "Change in quantities (%)", ytickformat = "{:.2f}%",
+		xticks = (Float64[], String[]), yticklabelsize = 11)
+	hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
+	barplot!(ax, 1:length(order), dq[order]; width = 0.85,
+		color = [colors[j in inprog ? 2 : 1] for j in order])
+	xlims!(ax, 0, length(order) + 1)
+	lo, hi, _ = _mp_panel_span(vcat(0.0, dq[order]))
+	span = hi - lo
+	# Reserve headroom for long vertical names and a separate note/legend band.
+	ylims!(ax, lo - 0.30 * span, hi + 1.10 * span)
+	axislegend(ax, [PolyElement(polycolor = colors[2]),
+		PolyElement(polycolor = colors[1])], ["Programme sectors", "Other sectors"];
+		position = :rb, labelsize = 12)
+	text!(ax, 0.02, 0.98; space = :relative,
+		text = "Prices at baseline (no sectoral-wage channel); price dimension omitted.",
+		align = (:left, :top), fontsize = 11, color = :gray)
+	selected = Int[]
+	for group in (idx, [j for j in order if !(j in inprog)])
+		movers = sort([j for j in group if isfinite(dq[j])];
+			by = j -> (abs(dq[j]), j), rev = true)
+		append!(selected, movers[1:min(3, length(movers))])
+	end
+	ranks = Dict(j => k for (k, j) in enumerate(order))
+	sort!(selected; by = j -> ranks[j])
+	# Adjacent tips need separate text lanes. Vertical labels use little width;
+	# stagger toward the interior at either edge, with short tip connectors.
+	for (k, j) in enumerate(selected)
+		x = ranks[j]
+		nearleft = x < length(order) / 2
+		lane = nearleft ? k - 1 : k - length(selected)
+		labelx = x + 1.1 * lane
+		labely = dq[j] + 0.025 * span
+		lines!(ax, [x, labelx], [dq[j], labely]; color = :gray, linewidth = 0.7)
+		text!(ax, labelx, labely; text = cell.labels[j], rotation = π / 2,
+			align = (:left, :center), offset = (0, 4), fontsize = 11)
+	end
+	return ax
+end
+
 """Manuscript panel figure for one matrix cell (implementation).
 
 Public entry point is `BeyondHulten.plot_matrix_panel` (forwarded below):
 grouped bars over the programme sectors for the cell `run_id` (left) plus a
-quantity/price scatter over all its sectors (right). `programme` is the
+sorted quantity bars or a quantity/price scatter over all sectors (right).
+`right = :auto` uses bars for ALPHA/BETA/GAMMA/DELTA and scatter otherwise;
+`:bars` and `:scatter` force either path. `programme` is the
 per-sector additive programme demand in model units (`[]` omits the
 programme-demand series). `variants` maps `run_id => (low = ..., high =
 ...)` to the cell's σ-variant `MatrixCellData`s; the error bars on the
@@ -758,12 +808,16 @@ its converged variants (no error bar when no variant is available)."""
 function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractString;
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(),
-		title = nothing, size = (1900, 900))
+		title = nothing, size = (1900, 900), right::Symbol = :auto)
+	right in (:auto, :bars, :scatter) || throw(ArgumentError(
+		"right must be :auto, :bars, or :scatter; got $(repr(right))"))
 	rid = String(run_id)
 	cell = _mp_find_cell(ds, rid)
 	cell === nothing && throw(ArgumentError(
 		"no cell with run_id \"$rid\" in dataset \"$(ds.design)\"" *
 		" (have: $(join(sort([c.run_id for c in ds.cells]), ", ")))"))
+	right_panel = right == :auto ?
+		(cell.labour in ("ALPHA", "BETA", "GAMMA", "DELTA") ? :bars : :scatter) : right
 	n = length(cell.quantities)
 	!isempty(programme) && length(programme) != n && throw(DimensionMismatch(
 		"programme has length $(length(programme)); expected $n"))
@@ -847,6 +901,9 @@ function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractStri
 	elements = [PolyElement(polycolor = colors[has_prog ? si : si + 1])
 		for si in 1:ns]
 	axislegend(axl, elements, series_names; position = :rt, labelsize = 11)
+	if right_panel == :bars
+		_mp_quantity_bars(fig, cell, idx, colors)
+	else
 	# ── Right: quantity/price scatter over all sectors (this cell's values). ──
 	axr = Axis(fig[2, 2];
 		xlabel = "Change in quantities (%)",
@@ -968,6 +1025,7 @@ function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractStri
 				offset = (xoff, yoff), rotation = rot)
 		end
 	end
+	end
 	# Footnote in short centred lines: a single `Label` does not wrap, so one
 	# long line would clip symmetrically past the figure edges.
 	prog_note = has_prog ?
@@ -996,14 +1054,16 @@ in canonical labour × financing order."""
 function _save_matrix_panels(ds::BeyondHulten.MatrixDataset;
 		outdir = "plots", prefix = "panel_5x3",
 		programme::AbstractVector = Float64[],
-		variants::AbstractDict = Dict{String,Any}(), formats = ("png",))
+		variants::AbstractDict = Dict{String,Any}(), formats = ("png",), right::Symbol = :auto)
+	right in (:auto, :bars, :scatter) || throw(ArgumentError(
+		"right must be :auto, :bars, or :scatter; got $(repr(right))"))
 	mkpath(outdir)
 	cells = _mp_sorted_cells(ds)
 	paths = String[]
 	used = Set{String}()
 	for cell in cells
 		f = _plot_matrix_panel(ds, cell.run_id; programme = programme,
-			variants = variants)
+			variants = variants, right = right)
 		for ext in formats
 			name = "$(prefix)_$(cell.labour)_$(cell.financing).$(ext)"
 			name in used && (name = "$(prefix)_$(cell.run_id).$(ext)")
@@ -1029,35 +1089,39 @@ end
 """
 	plot_matrix_panel(ds::MatrixDataset, run_id::AbstractString;
 	    programme = Float64[], variants = Dict{String,Any}(),
-	    title = nothing, size = (1900, 900)) -> Figure
+	    title = nothing, size = (1900, 900), right::Symbol = :auto) -> Figure
 
 Manuscript panel figure for one matrix cell: grouped bars over the
-programme sectors (left) plus a quantity/price scatter over all sectors
-(right). `variants` maps `run_id => (low = ..., high = ...)` to the cell's
+programme sectors (left) plus sorted quantity bars for ALPHA/BETA/GAMMA/DELTA
+or a quantity/price scatter otherwise (right). `right = :auto` selects this
+split; `:bars` / `:scatter` force either path. `variants` maps
+`run_id => (low = ..., high = ...)` to the cell's
 σ-variant `MatrixCellData`s for the error bars. Requires `using GLMakie`.
 """
 function BeyondHulten.plot_matrix_panel(ds::BeyondHulten.MatrixDataset,
 		run_id::AbstractString;
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(),
-		title = nothing, size = (1900, 900))
+		title = nothing, size = (1900, 900), right::Symbol = :auto)
 	return _plot_matrix_panel(ds, run_id; programme = programme,
-		variants = variants, title = title, size = size)
+		variants = variants, title = title, size = size, right = right)
 end
 
 """
 	save_matrix_panels(ds::MatrixDataset; outdir = "plots",
 	    prefix = "panel_5x3", programme = Float64[],
-	    variants = Dict{String,Any}(), formats = ("png",)) -> Vector{String}
+	    variants = Dict{String,Any}(), formats = ("png",), right::Symbol = :auto) -> Vector{String}
 
 Write one manuscript panel figure per matrix cell present in `ds.cells`,
 named `<prefix>_<labour>_<financing>` in canonical labour × financing
-order. Requires `using GLMakie`.
+order. `right = :auto` uses sorted quantity bars for ALPHA/BETA/GAMMA/DELTA
+and the quantity/price scatter otherwise; `:bars` / `:scatter` force either.
+Requires `using GLMakie`.
 """
 function BeyondHulten.save_matrix_panels(ds::BeyondHulten.MatrixDataset;
 		outdir = "plots", prefix = "panel_5x3",
 		programme::AbstractVector = Float64[], variants::AbstractDict = Dict{String,Any}(),
-		formats = ("png",))
+		formats = ("png",), right::Symbol = :auto)
 	return _save_matrix_panels(ds; outdir = outdir, prefix = prefix,
-		programme = programme, variants = variants, formats = formats)
+		programme = programme, variants = variants, formats = formats, right = right)
 end
