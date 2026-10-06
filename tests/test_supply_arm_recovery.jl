@@ -12,7 +12,8 @@ isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
 #   (ii)  the implied ln L / ln w recovers eta_s;
 #   (iii) the implied elasticity is invariant to the shock-magnitude ladder
 #         (m11/m12/m13) -- the genuine structural restriction;
-#   (iv)  the ALPHA control (eta_s = 0) pins employment at 1;
+#   (iv)  the ALPHA control (eta_s = 0) pins employment at Lbar even under the
+#         supply-shock ladder (non-baseline real wage);
 #   (v)   the re-solved numbers agree with the executed manifests to 1e-10
 #         (golden regression, the same pattern as test_kernel_regression).
 #
@@ -68,12 +69,24 @@ repo_root() = normpath(joinpath(@__DIR__, ".."))
         # (the magnitude ladder itself moves the wage; that is a separate, real effect)
         @test maximum(abs, diff(wage_at_m12)) < 1e-10
 
-        # ALPHA control: eta_s = 0 pins employment at 1 (labour supply fixed)
-        mdlA = mobile_labor_model(data, Shocks(ones(N), ones(N), zeros(N)),
-            Θ, Ε, Σ, Η; financing = fin, eta_s = 0.0)
-        solA = solve(mdlA)
-        LA = sum(sectoral_labor_demand(solA.prices_raw, solA.quantities,
-            solA.wages_raw[1], mdlA))
-        @test LA ≈ 1.0 atol = 1e-6
+        # ALPHA control: eta_s = 0 pins employment at Lbar (labour supply fixed).
+        # Run through the SAME sector-1 supply-shock ladder as the recovery cells
+        # above. At demand-only shocks (A = 1) the real wage stays at its
+        # baseline, so any positive eta_s would also yield L = Lbar and the
+        # assertion would be vacuous; under the ladder the real wage moves (see
+        # the guard below) and a leaked positive supply elasticity would lift
+        # employment by eta_s * log(w), failing the control.
+        for mag in (1.1, 1.2, 1.3)
+            A = ones(N); A[1] = mag
+            mdlA = mobile_labor_model(data, Shocks(A, ones(N), zeros(N)),
+                Θ, Ε, Σ, Η; financing = fin, eta_s = 0.0)
+            solA = solve(mdlA)
+            wA = solA.wages_raw[1]
+            LA = sum(sectoral_labor_demand(solA.prices_raw, solA.quantities, wA, mdlA))
+            @test LA ≈ Lbar atol = 1e-6
+            # non-vacuity guard: the ladder moves the real wage by >= 2.6e-3 in
+            # logs here, so a positive elasticity would be visible in LA
+            @test abs(log(wA)) > 1e-3
+        end
     end
 end

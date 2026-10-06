@@ -2,6 +2,8 @@ using BeyondHulten, Test, LinearAlgebra
 using CSV, DataFrames
 
 isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
+isdefined(Main, :plot_default_cell_ids) ||
+	include(joinpath(@__DIR__, "..", "experiments", "plot_matrix.jl"))
 
 """Repo root (parent of tests/)."""
 matrix_test_root() = normpath(joinpath(@__DIR__, ".."))
@@ -33,6 +35,32 @@ end
 	@test matrix_cell_ids(reverse(ids), "matrix_5x3_v10")[1] == "matrix_5x3-v10-BF-F2"
 	@test matrix_cell_ids(String[], "matrix_5x3_v10") == String[]
 	@test matrix_cell_ids(["other-design-BF-F1"], "matrix_5x3_v10") == String[]
+end
+
+@testset "matrix plots: headline BETA uses sectoral wages" begin
+	design = "matrix_5x3_v10"
+	design_d = load_design(design; root = matrix_test_root())
+	ids = cell_order(design; root = matrix_test_root())
+	wanted = plot_default_cell_ids(design_d, reverse(ids), design)
+	@test length(wanted) == 15
+	@test wanted[7:9] == ["matrix_5x3-v10-BETA-$fin-etas05"
+		for fin in matrix_financing_order()]
+	@test wanted[1:6] == matrix_cell_ids(ids, design)[1:6]
+	@test wanted[10:15] == matrix_cell_ids(ids, design)[10:15]
+	for id in wanted[7:9]
+		cell = design_cell(design_d, id)
+		@test cell["eta_s_rigid_group"] == "none"
+		@test isapprox(cell["eta_s"], 0.5)
+	end
+	# No silent fallback to the old single-wage benchmark.
+	@test_throws ArgumentError plot_default_cell_ids(design_d,
+		filter(!=(wanted[7]), ids), design)
+	scalar = deepcopy(design_d)
+	design_cell(scalar, wanted[7])["eta_s_rigid_group"] = "scalar"
+	@test_throws ArgumentError plot_default_cell_ids(scalar, ids, design)
+	heterogeneous = deepcopy(design_d)
+	design_cell(heterogeneous, wanted[7])["eta_s_vec"] = [0.5, 0.0]
+	@test_throws ArgumentError plot_default_cell_ids(heterogeneous, ids, design)
 end
 
 @testset "matrix plots: baseline and cell data on the fixture" begin
@@ -73,6 +101,22 @@ end
 	@test self.quantities ≈ [1.0, 1.0]
 	@test self.wages ≈ [1.0, 1.0]
 	@test self.consumption ≈ [1.0, 1.0]
+end
+
+@testset "matrix plots: sectoral real-wage vector is not collapsed" begin
+	data, _, ref, _ = matrix_test_cells()
+	model = beta_model(data, Shocks(ones(2), ones(2), zeros(2)),
+		0.5, 0.5, 0.9, 1.0; eta_s = 0.5, eta_s_vec = fill(0.5, 2))
+	# Non-unit CPI checks that the full raw vector is deflated, not w_1 expanded.
+	sol = Solution([2.2, 1.8], [1.2, 0.8], [2.4, 1.6], [0.6, 0.4],
+		2.0, 1.0, 1.0, model)
+	cell = matrix_cell_data("sectoral-BETA-F2", "BETA", "F2", 1.0, 0.5,
+		"executed", data, sol, ref)
+	@test cell.wages ≈ [1.2, 0.8]
+	@test !isapprox(cell.wages[1], cell.wages[2])
+	ds = matrix_dataset("test", matrix_baseline(data, ref), [cell])
+	frame = matrix_sectoral_frame(ds)
+	@test frame.rel[frame.variable .== "wage"] ≈ [1.2, 0.8]
 end
 
 @testset "matrix plots: dataset and frames" begin
@@ -205,5 +249,20 @@ end
 		end
 		@test err isa ErrorException
 		@test occursin("GLMakie", err.msg)
+	end
+end
+
+@testset "matrix panels: retain moving sectoral prices (optional GLMakie)" begin
+	ext = Base.get_extension(BeyondHulten, :BeyondHultenGLMakieExt)
+	if ext === nothing
+		@test_skip true  # also run directly in the optional plotting environment
+	else
+		data, _, ref, sol = matrix_test_cells()
+		moving = matrix_cell_data("sectoral-BETA-F2", "BETA", "F2", 1.0, 0.5,
+			"executed", data, sol, ref)
+		flat = matrix_cell_data("scalar-BETA-F2", "BETA", "F2", 1.0, 0.5,
+			"executed", data, ref, ref)
+		@test ext._mp_panel_right(moving) == :scatter
+		@test ext._mp_panel_right(flat) == :bars
 	end
 end

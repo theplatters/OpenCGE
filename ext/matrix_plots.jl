@@ -768,7 +768,7 @@ function _mp_quantity_bars(fig, cell, idx, colors)
 		PolyElement(polycolor = colors[1])], ["Programme sectors", "Other sectors"];
 		position = :rb, labelsize = 12)
 	text!(ax, 0.02, 0.98; space = :relative,
-		text = "Prices at baseline (no sectoral-wage channel); price dimension omitted.",
+		text = "Quantity-only view; price dimension omitted.",
 		align = (:left, :top), fontsize = 11, color = :gray)
 	selected = Int[]
 	for group in (idx, [j for j in order if !(j in inprog)])
@@ -793,12 +793,19 @@ function _mp_quantity_bars(fig, cell, idx, colors)
 	return ax
 end
 
+"""Omit the price dimension only when every price is at its baseline."""
+function _mp_panel_right(cell::BeyondHulten.MatrixCellData)::Symbol
+	return all(p -> isfinite(p) && isapprox(p, 1.0; atol = 1e-8, rtol = 0.0),
+		cell.prices) ? :bars : :scatter
+end
+
 """Manuscript panel figure for one matrix cell (implementation).
 
 Public entry point is `BeyondHulten.plot_matrix_panel` (forwarded below):
 grouped bars over the programme sectors for the cell `run_id` (left) plus a
 sorted quantity bars or a quantity/price scatter over all sectors (right).
-`right = :auto` uses bars for ALPHA/BETA/GAMMA/DELTA and scatter otherwise;
+`right = :auto` uses bars only when prices are at baseline, and scatter otherwise
+(including the demand-sensitive sectoral BETA cells);
 `:bars` and `:scatter` force either path. `programme` is the
 per-sector additive programme demand in model units (`[]` omits the
 programme-demand series). `variants` maps `run_id => (low = ..., high =
@@ -816,8 +823,7 @@ function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractStri
 	cell === nothing && throw(ArgumentError(
 		"no cell with run_id \"$rid\" in dataset \"$(ds.design)\"" *
 		" (have: $(join(sort([c.run_id for c in ds.cells]), ", ")))"))
-	right_panel = right == :auto ?
-		(cell.labour in ("ALPHA", "BETA", "GAMMA", "DELTA") ? :bars : :scatter) : right
+	right_panel = right == :auto ? _mp_panel_right(cell) : right
 	n = length(cell.quantities)
 	!isempty(programme) && length(programme) != n && throw(DimensionMismatch(
 		"programme has length $(length(programme)); expected $n"))
@@ -946,7 +952,7 @@ function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractStri
 		position = :rb, labelsize = 12)
 	# Limits are per-cell (each file is standalone): degenerate ranges get a
 	# minimum span so the ticks read sensibly, with an annotation naming the
-	# cause (prices sit at the baseline without a sectoral-wage channel).
+	# small variation rather than claiming an absent sectoral-wage channel.
 	allx = vcat(px, ox)
 	ally = vcat(py, oy)
 	if !isempty(allx)
@@ -955,8 +961,8 @@ function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractStri
 		xlims!(axr, xlo, xhi)
 		ylims!(axr, ylo, yhi)
 		notes = String[]
-		ydeg && push!(notes, "prices at baseline (no sectoral-wage channel)")
-		xdeg && push!(notes, "quantities at baseline")
+		ydeg && push!(notes, "price variation below plotting resolution")
+		xdeg && push!(notes, "quantity variation below plotting resolution")
 		if !isempty(notes)
 			text!(axr, xlo + 0.02 * (xhi - xlo), yhi - 0.05 * (yhi - ylo);
 				text = join(notes, "; "), align = (:left, :top),
@@ -1037,9 +1043,10 @@ function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractStri
 		"financing and shock fixed)."
 	foot3 = "  Min/max over the central cell and its converged variants."
 	isempty(vars) && (foot3 *= "  No σ variant converged for this cell: bars show the central solution only.")
+	foot4 = "Source: $(cell.run_id)."
 	# One Label per line (a single Label does not wrap, and its `\n` is not
 	# honoured by every backend, so one long line clips past the edges).
-	for (r, txt) in enumerate((foot1, foot2, foot3))
+	for (r, txt) in enumerate((foot1, foot2, foot3, foot4))
 		Label(fig[2 + r, 1:2], txt, fontsize = 10)
 		rowsize!(fig.layout, 2 + r, Makie.Fixed(18))
 	end
@@ -1092,9 +1099,10 @@ end
 	    title = nothing, size = (1900, 900), right::Symbol = :auto) -> Figure
 
 Manuscript panel figure for one matrix cell: grouped bars over the
-programme sectors (left) plus sorted quantity bars for ALPHA/BETA/GAMMA/DELTA
-or a quantity/price scatter otherwise (right). `right = :auto` selects this
-split; `:bars` / `:scatter` force either path. `variants` maps
+programme sectors (left) plus sorted quantity bars when prices are at baseline
+or a quantity/price scatter otherwise (right). `right = :auto` checks the
+cell's actual prices, so sectoral BETA retains its price response;
+`:bars` / `:scatter` force either path. `variants` maps
 `run_id => (low = ..., high = ...)` to the cell's
 σ-variant `MatrixCellData`s for the error bars. Requires `using GLMakie`.
 """
@@ -1114,8 +1122,9 @@ end
 
 Write one manuscript panel figure per matrix cell present in `ds.cells`,
 named `<prefix>_<labour>_<financing>` in canonical labour × financing
-order. `right = :auto` uses sorted quantity bars for ALPHA/BETA/GAMMA/DELTA
-and the quantity/price scatter otherwise; `:bars` / `:scatter` force either.
+order. `right = :auto` uses sorted quantity bars only when prices are at
+baseline, and the quantity/price scatter otherwise (including sectoral BETA);
+`:bars` / `:scatter` force either.
 Requires `using GLMakie`.
 """
 function BeyondHulten.save_matrix_panels(ds::BeyondHulten.MatrixDataset;
