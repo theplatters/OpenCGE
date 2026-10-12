@@ -7,7 +7,7 @@ authors:
 version: 0.1.0
 date-released: "2026-10-12"
 license: MIT
-repository-code: "https://github.com/theplatters/opencge"
+repository-code: "https://github.com/theplatters/OpenCGE"
 keywords:
   - computable general equilibrium
   - production networks

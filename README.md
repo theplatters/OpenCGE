@@ -14,7 +14,7 @@ and its run records.
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/theplatters/opencge", rev = "v0.1.0")
+Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.1.0")
 ```
 
 For development, clone and `dev` the checkout:
