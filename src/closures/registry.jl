@@ -1,11 +1,13 @@
 # src/closures/registry.jl — closure id → constructor mapping
 #
 # Small module-level mapping WITHOUT any status (ADR-0003). Status of each
-# closure lives only in registry/closures.toml and renders on docs/status.md;
-# this file only answers "which constructor implements id X?".
+# closure is not tracked here: it lives with the paper repository's closure
+# catalogue (see DECISIONS.md); this file only answers "which constructor
+# implements id X?".
 #
 # Labour axis: BF / ALPHA / BETA / GAMMA / DELTA / ZETA (idea, no constructor).
-# Financing axis: F1 / F2 / F3. Formulations: ADR-0002; registry: closures.toml.
+# Financing axis: F1 / F2 / F3. Formulations: ADR-0002 (full record in the
+# paper repository).
 
 const _CLOSURE_AXIS = Dict{Symbol,Symbol}(
     :BF => :labor, :ALPHA => :labor, :BETA => :labor,

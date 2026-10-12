@@ -2,14 +2,14 @@
 # Plotting entry points.
 #
 # The plotting implementation lives in the GLMakie package extension
-# (`ext/BeyondHultenGLMakieExt.jl`), which Julia loads automatically when
-# `GLMakie` and `BeyondHulten` are both loaded in the same session. The
+# (`ext/OpenCGEGLMakieExt.jl`), which Julia loads automatically when
+# `GLMakie` and `OpenCGE` are both loaded in the same session. The
 # stubs below keep the exported plotting names defined for headless use and
 # raise an instructive error telling the user how to enable plotting.
 
 function _require_glmakie(fname::Symbol)
-	error("`BeyondHulten.$(fname)` requires the GLMakie extension, which is not loaded. " *
-		"Run `using GLMakie` together with `using BeyondHulten` " *
+	error("`OpenCGE.$(fname)` requires the GLMakie extension, which is not loaded. " *
+		"Run `using GLMakie` together with `using OpenCGE` " *
 		"(install it first with `import Pkg; Pkg.add(\"GLMakie\")` if necessary).")
 end
 

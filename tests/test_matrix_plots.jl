@@ -1,4 +1,4 @@
-using BeyondHulten, Test, LinearAlgebra
+using OpenCGE, Test, LinearAlgebra
 using CSV, DataFrames
 
 isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
@@ -253,7 +253,7 @@ end
 end
 
 @testset "matrix panels: retain moving sectoral prices (optional GLMakie)" begin
-	ext = Base.get_extension(BeyondHulten, :BeyondHultenGLMakieExt)
+	ext = Base.get_extension(OpenCGE, :OpenCGEGLMakieExt)
 	if ext === nothing
 		@test_skip true  # also run directly in the optional plotting environment
 	else

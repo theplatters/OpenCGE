@@ -1,4 +1,4 @@
-using BeyondHulten
+using OpenCGE
 using Test
 
 @testset "eta sweep result and accessors" begin

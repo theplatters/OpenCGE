@@ -1,4 +1,4 @@
-using BeyondHulten
+using OpenCGE
 using TOML
 using CSV
 using DataFrames
@@ -73,7 +73,7 @@ end
 @testset "check_repo: zombie kernel file is flagged" begin
     tmp = check_tmp()
     mkpath(joinpath(tmp, "src"))
-    write(joinpath(tmp, "src", "BeyondHulten.jl"), "include(\"a.jl\")\n")
+    write(joinpath(tmp, "src", "OpenCGE.jl"), "include(\"a.jl\")\n")
     write(joinpath(tmp, "src", "a.jl"), "# reachable\n")
     write(joinpath(tmp, "src", "zombie.jl"), "# not included\n")
     vs = check_kernel_reachability(tmp)

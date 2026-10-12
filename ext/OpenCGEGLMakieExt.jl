@@ -1,39 +1,39 @@
-module BeyondHultenGLMakieExt
+module OpenCGEGLMakieExt
 
-# Plotting methods for BeyondHulten (Julia package extension).
+# Plotting methods for OpenCGE (Julia package extension).
 #
-# This extension loads automatically when both `BeyondHulten` and `GLMakie`
+# This extension loads automatically when both `OpenCGE` and `GLMakie`
 # are loaded in the same session. The parent package only declares empty
 # generic stubs (see `src/plots.jl`); all methods below are attached to the
-# parent's functions, so `using GLMakie, BeyondHulten` restores the full
+# parent's functions, so `using GLMakie, OpenCGE` restores the full
 # plotting surface without burdening headless use with the graphics stack.
 
 using GLMakie
-using BeyondHulten
+using OpenCGE
 using DataFrames
 using ThreadsX
 
 include(joinpath(@__DIR__, "matrix_plots.jl"))
 
-function BeyondHulten.axis_change_in_level!(fig, data, impulses; options)
-	shocks = BeyondHulten.impulse_shock(data, impulses)
+function OpenCGE.axis_change_in_level!(fig, data, impulses; options)
+	shocks = OpenCGE.impulse_shock(data, impulses)
 	colors = Makie.wong_colors()
 	sorted_shocks = sortperm(shocks.demand_shock, rev = true)  # Sort indices in descending order
 	sorted_lambda = sortperm(data.λ, rev = true)  # Sort indices in descending order
 	top5_indices = sorted_shocks[1:7]
 
-	model = BeyondHulten.Model(data, shocks, options)
-	sol = BeyondHulten.solve(model)
+	model = OpenCGE.Model(data, shocks, options)
+	sol = OpenCGE.solve(model)
 
-	model_leontief = BeyondHulten.Model(data, shocks, BeyondHulten.Leontief())
-	sol_leontief = BeyondHulten.solve(model_leontief)
+	model_leontief = OpenCGE.Model(data, shocks, OpenCGE.Leontief())
+	sol_leontief = OpenCGE.solve(model_leontief)
 
 	# Error bar calculations
-	model_low = BeyondHulten.Model(data, shocks, BeyondHulten.CES(BeyondHulten.CESElasticities(0.001, 0.05, 0.6), options.labor_slack, false))
-	sol_low = BeyondHulten.solve(model_low)
+	model_low = OpenCGE.Model(data, shocks, OpenCGE.CES(OpenCGE.CESElasticities(0.001, 0.05, 0.6), options.labor_slack, false))
+	sol_low = OpenCGE.solve(model_low)
 
-	model_high = BeyondHulten.Model(data, shocks, BeyondHulten.CES(BeyondHulten.CESElasticities(0.99, 0.99, 0.99), options.labor_slack, false))
-	sol_high = BeyondHulten.solve(model_high)
+	model_high = OpenCGE.Model(data, shocks, OpenCGE.CES(OpenCGE.CESElasticities(0.99, 0.99, 0.99), options.labor_slack, false))
+	sol_high = OpenCGE.solve(model_high)
 
 	ax = Axis(fig[1, 1], xlabel = "Sector",
 		xticks = (1:length(top5_indices), names(impulses)[2:72][top5_indices]),
@@ -93,21 +93,21 @@ function BeyondHulten.axis_change_in_level!(fig, data, impulses; options)
 	axislegend(ax, elements, labels, position = :rt, labelsize = 24)
 end
 
-function BeyondHulten.get_color(data, shocks)
+function OpenCGE.get_color(data, shocks)
 	c = ones(Int, length(data.λ))
 	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
 	c[top7_indices] .= 2
 	c
 end
 
-function BeyondHulten.axis_change_in_price!(fig, data, impulse; options)
-	shocks = BeyondHulten.impulse_shock(data, impulse)
-	model = BeyondHulten.Model(data, shocks, options)
-	sol = BeyondHulten.solve(model)
+function OpenCGE.axis_change_in_price!(fig, data, impulse; options)
+	shocks = OpenCGE.impulse_shock(data, impulse)
+	model = OpenCGE.Model(data, shocks, options)
+	sol = OpenCGE.solve(model)
 	top7_indices = sortperm(shocks.demand_shock, rev = true)[1:7]
 
 	colors = Makie.wong_colors()
-	c = BeyondHulten.get_color(data, shocks)
+	c = OpenCGE.get_color(data, shocks)
 	ax = Axis(fig[1, 2],
 		xlabel = "Change in quantities",
 		ylabel = "Change in prices",
@@ -128,14 +128,14 @@ function BeyondHulten.axis_change_in_price!(fig, data, impulse; options)
 	axislegend(ax, elements, labels, position = :rb, labelsize = 24)
 end
 
-function BeyondHulten.panel(data, impulses; options, name = "panel")
+function OpenCGE.panel(data, impulses; options, name = "panel")
 	fig = Figure(size = (1980, 1020))
-	BeyondHulten.axis_change_in_level!(fig, data, impulses, options = options)
-	BeyondHulten.axis_change_in_price!(fig, data, impulses, options = options)
+	OpenCGE.axis_change_in_level!(fig, data, impulses, options = options)
+	OpenCGE.axis_change_in_price!(fig, data, impulses, options = options)
 	save("plots/$(name).png", fig)
 end
 
-function BeyondHulten.diff_lambda(data, impulses; options, name = "diff_lambda_imp")
+function OpenCGE.diff_lambda(data, impulses; options, name = "diff_lambda_imp")
 	colors = Makie.wong_colors()
 	f = Figure(size = (1980, 1000))
 	positions_cge = 4 * range(1, 71) .- 2
@@ -151,10 +151,10 @@ function BeyondHulten.diff_lambda(data, impulses; options, name = "diff_lambda_i
 		yticklabelsize = 20)
 
 	xlims!(ax, (0, maximum(positions_cge) + 4))
-	shocks = BeyondHulten.impulse_shock(data, impulses)
-	model = BeyondHulten.Model(data, shocks, options)
-	sol = BeyondHulten.solve(model)
-	sol_leontief = BeyondHulten.solve(BeyondHulten.Model(data, shocks, BeyondHulten.Leontief()))
+	shocks = OpenCGE.impulse_shock(data, impulses)
+	model = OpenCGE.Model(data, shocks, options)
+	sol = OpenCGE.solve(model)
+	sol_leontief = OpenCGE.solve(OpenCGE.Model(data, shocks, OpenCGE.Leontief()))
 
 
 	# Find top 7 shocked sectors
@@ -220,43 +220,43 @@ function BeyondHulten.diff_lambda(data, impulses; options, name = "diff_lambda_i
 	save("plots/$(name).png", f)
 end
 
-function BeyondHulten.effect_of_different_elasticities(shocks, data, gdp_effect_simple; labor_slack_function = BeyondHulten.full_labor_slack, name = "eg")
+function OpenCGE.effect_of_different_elasticities(shocks, data, gdp_effect_simple; labor_slack_function = OpenCGE.full_labor_slack, name = "eg")
 	a, b, c, d =
 		ThreadsX.map([fill(0.99, 3), fill(0.5, 3), fill(0.2, 3), fill(0.1, 3)]) do elasticity
-			BeyondHulten.elasticity_gradient(data, shocks, labor_slack_function, false, elasticity)
+			OpenCGE.elasticity_gradient(data, shocks, labor_slack_function, false, elasticity)
 		end
 
 
-	cd_elasticities = BeyondHulten.CESElasticities(0.99, 0.99, 0.99)
-	sol_cd = BeyondHulten.solve(BeyondHulten.Model(data, shocks, BeyondHulten.CES(cd_elasticities, labor_slack_function)))
-	model_leontief = BeyondHulten.Model(data, shocks, BeyondHulten.Leontief())
-	sol_leontief = BeyondHulten.solve(model_leontief)
+	cd_elasticities = OpenCGE.CESElasticities(0.99, 0.99, 0.99)
+	sol_cd = OpenCGE.solve(OpenCGE.Model(data, shocks, OpenCGE.CES(cd_elasticities, labor_slack_function)))
+	model_leontief = OpenCGE.Model(data, shocks, OpenCGE.Leontief())
+	sol_leontief = OpenCGE.solve(model_leontief)
 
-	p1 = BeyondHulten.plot_real_gdp_gradient([a, b, c, d],
+	p1 = OpenCGE.plot_real_gdp_gradient([a, b, c, d],
 		title = "Effect of different elasticities on GDP with labour slack ",
-		cd = BeyondHulten.real_gdp(sol_cd),
-		leontief = BeyondHulten.real_gdp(sol_leontief),
+		cd = OpenCGE.real_gdp(sol_cd),
+		leontief = OpenCGE.real_gdp(sol_leontief),
 		initial = gdp_effect_simple)
 
 	@info gdp_effect_simple
-	@info BeyondHulten.real_gdp(sol_cd)
-	@info BeyondHulten.real_gdp(sol_leontief)
+	@info OpenCGE.real_gdp(sol_cd)
+	@info OpenCGE.real_gdp(sol_leontief)
 	save("plots/$(name).png", p1)
 end
 
-function BeyondHulten.comparison_between_labor_slacks(data, shocks, gdp_effect_simple, title)
+function OpenCGE.comparison_between_labor_slacks(data, shocks, gdp_effect_simple, title)
 	no_ls, ls, ls_emp =
-		ThreadsX.map([model -> model.data.labor_share, BeyondHulten.full_labor_slack, BeyondHulten.empirical_labor_slack]) do labor_slack_function
-			BeyondHulten.elasticity_gradient(data, shocks, labor_slack_function, false, fill(0.1, 3))
+		ThreadsX.map([model -> model.data.labor_share, OpenCGE.full_labor_slack, OpenCGE.empirical_labor_slack]) do labor_slack_function
+			OpenCGE.elasticity_gradient(data, shocks, labor_slack_function, false, fill(0.1, 3))
 		end
 
 	c = Makie.wong_colors()
 	f = Figure(size = (1980, 1000), title = title, color = c)
 	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", title = "Change in GDP with elasticities at 0.1", xgridvisible = false, titlesize = 30, yticklabelsize = 24, xticklabelsize = 24)
 
-	sol_leontief = BeyondHulten.solve(BeyondHulten.Model(data, shocks, BeyondHulten.Leontief()))
+	sol_leontief = OpenCGE.solve(OpenCGE.Model(data, shocks, OpenCGE.Leontief()))
 
-	map_to_gdp(x) = 100 .* reverse(map(x -> BeyondHulten.real_gdp(x) .- 1, x))
+	map_to_gdp(x) = 100 .* reverse(map(x -> OpenCGE.real_gdp(x) .- 1, x))
 
 
 	for (i, (el, linestyle, slack_type)) in enumerate(zip([no_ls, ls, ls_emp], [:solid, :dash, :dot], ["no labor slack", "calibrated labor slack", "empirical labor slack"]))
@@ -265,7 +265,7 @@ function BeyondHulten.comparison_between_labor_slacks(data, shocks, gdp_effect_s
 		lines!(ax, 0.015 .. 0.9, map_to_gdp(el.σ), label = "Elasticity of consumption - $(slack_type)", linewidth = 3, linestyle = linestyle, color = c[3])
 	end
 
-	lines!(ax, [0.9, 0.015], 100 .* fill(BeyondHulten.real_gdp(sol_leontief) .- 1, 2), label = "Leontief model", linewidth = 3, color = c[4])
+	lines!(ax, [0.9, 0.015], 100 .* fill(OpenCGE.real_gdp(sol_leontief) .- 1, 2), label = "Leontief model", linewidth = 3, color = c[4])
 	lines!(ax, [0.9, 0.015], 100 .* fill(gdp_effect_simple .- 1, 2), label = "Initial stimulus", linewidth = 3, color = c[5])
 	f[2, 1] = Legend(f, ax, labelsize = 24, tellwidth = false, orientation = :horizontal, nbanks = 4)
 
@@ -274,40 +274,40 @@ function BeyondHulten.comparison_between_labor_slacks(data, shocks, gdp_effect_s
 end
 
 
-function BeyondHulten.labor_slack_gradient(data, impulse)
-	shocks = BeyondHulten.impulse_shock(data, impulse)
+function OpenCGE.labor_slack_gradient(data, impulse)
+	shocks = OpenCGE.impulse_shock(data, impulse)
 	gdp_effect_simple = 1 + sum(shocks.demand_shock_raw) ./ sum(data.io[findfirst(==("Bruttowertschöpfung"), data.io.Sektoren), 2:72])
 	no_labor_slack(model) = model.data.labor_share
-	ces_options = BeyondHulten.CES(BeyondHulten.CESElasticities(0.001, 0.5, 0.9), no_labor_slack, false)
-	cd_options = BeyondHulten.CES(BeyondHulten.CESElasticities(0.99, 0.99, 0.99), no_labor_slack, false)
-	leontief = BeyondHulten.Leontief()
-	model = BeyondHulten.Model(data, shocks, ces_options)
-	sol = BeyondHulten.solve(model)
-	sol_cd = BeyondHulten.solve(BeyondHulten.Model(data, shocks, cd_options))
-	sol_leontief = BeyondHulten.solve(BeyondHulten.Model(data, shocks, leontief))
+	ces_options = OpenCGE.CES(OpenCGE.CESElasticities(0.001, 0.5, 0.9), no_labor_slack, false)
+	cd_options = OpenCGE.CES(OpenCGE.CESElasticities(0.99, 0.99, 0.99), no_labor_slack, false)
+	leontief = OpenCGE.Leontief()
+	model = OpenCGE.Model(data, shocks, ces_options)
+	sol = OpenCGE.solve(model)
+	sol_cd = OpenCGE.solve(OpenCGE.Model(data, shocks, cd_options))
+	sol_leontief = OpenCGE.solve(OpenCGE.Model(data, shocks, leontief))
 	labour_slack_gradient = Vector{Float64}()
-	l(α, model) = (1 - α) * BeyondHulten.full_labor_slack(model) + α * model.data.labor_share
+	l(α, model) = (1 - α) * OpenCGE.full_labor_slack(model) + α * model.data.labor_share
 	for α in range(0, 1, 100)
 		labour_share(model) = l(α, model)
-		ces = BeyondHulten.CES(BeyondHulten.CESElasticities(0.01, 0.5, 0.9), model -> l(α, model))
-		model = BeyondHulten.Model(data, shocks, ces)
-		sol = BeyondHulten.solve(model, init = vcat(sol.prices, sol.quantities))
-		push!(labour_slack_gradient, sol |> BeyondHulten.real_gdp)
+		ces = OpenCGE.CES(OpenCGE.CESElasticities(0.01, 0.5, 0.9), model -> l(α, model))
+		model = OpenCGE.Model(data, shocks, ces)
+		sol = OpenCGE.solve(model, init = vcat(sol.prices, sol.quantities))
+		push!(labour_slack_gradient, sol |> OpenCGE.real_gdp)
 	end
 
 	f = Figure(size = (1000, 800), color = Makie.wong_colors())
 	ax = Axis(f[1, 1], ytickformat = "{:.2f}%", ylabel = "GDP", xlabel = "Labour slack", titlesize = 30, yticklabelsize = 24, xticklabelsize = 24, xlabelsize = 26, ylabelsize = 26)
 	lines!(ax, range(100, 0, 100), 100 .* labour_slack_gradient, label = "Real GDP", linewidth = 3)
-	lines!(ax, [0, 100], 100 .* fill(BeyondHulten.real_gdp(sol_leontief), 2), label = "Leontief", linewidth = 3)
-	lines!(ax, [0, 100], 100 .* fill(BeyondHulten.real_gdp(sol_cd), 2), label = "Cobb-Douglas", linewidth = 3)
+	lines!(ax, [0, 100], 100 .* fill(OpenCGE.real_gdp(sol_leontief), 2), label = "Leontief", linewidth = 3)
+	lines!(ax, [0, 100], 100 .* fill(OpenCGE.real_gdp(sol_cd), 2), label = "Cobb-Douglas", linewidth = 3)
 	lines!(ax, [0, 100], 100 .* fill(gdp_effect_simple, 2), label = "Baseline", linewidth = 3)
 	axislegend(ax, position = :rb, labelsize = 28)
 	save("plots/labor_slack_gradient.png", f)
 
-	@info BeyondHulten.real_gdp(sol_cd)
+	@info OpenCGE.real_gdp(sol_cd)
 end
 
-function BeyondHulten.plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims = (97, 103), initial)
+function OpenCGE.plot_real_gdp_gradient(results; title = "Real GDP", cd, leontief, ylims = (97, 103), initial)
 	f = Figure(size = (1980, 1000), title = title, color = Makie.wong_colors())
 
 	ga = f[1, 1] = GridLayout()
@@ -321,7 +321,7 @@ function BeyondHulten.plot_real_gdp_gradient(results; title = "Real GDP", cd, le
 	ylims!(ax[2], -2, 5)
 	ylims!(ax[3], -2, 5)
 	ylims!(ax[4], -2, 5)
-	map_to_gdp(x) = 100 .* reverse(map(x -> BeyondHulten.real_gdp(x) .- 1, x))
+	map_to_gdp(x) = 100 .* reverse(map(x -> OpenCGE.real_gdp(x) .- 1, x))
 	for (i, el) in enumerate(results)
 		# Shade area between Leontief and Cobb Douglas
 		band!(ax[i], [0.015, 0.9], 100 .* fill(min(leontief, cd), 2), 100 .* fill(max(leontief, cd), 2),

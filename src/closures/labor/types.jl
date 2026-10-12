@@ -1,7 +1,7 @@
 # src/closures/labor/types.jl — labor closure types (relocated from src/interface.jl / src/mobile_labor.jl)
 #
 # The canonical kernel defines exactly one set of closure descriptions.
-# Status of each closure lives in registry/closures.toml (ADR-0003), never here.
+# Status of each closure is never tracked here (ADR-0003); see DECISIONS.md.
 
 """Abstract supertype for labor-closure descriptions."""
 abstract type AbstractLaborClosure end

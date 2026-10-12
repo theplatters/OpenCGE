@@ -1,4 +1,4 @@
-using BeyondHulten
+using OpenCGE
 using Test
 
 # Contract tests for the F1 preference tilt (ports cbase2/scripts/verify_v3.jl

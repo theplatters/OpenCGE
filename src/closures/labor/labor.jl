@@ -5,8 +5,8 @@
 # Promoted from the frozen cbase2/src/closures.jl in Phase 2 (ADR-0005).
 # Read cbase2 freely; never edit it. The design notes below are preserved
 # from the cbase2 header as the docs pages (docs/closures/beta.md,
-# docs/closures/delta.md); status lives only in registry/closures.toml
-# (ADR-0003).
+# docs/closures/delta.md); status is not tracked here (ADR-0003), see
+# DECISIONS.md.
 #
 #   BETA  Elastic total labour supply (the referee-facing principal addition):
 #         L^s = L̄ · [(w/P)/(w0/P0)]^{η_s},  interpreted as labour–leisure.

@@ -1,4 +1,4 @@
-using BeyondHulten, Test, LinearAlgebra
+using OpenCGE, Test, LinearAlgebra
 using CSV, DataFrames
 
 isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))

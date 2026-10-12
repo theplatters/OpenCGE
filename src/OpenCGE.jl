@@ -1,4 +1,4 @@
-module BeyondHulten
+module OpenCGE
 
 using NonlinearSolve: NonlinearSolve
 using CSV: CSV

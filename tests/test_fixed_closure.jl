@@ -1,4 +1,4 @@
-using BeyondHulten
+using OpenCGE
 using DataFrames
 using LinearAlgebra
 using Test
@@ -127,7 +127,7 @@ end
     d2 = Data(vals...)
     model = Model(d2, Shocks(ones(2), ones(2); autonomous_demand=[0.1, 0.0]),
         MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 1.), 1., :fixed))
-    G, _ = BeyondHulten._fixed_clearing_affine(model, ones(2))
+    G, _ = OpenCGE._fixed_clearing_affine(model, ones(2))
     @test vec(sum(G; dims=1)) ≈ [1.0, 0.9] atol=1e-12
     @test det(I - G) ≈ 0.025 atol=1e-12
     sol = solve(model)
@@ -149,7 +149,7 @@ end
     d2 = Data(vals...)
     model = Model(d2, Shocks(ones(2), ones(2); autonomous_demand=[0.1, 0.0]),
         MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 1.), 1., :fixed))
-    G, _ = BeyondHulten._fixed_clearing_affine(model, ones(2))
+    G, _ = OpenCGE._fixed_clearing_affine(model, ones(2))
     @test vec(sum(G; dims=1)) ≈ [0.95, 0.95] atol=1e-12
     old = d2.A_bill ./ d2.λ .+ (1.0 .- d2.import_margin) .*
         (1.0 - d2.saving_rate) .* d2.factor_share
@@ -172,7 +172,7 @@ end
     d2 = Data(vals...)
     model = Model(d2, Shocks(ones(2), ones(2), zeros(2)),
         MobileLaborCES(MobileLaborCESElasticities(.5, .5, .9, 1.), 1., :fixed))
-    G, c = BeyondHulten._fixed_clearing_affine(model, ones(2))
+    G, c = OpenCGE._fixed_clearing_affine(model, ones(2))
     @test abs(det(I - G)) > 1e-6
     @test maximum(abs, (I - G) \ c) < 1e-9
     err = try

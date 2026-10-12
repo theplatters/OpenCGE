@@ -1,25 +1,25 @@
-using BeyondHulten
+using OpenCGE
 using DataFrames
 using Test
 
 @testset "Baqaee--Farhi input-share convention" begin
 	# Rows are suppliers and columns are users, as in the Destatis table.
 	intermediate_use = [8.0 2.0; 3.0 7.0]
-	Ω = BeyondHulten.conditional_input_shares(intermediate_use)
+	Ω = OpenCGE.conditional_input_shares(intermediate_use)
 
 	@test Ω ≈ [8 / 11 3 / 11; 2 / 9 7 / 9]
 	@test vec(sum(Ω, dims = 2)) ≈ ones(2)
-	@test_throws ArgumentError BeyondHulten.conditional_input_shares([1.0 0.0; 2.0 0.0])
+	@test_throws ArgumentError OpenCGE.conditional_input_shares([1.0 0.0; 2.0 0.0])
 end
 
 @testset "Impulse sector selection" begin
     data = tiny_fixture()
     impulses = DataFrame(zeros(2, 4), :auto) # year, two sectors, wages
 
-    shocks = BeyondHulten.impulse_shock(data, impulses)
+    shocks = OpenCGE.impulse_shock(data, impulses)
     @test length(shocks.demand_shock) == length(data.grossy)
     @test length(shocks.demand_shock_raw) == length(data.grossy)
-    @test_throws DimensionMismatch BeyondHulten.impulse_shock(data, DataFrame(zeros(2, 3), :auto))
+    @test_throws DimensionMismatch OpenCGE.impulse_shock(data, DataFrame(zeros(2, 3), :auto))
 end
 
 @testset "shock construction and validation" begin

@@ -5,7 +5,8 @@
 # Promoted from the frozen cbase2/src/financing.jl in Phase 2 (ADR-0005).
 # Read cbase2 freely; never edit it. The design notes below are preserved
 # from the cbase2 header as the docs pages (docs/closures/financing.md);
-# status of F1/F2/F3 lives only in registry/closures.toml (ADR-0003).
+# status of F1/F2/F3 is not tracked here (see DECISIONS.md; the status
+# catalogue lives with the paper repository).
 #
 # Design (agreed 2026-09-15, recorded in cbase2/process_comments.md):
 #

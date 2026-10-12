@@ -16,31 +16,31 @@ const _MP_BASELINE_NOTE =
 	"Shock effect relative to the design reference (no-programme baseline); 1.0 = unchanged."
 
 """Canonical-order sort key for a dataset cell (unknown ids sort last)."""
-function _mp_cell_key(cell::BeyondHulten.MatrixCellData)
-	labour = BeyondHulten.matrix_labour_order()
-	financing = BeyondHulten.matrix_financing_order()
+function _mp_cell_key(cell::OpenCGE.MatrixCellData)
+	labour = OpenCGE.matrix_labour_order()
+	financing = OpenCGE.matrix_financing_order()
 	li = findfirst(==(cell.labour), labour)
 	fi = findfirst(==(cell.financing), financing)
 	return (li === nothing ? typemax(Int) : li, fi === nothing ? typemax(Int) : fi)
 end
 
 """Cells of `ds` in canonical labour x financing order."""
-function _mp_sorted_cells(ds::BeyondHulten.MatrixDataset)
+function _mp_sorted_cells(ds::OpenCGE.MatrixDataset)
 	return sort(collect(ds.cells); by = _mp_cell_key)
 end
 
 """Short `labour-financing` label for a cell."""
-_mp_cell_label(cell::BeyondHulten.MatrixCellData) = cell.labour * "-" * cell.financing
+_mp_cell_label(cell::OpenCGE.MatrixCellData) = cell.labour * "-" * cell.financing
 
 """Aggregate metric as `Float64` (`NaN` when missing or non-numeric)."""
-function _mp_metric(cell::BeyondHulten.MatrixCellData, key::AbstractString)
+function _mp_metric(cell::OpenCGE.MatrixCellData, key::AbstractString)
 	v = get(cell.metrics, String(key), NaN)
 	v isa Real || return NaN
 	return Float64(v)
 end
 
 """Diagnostic entry as `Float64` (`NaN` when missing or non-numeric)."""
-function _mp_diag(cell::BeyondHulten.MatrixCellData, key::AbstractString)
+function _mp_diag(cell::OpenCGE.MatrixCellData, key::AbstractString)
 	v = get(cell.diagnostics, String(key), NaN)
 	v isa Real || return NaN
 	return Float64(v)
@@ -106,13 +106,13 @@ function _mp_data_range(vals::AbstractVector{<:Real})
 end
 
 """Sector positions sorting baseline gross output descending."""
-function _mp_sector_order(ds::BeyondHulten.MatrixDataset)
+function _mp_sector_order(ds::OpenCGE.MatrixDataset)
 	go = ds.baseline.prices .* ds.baseline.quantities
 	return sortperm(go; rev = true)
 end
 
 """Matrix of sectoral percent changes: rows = cells, cols = sector-order positions."""
-function _mp_sector_matrix(cells::Vector{BeyondHulten.MatrixCellData},
+function _mp_sector_matrix(cells::Vector{OpenCGE.MatrixCellData},
 		order::Vector{Int}, getvec::Function)
 	nc = length(cells)
 	ns = length(order)
@@ -180,11 +180,11 @@ function _mp_pad_axis!(ax, xs::AbstractVector{<:Real}, ys::AbstractVector{<:Real
 	return nothing
 end
 
-function BeyondHulten.plot_matrix_overview(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.plot_matrix_overview(ds::OpenCGE.MatrixDataset;
 		title = nothing, size = (1800, 1150))
-	labs = BeyondHulten.matrix_labour_order()
-	fins = BeyondHulten.matrix_financing_order()
-	bykey = Dict{Tuple{String,String},BeyondHulten.MatrixCellData}(
+	labs = OpenCGE.matrix_labour_order()
+	fins = OpenCGE.matrix_financing_order()
+	bykey = Dict{Tuple{String,String},OpenCGE.MatrixCellData}(
 		(c.labour, c.financing) => c for c in ds.cells)
 	panels = [
 		("Consumption, rel. change (%)", c -> 100.0 * _mp_metric(c, "consumption_rel"), true),
@@ -225,10 +225,10 @@ function BeyondHulten.plot_matrix_overview(ds::BeyondHulten.MatrixDataset;
 	return fig
 end
 
-function BeyondHulten.plot_matrix_wages(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.plot_matrix_wages(ds::OpenCGE.MatrixDataset;
 		title = nothing, size = (1800, 1150))
-	labs = BeyondHulten.matrix_labour_order()
-	fins = BeyondHulten.matrix_financing_order()
+	labs = OpenCGE.matrix_labour_order()
+	fins = OpenCGE.matrix_financing_order()
 	li_of(c) = something(findfirst(==(c.labour), labs), 0)
 	fi_of(c) = something(findfirst(==(c.financing), fins), 0)
 	cells = _mp_sorted_cells(ds)
@@ -338,7 +338,7 @@ function BeyondHulten.plot_matrix_wages(ds::BeyondHulten.MatrixDataset;
 end
 
 """Shared sectors-x-cells heatmap figure backing prices and quantities."""
-function _mp_sector_figure(ds::BeyondHulten.MatrixDataset, getvec::Function,
+function _mp_sector_figure(ds::OpenCGE.MatrixDataset, getvec::Function,
 		default_title::AbstractString, panel_a::AbstractString, panel_b::AbstractString;
 		title = nothing, size = (1800, 1500), top_labels::Int = 10, robust::Bool = true)
 	cells = _mp_sorted_cells(ds)
@@ -396,7 +396,7 @@ function _mp_sector_figure(ds::BeyondHulten.MatrixDataset, getvec::Function,
 	return fig
 end
 
-function BeyondHulten.plot_matrix_prices(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.plot_matrix_prices(ds::OpenCGE.MatrixDataset;
 		title = nothing, size = (1800, 1500), top_labels::Int = 10)
 	return _mp_sector_figure(ds, c -> c.prices,
 		"5x3 matrix prices ($(ds.design))",
@@ -405,7 +405,7 @@ function BeyondHulten.plot_matrix_prices(ds::BeyondHulten.MatrixDataset;
 		title = title, size = size, top_labels = top_labels, robust = false)
 end
 
-function BeyondHulten.plot_matrix_quantities(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.plot_matrix_quantities(ds::OpenCGE.MatrixDataset;
 		title = nothing, size = (1800, 1500), top_labels::Int = 10)
 	return _mp_sector_figure(ds, c -> c.quantities,
 		"5x3 matrix quantities ($(ds.design))",
@@ -414,10 +414,10 @@ function BeyondHulten.plot_matrix_quantities(ds::BeyondHulten.MatrixDataset;
 		title = title, size = size, top_labels = top_labels, robust = false)
 end
 
-function BeyondHulten.plot_matrix_consumption(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.plot_matrix_consumption(ds::OpenCGE.MatrixDataset;
 		title = nothing, size = (1800, 1500), top_labels::Int = 10)
-	labs = BeyondHulten.matrix_labour_order()
-	fins = BeyondHulten.matrix_financing_order()
+	labs = OpenCGE.matrix_labour_order()
+	fins = OpenCGE.matrix_financing_order()
 	li_of(c) = something(findfirst(==(c.labour), labs), 0)
 	fi_of(c) = something(findfirst(==(c.financing), fins), 0)
 	cells = _mp_sorted_cells(ds)
@@ -519,7 +519,7 @@ function BeyondHulten.plot_matrix_consumption(ds::BeyondHulten.MatrixDataset;
 	return fig
 end
 
-function BeyondHulten.plot_matrix_trade(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.plot_matrix_trade(ds::OpenCGE.MatrixDataset;
 		title = nothing, size = (1800, 1500), top_labels::Int = 10)
 	cells = _mp_sorted_cells(ds)
 	nc = length(cells)
@@ -650,16 +650,16 @@ function BeyondHulten.plot_matrix_trade(ds::BeyondHulten.MatrixDataset;
 	return fig
 end
 
-function BeyondHulten.save_matrix_figures(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.save_matrix_figures(ds::OpenCGE.MatrixDataset;
 		outdir = "plots", prefix = ds.design, formats = ("png",), dpi = 150)
 	mkpath(outdir)
 	figs = [
-		("overview", BeyondHulten.plot_matrix_overview(ds)),
-		("wages", BeyondHulten.plot_matrix_wages(ds)),
-		("prices", BeyondHulten.plot_matrix_prices(ds)),
-		("quantities", BeyondHulten.plot_matrix_quantities(ds)),
-		("consumption", BeyondHulten.plot_matrix_consumption(ds)),
-		("trade", BeyondHulten.plot_matrix_trade(ds)),
+		("overview", OpenCGE.plot_matrix_overview(ds)),
+		("wages", OpenCGE.plot_matrix_wages(ds)),
+		("prices", OpenCGE.plot_matrix_prices(ds)),
+		("quantities", OpenCGE.plot_matrix_quantities(ds)),
+		("consumption", OpenCGE.plot_matrix_consumption(ds)),
+		("trade", OpenCGE.plot_matrix_trade(ds)),
 	]
 	ppu = clamp(round(Int, Float64(dpi) / 72.0), 1, 4)
 	paths = String[]
@@ -694,7 +694,7 @@ function _mp_programme_order(programme::AbstractVector)
 end
 
 """Cell with `run_id` in `ds`; `nothing` when absent."""
-function _mp_find_cell(ds::BeyondHulten.MatrixDataset, run_id::AbstractString)
+function _mp_find_cell(ds::OpenCGE.MatrixDataset, run_id::AbstractString)
 	for c in ds.cells
 		c.run_id == String(run_id) && return c
 	end
@@ -708,8 +708,8 @@ dict with `"low"`/`"high"` keys); either side may be `nothing` when that
 variant failed to solve. Returns the converged variants only."""
 function _mp_variant_list(variants::AbstractDict, run_id::AbstractString)
 	v = get(variants, String(run_id), nothing)
-	v === nothing && return BeyondHulten.MatrixCellData[]
-	out = BeyondHulten.MatrixCellData[]
+	v === nothing && return OpenCGE.MatrixCellData[]
+	out = OpenCGE.MatrixCellData[]
 	vals = if v isa NamedTuple
 		[get(v, :low, nothing), get(v, :high, nothing)]
 	elseif v isa AbstractDict
@@ -720,7 +720,7 @@ function _mp_variant_list(variants::AbstractDict, run_id::AbstractString)
 		Any[v]
 	end
 	for u in vals
-		u isa BeyondHulten.MatrixCellData && push!(out, u)
+		u isa OpenCGE.MatrixCellData && push!(out, u)
 	end
 	return out
 end
@@ -794,14 +794,14 @@ function _mp_quantity_bars(fig, cell, idx, colors)
 end
 
 """Omit the price dimension only when every price is at its baseline."""
-function _mp_panel_right(cell::BeyondHulten.MatrixCellData)::Symbol
+function _mp_panel_right(cell::OpenCGE.MatrixCellData)::Symbol
 	return all(p -> isfinite(p) && isapprox(p, 1.0; atol = 1e-8, rtol = 0.0),
 		cell.prices) ? :bars : :scatter
 end
 
 """Manuscript panel figure for one matrix cell (implementation).
 
-Public entry point is `BeyondHulten.plot_matrix_panel` (forwarded below):
+Public entry point is `OpenCGE.plot_matrix_panel` (forwarded below):
 grouped bars over the programme sectors for the cell `run_id` (left) plus a
 sorted quantity bars or a quantity/price scatter over all sectors (right).
 `right = :auto` uses bars only when prices are at baseline, and scatter otherwise
@@ -812,7 +812,7 @@ programme-demand series). `variants` maps `run_id => (low = ..., high =
 ...)` to the cell's σ-variant `MatrixCellData`s; the error bars on the
 output/consumption/price series span the min/max over the central cell and
 its converged variants (no error bar when no variant is available)."""
-function _plot_matrix_panel(ds::BeyondHulten.MatrixDataset, run_id::AbstractString;
+function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(),
 		title = nothing, size = (1900, 900), right::Symbol = :auto)
@@ -1055,10 +1055,10 @@ end
 
 """Write one manuscript panel figure per matrix cell (implementation).
 
-Public entry point is `BeyondHulten.save_matrix_panels`. Each file is
+Public entry point is `OpenCGE.save_matrix_panels`. Each file is
 standalone with per-cell axis limits, named `<prefix>_<labour>_<financing>`
 in canonical labour × financing order."""
-function _save_matrix_panels(ds::BeyondHulten.MatrixDataset;
+function _save_matrix_panels(ds::OpenCGE.MatrixDataset;
 		outdir = "plots", prefix = "panel_5x3",
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(), formats = ("png",), right::Symbol = :auto)
@@ -1106,7 +1106,7 @@ cell's actual prices, so sectoral BETA retains its price response;
 `run_id => (low = ..., high = ...)` to the cell's
 σ-variant `MatrixCellData`s for the error bars. Requires `using GLMakie`.
 """
-function BeyondHulten.plot_matrix_panel(ds::BeyondHulten.MatrixDataset,
+function OpenCGE.plot_matrix_panel(ds::OpenCGE.MatrixDataset,
 		run_id::AbstractString;
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(),
@@ -1127,7 +1127,7 @@ baseline, and the quantity/price scatter otherwise (including sectoral BETA);
 `:bars` / `:scatter` force either.
 Requires `using GLMakie`.
 """
-function BeyondHulten.save_matrix_panels(ds::BeyondHulten.MatrixDataset;
+function OpenCGE.save_matrix_panels(ds::OpenCGE.MatrixDataset;
 		outdir = "plots", prefix = "panel_5x3",
 		programme::AbstractVector = Float64[], variants::AbstractDict = Dict{String,Any}(),
 		formats = ("png",), right::Symbol = :auto)

@@ -1,4 +1,4 @@
-using BeyondHulten, Test, LinearAlgebra
+using OpenCGE, Test, LinearAlgebra
 using CSV, DataFrames
 
 isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
@@ -60,7 +60,7 @@ end
 	# ── a wrong-length vector is rejected loudly (never silently truncated) ──
 	@test_throws DimensionMismatch solve(mobile_labor_model(
 		data, shocks, 0.5, 0.5, 0.9, 1.0; eta_s_vec = fill(0.5, N + 1)))
-	@test_throws DimensionMismatch BeyondHulten.problem_sectoral(zeros(3N + 1),
+	@test_throws DimensionMismatch OpenCGE.problem_sectoral(zeros(3N + 1),
 		[ones(N); data.λ; ones(N); 0.0],
 		mobile_labor_model(data, shocks, 0.5, 0.5, 0.9, 1.0; eta_s_vec = fill(0.5, N + 1)))
 

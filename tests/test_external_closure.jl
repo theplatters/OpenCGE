@@ -1,4 +1,4 @@
-using BeyondHulten, Test, LinearAlgebra
+using OpenCGE, Test, LinearAlgebra
 using CSV, DataFrames
 
 isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
@@ -232,8 +232,8 @@ end
 		Xp[end] += h
 		Xm = copy(X)
 		Xm[end] -= h
-		BeyondHulten.problem(out_p, Xp, model)
-		BeyondHulten.problem(out_m, Xm, model)
+		OpenCGE.problem(out_p, Xp, model)
+		OpenCGE.problem(out_m, Xm, model)
 		(out_p .- out_m) ./ (2h)
 	end
 	@test norm(Fcol) > 1e-3

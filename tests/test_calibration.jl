@@ -1,4 +1,4 @@
-using BeyondHulten
+using OpenCGE
 using DataFrames
 using LinearAlgebra
 using Test
@@ -69,8 +69,8 @@ end
 """Full-table `Data` built from the synthetic fixture table."""
 function retained_fixture_data()
 	io = retained_io_fixture()
-	return BeyondHulten.assemble_data(io,
-		BeyondHulten.generate_data(io; number_sectors = 3))
+	return OpenCGE.assemble_data(io,
+		OpenCGE.generate_data(io; number_sectors = 3))
 end
 
 @testset "calibration: dataset variants" begin
@@ -81,8 +81,8 @@ end
 
 @testset "calibration: final-demand columns located by name" begin
 	io = retained_io_fixture()
-	@test BeyondHulten.final_demand_columns(io) == collect(5:11)
-	split = BeyondHulten.final_demand_split(io, 3)
+	@test OpenCGE.final_demand_columns(io) == collect(5:11)
+	split = OpenCGE.final_demand_split(io, 3)
 	@test size(split.tot) == (3, 7)
 	@test all(vec(sum(split.dom; dims = 1)) .<= vec(sum(split.tot; dims = 1)) .+ 1e-12)
 end
@@ -189,7 +189,7 @@ end
 		mdl_sh = mobile_labor_model(recal71, shock_sh, 0.5, 0.5, 0.9, 1.0)
 		sol_sh = solve(mdl_sh)
 		X_sh = [sol_sh.prices_raw; sol_sh.quantities; sol_sh.wages_raw[1]; sol_sh.external_transfer]
-		P_sh = BeyondHulten._intermediate_price(recal71.Ω_raw, sol_sh.prices_raw, 0.5)
+		P_sh = OpenCGE._intermediate_price(recal71.Ω_raw, sol_sh.prices_raw, 0.5)
 		k_sh = sol_sh.prices_raw .^ 0.5 .* shock_sh.supply_shock .^ (-0.5) .* P_sh .^ 0.5
 		@test maximum(abs.(k_sh .- 1)) > 1e-2
 		@test abs(sol_sh.external_transfer) > 1e-6
