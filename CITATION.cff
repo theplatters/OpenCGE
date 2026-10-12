@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, cite it as below."
 title: "OpenCGE: a production-network CGE model in the Baqaee-Farhi lineage"
 authors:
-  - name: "theplatters"
+  - name: "Franz Scharnreitner"
     email: "fscharnreitner@gmail.com"
 version: 0.1.0
 date-released: "2026-10-12"

@@ -1,7 +1,7 @@
 name = "OpenCGE"
 uuid = "ce182077-ed3b-4f5d-9409-09ef275840d9"
 version = "0.1.0"
-authors = ["theplatters <fscharnreitner@gmail.com>"]
+authors = ["Franz Scharnreitner <fscharnreitner@gmail.com>"]
 
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
