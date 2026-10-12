@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, cite it as below."
+title: "OpenCGE: a production-network CGE model in the Baqaee-Farhi lineage"
+authors:
+  - name: "theplatters"
+    email: "fscharnreitner@gmail.com"
+version: 0.1.0
+date-released: "2026-10-12"
+license: MIT
+repository-code: "https://github.com/theplatters/opencge"
+keywords:
+  - computable general equilibrium
+  - production networks
+  - Baqaee-Farhi
+  - green public investment
+  - labour market closures
