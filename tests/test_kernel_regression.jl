@@ -164,7 +164,7 @@ end
 
 @testset "kernel regression: fixed GAMMA contracts only" begin
     # NOTE: exact fixed-closure numbers are intentionally NOT pinned. Phase 2
-    # backports the frozen cbase2 formulation, which enforces all N
+    # backports the frozen legacy formulation, which enforces all N
     # market-clearing equations and resolves the recorded "omitted N-th
     # market" open item — so fixed-closure levels are expected to move. Only
     # the closure contracts below must survive.

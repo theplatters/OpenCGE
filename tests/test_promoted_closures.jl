@@ -5,8 +5,8 @@ using Test
 
 # Contract tests for the Phase 2 promoted closures (ADR-0005): BETA/DELTA and
 # the F1/F2/F3 financing closures. These are the evidence for upgrading
-# BETA/DELTA/F1-F3 from `implemented` to `tested` in registry/closures.toml.
-# Model: the assertions in cbase2/scripts/verify_v3.jl (frozen, read-only).
+# BETA/DELTA/F1-F3 from `implemented` to `tested` in the closure catalogue.
+# Model: the assertions of the frozen legacy verification script.
 # All solves are deterministic 3-sector systems with default init unless a
 # warm start is noted; no `read_data`, no disk writes.
 
@@ -71,7 +71,7 @@ _v3_shocks() = Shocks(ones(3), ones(3), zeros(3))
 end
 
 @testset "promoted closures: BETA validation and ALPHA nesting" begin
-    # `ElasticLaborClosure` validation is unchanged from cbase2: η_s finite
+    # `ElasticLaborClosure` validation is unchanged from the legacy kernel: η_s finite
     # and non-negative, w0 positive.
     @test_throws ArgumentError ElasticLaborClosure(-0.5)
     @test_throws ArgumentError ElasticLaborClosure(Inf)
@@ -95,7 +95,7 @@ end
     @test labor_closure(mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ,
         _V3_σ, _V3_η; closure = :beta)) isa ElasticLaborClosure
 
-    # η_s = 0 reproduces the ALPHA/:mobile solution exactly (registry
+    # η_s = 0 reproduces the ALPHA/:mobile solution exactly (catalogue
     # formulation: vertical supply is the η_s = 0 limit of the BETA curve).
     fin = ExternalDebt(fx.g)
     m0 = mobile_labor_model(fx.data, shocks, _V3_θ, _V3_ϵ, _V3_σ, _V3_η;
@@ -222,7 +222,7 @@ end
     @test tau_rate(fin, mdl, p, w, L) > 0
     # `public_budget` reports baseline gG plus the programme at current
     # prices (its implemented definition; review §2.7 caveat is recorded in
-    # the registry notes, not re-litigated here).
+    # the closure notes, not re-litigated here).
     @test public_budget(fin, mdl, p) ≈
         sum(fx.data.gov_demand) + dot(fx.g, p) atol=1e-9
     @test additive_demand(fin, 3) ≈ fx.g
@@ -248,7 +248,7 @@ end
     @test dot(p, sol.consumption) ≈ (1 - fx.saving_rate) * E atol=1e-9
     # `external_balance` records the programme's import content Σ p·m·g
     # (its implemented definition; review §2.8 caveat is recorded in the
-    # registry notes, not re-litigated here).
+    # closure notes, not re-litigated here).
     @test external_balance(fin, mdl, p) ≈
         dot(p, fx.data.import_margin .* fx.g) atol=1e-12
     @test additive_demand(fin, 3) ≈ fx.g
@@ -421,7 +421,7 @@ end
     @test abs(real_gdp(sol_cd) - real_gdp(sol_near)) < 1e-5
 end
 
-@testset "promoted closures: closure registry" begin
+@testset "promoted closures: closure id mapping" begin
     @test closure_ids() ==
         [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1, :F2, :F3]
     for id in (:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA)
