@@ -106,6 +106,21 @@ Kernel-relevant decisions whose full record stays in the paper repository
 - **ADR-0024 — Programme total.** The investment programme is pinned at
   G0 = 40,300 EUR m (2019 prices, the deflated 2024–2050 horizon mean), the
   magnitude of every executed matrix cell. (full record: ADR-0024, paper repo)
+- **OpenCGE@ADR-0029 — The pricing door (Foundation III).** A third closure
+  axis makes unit cost output-dependent: `P1` `CapacityPricing(δ)`,
+  `A_eff = A·(y/λ)^(−δ)`, rent-free, and `P2` `MarkupPricing(κ)`, `p = μ·c`
+  with `μ = 1 + κ(y/λ − 1)` and the rent retained beside saving (Stage A);
+  every FOC site reads the marginal cost `p/μ` and `A_eff` through one hook
+  set, `δ = 0` and `κ = 0` reproduce the baseline bit for bit, and the
+  ADR-0017 guard runs on a NoPricing clone plus a local Jacobian rank check.
+  Proposed in the paper repository; implemented in OpenCGE v0.2.0. (full
+  record: ADR-0029, paper repo)
+- **OpenCGE@ADR-0030 — Distributed profit income (Stage B).**
+  `MarkupPricing(κ; s_pi)` with `s_pi < 1` pays `(1 − s_pi)·Π` to the
+  household, `E = (1 − τ)·w·ΣL + F + (1 − s_pi)·Π`, untaxed (v1), and the
+  canary books saving `s·E + s_pi·Π`; `s_pi = 1` is Stage A exactly.
+  Implemented in OpenCGE v0.2.0 ahead of the ADR body, which the paper
+  repository has not written yet. (full record: ADR-0030, paper repo)
 
 ## Dead ends and ideas
 
@@ -137,6 +152,10 @@ Kernel-relevant decisions whose full record stays in the paper repository
 - **DE-0011 — Re-gauging the numeraire to give η_s a channel.** Rejected: the
   system is homogeneous of degree 1 in `(p, w, F)`, so re-gauging moves only
   the CPI pin and creates no identification.
+- **DE-0012 — Capacity door as an outer fixed point.** Iterating
+  `A ← A·(y/λ)^(−δ)` around the solver (probe17/probe20) diverges at damping
+  0.6 for δ = −0.5 under Cobb–Douglas; `A_eff` is solved inside the residual
+  instead (ADR-0029 #8).
 - **IDEA-0001 — Productivity shocks framed as climate change.** An
   interpretation/identification route for the supply-shock arm; unexplored.
 - **IDEA-0002 — Five doors to demand-sensitive prices (Verdoorn arm).** A
