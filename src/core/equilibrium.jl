@@ -867,15 +867,19 @@ function equilibrium_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
     out
 end
 
-function _equilibrium_residuals(model::Model{MobileLaborCES}, sol::Solution)
-    X = labor_closure(model) isa FixedWageClosure ?
+"""Canonical unknown vector of `sol` for the model's closure: `[p; y]` (fixed),
+`[p; y; w(1:N); F]` (sectoral) or `[p; y; w; F]` (mobile η = 1)."""
+function _solution_vector(model::Model{MobileLaborCES}, sol::Solution)
+    labor_closure(model) isa FixedWageClosure ?
         [sol.prices_raw; sol.quantities] :
         (model.options.elasticities.η == 0.0 ||
          model.options.elasticities.eta_s_vec !== nothing) ?
         [sol.prices_raw; sol.quantities; sol.wages_raw; sol.external_transfer] :
         [sol.prices_raw; sol.quantities; sol.wages_raw[1]; sol.external_transfer]
-    equilibrium_residuals(model, X)
 end
+
+_equilibrium_residuals(model::Model{MobileLaborCES}, sol::Solution) =
+    equilibrium_residuals(model, _solution_vector(model, sol))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Solver
@@ -992,11 +996,16 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
         # adjudicates. This preserves the legacy surface: near-one η on a
         # closed fixture throws the scale-indeterminacy ArgumentError before
         # any endpoint validation runs.
+        # A pricing closure makes the block non-affine in y (A_eff depends on
+        # y), so the guard is evaluated on a NoPricing clone, which is exact
+        # at the reference (A_eff(λ) = A, μ(λ) = 1); the solution then gets
+        # the local Jacobian check below (ADR-0029).
         el = options.elasticities
-        model1 = η == 1.0 ? model : Model(model.data, model.shocks,
+        model1 = (η == 1.0 && model.pricing isa NoPricing) ? model : Model(model.data, model.shocks,
+            η == 1.0 ? options :
             MobileLaborCES(MobileLaborCESElasticities(el.θ, el.ϵ, el.σ, 1.0, el.eta_s),
                 options.labor_bar, options.closure),
-            model.financing, model.pricing)
+            model.financing, NoPricing())
         G, c = _fixed_clearing_affine(model1, ones(N))
         colsums = vec(sum(G; dims = 1))
         if maximum(colsums) >= 1.0 - _FIXED_CLEARING_COLSUM_TOL
@@ -1081,6 +1090,10 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
             error("MobileLaborCES._solve_fixed did not converge: $(sprint(showerror, e))")
         end
     end
+
+    # Pricing closures: the reference guard above no longer covers the
+    # solution, so the residual Jacobian must have full rank there.
+    model.pricing isa NoPricing || _assert_locally_determinate(model, x)
 
     p = x[1:N]
     q = max.(x[N+1:2N], 0.0)
