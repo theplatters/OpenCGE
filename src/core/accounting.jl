@@ -8,6 +8,10 @@ abstract type AbstractData end
 `src/closures/financing/financing.jl`)."""
 abstract type AbstractFinancing end
 
+"""Abstract supertype for pricing-closure descriptions (concrete types live in
+`src/closures/pricing/pricing.jl`, ADR-0029)."""
+abstract type AbstractPricing end
+
 
 """
 	CESElasticities(θ::Float64, ϵ::Float64, σ::Float64)
@@ -465,12 +469,20 @@ mutable struct Model{T <: ModelType}
 	# Financing closure (Foundation II). Default: NoFinancing (baseline
 	# reference). Concrete types live in src/closures/financing/financing.jl.
 	financing::AbstractFinancing
+	# Pricing closure (Foundation III, ADR-0029). Default: NoPricing
+	# (demand-invariant unit cost). Concrete types live in
+	# src/closures/pricing/pricing.jl.
+	pricing::AbstractPricing
 end
 
-# 3-arg convenience constructor: defaults to the unfinanced baseline
-# reference. Financing experiments construct the 4-arg form.
+# 3-arg convenience constructor: defaults to the unfinanced, unpriced baseline
+# reference. Financing experiments construct the 4-arg form, pricing
+# experiments the 5-arg form.
 function Model(data::Data, shocks::Shocks, options)
-	Model(data, shocks, options, NoFinancing())
+	Model(data, shocks, options, NoFinancing(), NoPricing())
+end
+function Model(data::Data, shocks::Shocks, options, financing::AbstractFinancing)
+	Model(data, shocks, options, financing, NoPricing())
 end
 
 labor_closure(model::Model) = labor_closure(model.options)

@@ -351,12 +351,21 @@ end
 `w` is a scalar (one economy-wide wage, every η = 1 regime) or a vector (the
 sectoral wages of the η = 0 endpoint, ADR-0020 option C). The expression is
 elementwise in `w`, so the scalar case is unchanged to the last bit.
+
+The FOC multiplier is the marginal cost `pFOC` and the technology is `A_eff`,
+both from the pricing hooks (ADR-0029); the 4-argument form evaluates them at
+`(p, y)`, the 5-argument form takes them from the shared demand block.
 """
 function _cost_minimizing_labor(p, y, w, model::Model{MobileLaborCES})
-    (; data, options, shocks) = model
+    (; A_eff, pFOC) = _pricing_state(model, p, y)
+    _cost_minimizing_labor(pFOC, y, w, A_eff, model)
+end
+
+function _cost_minimizing_labor(pFOC, y, w, A_eff, model::Model{MobileLaborCES})
+    (; data, options) = model
     (; ϵ) = options.elasticities
     (; factor_share) = data
-    p, y, w, A, α = _positive_floor.((p, y, w, shocks.supply_shock, factor_share))
+    p, y, w, A, α = _positive_floor.((pFOC, y, w, A_eff, factor_share))
     log_demand = ϵ .* (log.(p) .+ ((ϵ - 1) / ϵ) .* log.(A) .+ (1 / ϵ) .* log.(α) .+
         (1 / ϵ) .* log.(y) .- log.(w))
     exp.(clamp.(log_demand, log(floatmin(Float64)), log(floatmax(Float64))))
@@ -378,9 +387,9 @@ returns the cost-minimizing demand. The former interpolation (and the ad hoc
 allocative-efficiency wedge that carried it) was retired with ADR-0010;
 `_checked_eta` rejects intermediate values loudly.
 """
-function _interpolated_labor(p, y, w, model::Model{MobileLaborCES})
+function _interpolated_labor(pFOC, y, w, A_eff, model::Model{MobileLaborCES})
     η = _checked_eta(model.options.elasticities.η)
-    η == 1.0 && return _positive_floor(_cost_minimizing_labor(p, y, w, model))
+    η == 1.0 && return _positive_floor(_cost_minimizing_labor(pFOC, y, w, A_eff, model))
     return _positive_floor(model.data.labor_share)
 end
 
@@ -391,7 +400,8 @@ Compute sectoral labor demand L_i given prices, quantities, and the economy-wide
 Derived by inverting the marginal-product-of-labor condition.
 """
 function sectoral_labor_demand(p, y, w, model::Model{MobileLaborCES})
-    _interpolated_labor(p, y, w, model)
+    (; A_eff, pFOC) = _pricing_state(model, p, y)
+    _interpolated_labor(pFOC, y, w, A_eff, model)
 end
 
 """
@@ -401,13 +411,14 @@ Compute the sector-implied wage from the base CES FOC (used for initialization).
 When labor is mobile, all sectors should imply the same wage w.
 """
 function economy_wide_wage(p, y, labor, model::Model{MobileLaborCES})
-    (; data, options, shocks) = model
+    (; data, options) = model
     (; ϵ) = options.elasticities
-    (; supply_shock) = shocks
     (; factor_share) = data
+    (; A_eff, pFOC) = _pricing_state(model, p, y)
 
-    # w_i = p_i · A_i^((ε-1)/ε) · α_i^(1/ε) · y_i^(1/ε) · L_i^(-1/ε)
-    w_vec = p .* (supply_shock .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* (labor .^ (-1 / ϵ))
+    # w_i = c_i · A_i^((ε-1)/ε) · α_i^(1/ε) · y_i^(1/ε) · L_i^(-1/ε), with the
+    # marginal cost c = pFOC and A = A_eff from the pricing hooks (ADR-0029)
+    w_vec = pFOC .* (A_eff .^ ((ϵ - 1) / ϵ)) .* (factor_share .^ (1 / ϵ)) .* (y .^ (1 / ϵ)) .* (labor .^ (-1 / ϵ))
     # Return the GDP-weighted average as a single wage
     return sum(w_vec .* labor) / sum(labor)
 end
@@ -431,6 +442,10 @@ and the canary/diagnostics:
   cost                 CES unit cost (no allocation wedge, ADR-0010)
   E                    household expenditure entering the CES demand
   (after-tax wage income plus the external transfer F)
+  A_eff, μ, pFOC, Π    the pricing hooks (ADR-0029): effective technology,
+                       markup (`nothing` without one), FOC price and rent
+                       (`nothing` for a rent-free closure)
+  intermediate_price   the intermediate-goods price index
 
 Budget-consistent CES demand over the household's (possibly financed)
 expenditure. `fin = model.financing` (Foundation II):
@@ -454,7 +469,12 @@ function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
     (; consumption_share, Ω_raw, factor_share) = data
     (; θ, ϵ, σ) = options.elasticities
     intermediate_price = _intermediate_price(Ω_raw, p, θ)
-    L_i = sectoral_labor_demand(p, y, w, model)
+    # Pricing hooks, evaluated once (ADR-0029): every FOC site below reads
+    # A_eff and pFOC from here, never shocks.supply_shock or p directly.
+    pr = model.pricing
+    (; A_eff, μ, pFOC) = _pricing_state(model, p, y)
+    Π = pricing_profit(pr, p, μ, y)
+    L_i = _interpolated_labor(pFOC, y, w, A_eff, model)
     fin = model.financing
     ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
@@ -481,14 +501,16 @@ function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
     # Intermediate demand: the DOMESTIC bill A_u scaled by equilibrium output
     # (a_u = A_bill/λ_u; LaForge exact A-bill fix). The imported+taxed content
     # of the bill is an external-account leak (data.M_int), not domestic demand.
-    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* intermediate_price .^ (θ - ϵ) .* (data.A_bill ./ data.λ) .* y))
+    # The OUTER p^(-θ) is the demanded input's purchaser price; the inner
+    # factor is the user's FOC pattern (ADR-0029 #4).
+    intermediary_demand = p .^ (-θ) .* (Ω_raw' * (pricing_bill_factor(pFOC, A_eff, intermediate_price, ϵ, θ - ϵ) .* (data.A_bill ./ data.λ) .* y))
     # With only the BF endpoints η ∈ {0, 1} (ADR-0010) the ad hoc B&F (2019)
     # "labor-reallocation wedge" is retired: it only existed to carry the
     # interpolated 0 < η < 1 cases and was never derived as a CES
     # allocative-loss coefficient.
-    cost = _ces_unit_cost(shocks.supply_shock, factor_share, w, intermediate_price, ϵ)
+    cost = _apply_markup(μ, _ces_unit_cost(A_eff, factor_share, w, intermediate_price, ϵ))
     return (; intermediary_demand, total_final_demand, c_dom, additive = additive_demand(fin, N),
-        L_i, cost, E)
+        L_i, cost, E, A_eff, μ, pFOC, Π, intermediate_price)
 end
 
 """
@@ -635,7 +657,7 @@ function problem_sectoral(out::Vector, X::Vector, model::Model{MobileLaborCES})
     #   ADR-0022           : L^cm_i = Lbar_i * (w_i/CPI)^{eta_s,i}
     # The eta_s,i = 0 branch is kept arithmetically separate so that every
     # existing eta = 0 cell stays bit-identical.
-    Lcm = _cost_minimizing_labor(p, y, w, model)
+    Lcm = _cost_minimizing_labor(blocks.pFOC, y, w, blocks.A_eff, model)
     esv = options.elasticities.eta_s_vec
     if esv === nothing
         out[N+1:2N] .= log.(Lcm) .- log.(_positive_floor(data.labor_share))
@@ -765,8 +787,8 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
             "mobile-labor canary expects a $(2N)-, $(2N+1)-, $(2N+2)- or $(3N+1)-element vector [p; y(; w(; F))]"))
     end
     blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
-    (; data, options, shocks) = model
-    (; θ, ϵ) = options.elasticities
+    (; data, options) = model
+    (; ϵ) = options.elasticities
     m = data.import_margin
     M_cons = dot(p .* (m ./ max.(1 .- m, eps(Float64))), blocks.c_dom)
     M_inj = dot(p .* m, blocks.additive .+ data.gov_demand .+ data.exo_demand)
@@ -774,11 +796,12 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
     # the purchaser-price intermediate bill. They are constant shares of the
     # SAME per-user CES intermediate bundle the domestic bill A_bill is charged
     # from, so both carry the CES bill factor k_u = p_u^ϵ · a_u^(ϵ−1) · P_u^(1-ϵ)
-    # (ADR-0016), where a is the supply shock and P = _intermediate_price.
+    # (ADR-0016), where a is the effective technology A_eff, p the FOC price
+    # pFOC (ADR-0029) and P = _intermediate_price.
     # Row 74 (imported intermediates, ADR-0012) and row 75 (product taxes on
     # intermediate use, ADR-0013). Omitting row 75 leaves the identity short by
     # exactly that term (measured: -2.6e-2 on full-71 before the fix).
-    k_bill = p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* _intermediate_price(data.Ω_raw, p, θ) .^ (1 - ϵ)
+    k_bill = pricing_bill_factor(blocks.pFOC, blocks.A_eff, blocks.intermediate_price, ϵ)
     M_intl = dot(k_bill .* (data.M_int ./ data.λ), y)
     T_intl = dot(k_bill .* (data.T_int ./ data.λ), y)
     S = data.saving_rate * blocks.E
@@ -973,7 +996,7 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
         model1 = η == 1.0 ? model : Model(model.data, model.shocks,
             MobileLaborCES(MobileLaborCESElasticities(el.θ, el.ϵ, el.σ, 1.0, el.eta_s),
                 options.labor_bar, options.closure),
-            model.financing)
+            model.financing, model.pricing)
         G, c = _fixed_clearing_affine(model1, ones(N))
         colsums = vec(sum(G; dims = 1))
         if maximum(colsums) >= 1.0 - _FIXED_CLEARING_COLSUM_TOL
@@ -1257,10 +1280,11 @@ Convenience constructor for a MobileLaborCES model.
 `closure=:mobile` uses a flexible, market-clearing wage; `closure=:fixed` uses a
 sticky wage of one and unconstrained employment demand; `closure=:beta` (or
 `eta_s=<value>`, which forces `:beta`) uses the elastic-supply BETA closure.
-`financing` selects an F1/F2/F3 financing closure (default `NoFinancing()`).
+`financing` selects an F1/F2/F3 financing closure (default `NoFinancing()`);
+`pricing` selects a pricing closure (default `NoPricing()`, ADR-0029).
 All existing positional/keyword forms keep working.
 """
-function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Real, Nothing}=nothing, closure=:mobile, financing::Union{AbstractFinancing, Nothing}=nothing, eta_s::Union{Real, Nothing}=nothing, eta_s_vec::Union{AbstractVector, Nothing}=nothing)
+function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64, σ::Float64, η::Float64; labor_bar::Union{Real, Nothing}=nothing, closure=:mobile, financing::Union{AbstractFinancing, Nothing}=nothing, eta_s::Union{Real, Nothing}=nothing, eta_s_vec::Union{AbstractVector, Nothing}=nothing, pricing::Union{AbstractPricing, Nothing}=nothing)
     # BETA: an explicit supply elasticity forces the :beta closure. ADR-0022:
     # a sectoral elasticity vector selects the N-market system and likewise
     # belongs to :beta.
@@ -1278,14 +1302,16 @@ function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64
         "fixed closure treats employment as an outcome; labor_bar is not used and must not be supplied"))
     lb = labor_bar === nothing ? sum(data.labor_share) : Float64(labor_bar)
     fin = financing === nothing ? NoFinancing() : financing
-    model = Model(data, shocks, MobileLaborCES(el, lb, closure_symbol), fin)
+    pr = pricing === nothing ? NoPricing() : pricing
+    model = Model(data, shocks, MobileLaborCES(el, lb, closure_symbol), fin, pr)
     return model
 end
 
 mobile_labor_model(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η::Real;
-    labor_bar=nothing, closure=:mobile, financing=nothing, eta_s=nothing, eta_s_vec=nothing) = mobile_labor_model(data, shocks, Float64(θ), Float64(ϵ), Float64(σ), Float64(η);
+    labor_bar=nothing, closure=:mobile, financing=nothing, eta_s=nothing, eta_s_vec=nothing, pricing=nothing) = mobile_labor_model(data, shocks, Float64(θ), Float64(ϵ), Float64(σ), Float64(η);
     labor_bar=labor_bar === nothing ? nothing : Float64(labor_bar),
     closure=_closure_symbol(closure),
     financing=financing,
     eta_s=eta_s,
-    eta_s_vec=eta_s_vec)
+    eta_s_vec=eta_s_vec,
+    pricing=pricing)

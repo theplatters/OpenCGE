@@ -9,6 +9,8 @@ export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefEla
 export AbstractLaborClosure, ExogenousLaborClosure, FlexibleWageClosure, FixedWageClosure, ElasticLaborClosure, SectoralElasticLaborClosure, labor_closure
 export labor_market_residual
 export AbstractFinancing, NoFinancing, PreferenceReallocation, TaxFinanced, ExternalDebt
+export AbstractPricing, NoPricing, CapacityPricing, MarkupPricing
+export pricing_technology, pricing_markup, pricing_foc_price, pricing_profit, pricing_bill_factor
 export preference_weights, tau_rate, household_expenditure, additive_demand, public_budget, external_balance, has_additive_anchor
 export delta_elasticities, delta_model, leontief_multiplier, solve_beta, solve_verified
 export retained_io_table, retained_dataset, dataset_coverage, recalibrate_open, DATASET_VARIANTS
@@ -49,6 +51,7 @@ include("closures/labor/types.jl")
 include("core/equilibrium.jl")
 include("closures/labor/labor.jl")
 include("closures/financing/financing.jl")
+include("closures/pricing/pricing.jl")
 include("closures/registry.jl")
 include("core/diagnostics.jl")
 include("plots.jl")

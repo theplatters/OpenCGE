@@ -139,8 +139,9 @@ the demand blocks of the shared `_mobile_market_demand` hook
 7. `−T_int`: product taxes on intermediate use (row 75, ADR-0013).
 
 The intermediate-bill leaks (6-7) are valued with the ADR-0016 CES bill
-factor `k = p^ϵ · a^(ϵ−1) · P^(1−ϵ)` (same factor as
-`external_balance_canary`, duplicated here so the canary is untouched).
+factor `k = p^ϵ · a^(ϵ−1) · P^(1−ϵ)`, the shared `pricing_bill_factor` that
+`external_balance_canary` also calls (FOC price and effective technology from
+the pricing hooks, ADR-0029).
 
 Returns `(V, Q, wage_bill, wedge, external_transfer, programme_financing,
 external_financing)` with `V`/`Q` the seven component values / quantities
@@ -166,8 +167,8 @@ function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	w = (model.options.elasticities.η == 0.0 ||
 		 model.options.elasticities.eta_s_vec !== nothing) ? sol.wages_raw : sol.wages_raw[1]
 	blocks = _mobile_market_demand(model, p, y, w; external_transfer = sol.external_transfer)
-	(; data, options, shocks) = model
-	(; θ, ϵ) = options.elasticities
+	(; data, options) = model
+	(; ϵ) = options.elasticities
 	m = data.import_margin
 	gov = data.gov_demand
 	add = blocks.additive
@@ -191,8 +192,8 @@ function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	V5 = -(M_cons + M_inj)
 	Q5 = sum(m .* c_gross) + sum(m .* (add .+ gov .+ exo))
 	# 6-7. Intermediate-bill leaks, valued with the ADR-0016 CES bill factor
-	# (duplicated from `external_balance_canary` so the canary is untouched).
-	k = p .^ ϵ .* shocks.supply_shock .^ (ϵ - 1) .* _intermediate_price(data.Ω_raw, p, θ) .^ (1 - ϵ)
+	# (the shared definition, also used by `external_balance_canary`).
+	k = pricing_bill_factor(blocks.pFOC, blocks.A_eff, blocks.intermediate_price, ϵ)
 	V6 = -dot(k .* (data.M_int ./ data.λ), y)
 	Q6 = sum((data.M_int ./ data.λ) .* y)
 	V7 = -dot(k .* (data.T_int ./ data.λ), y)
