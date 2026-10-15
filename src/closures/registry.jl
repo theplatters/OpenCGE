@@ -8,18 +8,22 @@
 # Labour axis: BF / ALPHA / BETA / GAMMA / DELTA / ZETA (idea, no constructor).
 # Financing axis: F1 / F2 / F3. Formulations: ADR-0002 (full record in the
 # paper repository).
+# Pricing axis (Foundation III, ADR-0029): P1 capacity / Verdoorn
+# (CapacityPricing), P2 markup (MarkupPricing, Stage A retained and Stage B
+# distributed via s_pi). The baseline NoPricing carries no id, as NoFinancing.
 
 const _CLOSURE_AXIS = Dict{Symbol,Symbol}(
     :BF => :labor, :ALPHA => :labor, :BETA => :labor,
     :GAMMA => :labor, :DELTA => :labor, :ZETA => :labor,
     :F1 => :financing, :F2 => :financing, :F3 => :financing,
+    :P1 => :pricing, :P2 => :pricing,
 )
 
-"""All registered closure ids (labour + financing). `ZETA` maps to `nothing`."""
-closure_ids() = [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1, :F2, :F3]
+"""All registered closure ids (labour + financing + pricing). `ZETA` maps to `nothing`."""
+closure_ids() = [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1, :F2, :F3, :P1, :P2]
 
 """
-	closure_axis(id) -> :labor | :financing
+	closure_axis(id) -> :labor | :financing | :pricing
 
 Axis of a registered closure id. Rejects unknown ids with `ArgumentError`.
 """
@@ -77,8 +81,8 @@ gamma_model(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η::Real; 
 
 Constructor implementing a closure id: the labour builders above for
 BF/ALPHA/BETA/GAMMA, `delta_model` for DELTA, the financing types for
-F1/F2/F3, and `nothing` for ZETA (idea, no constructor). Rejects unknown
-ids with `ArgumentError`.
+F1/F2/F3, the pricing types for P1/P2, and `nothing` for ZETA (idea, no
+constructor). Rejects unknown ids with `ArgumentError`.
 """
 function closure_constructor(id::Symbol)
     id === :BF && return bf_model
@@ -90,6 +94,8 @@ function closure_constructor(id::Symbol)
     id === :F1 && return PreferenceReallocation
     id === :F2 && return TaxFinanced
     id === :F3 && return ExternalDebt
+    id === :P1 && return CapacityPricing
+    id === :P2 && return MarkupPricing
     throw(ArgumentError(
         "unknown closure id $id; known ids are $(join(closure_ids(), ", "))"))
 end

@@ -423,7 +423,7 @@ end
 
 @testset "promoted closures: closure id mapping" begin
     @test closure_ids() ==
-        [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1, :F2, :F3]
+        [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1, :F2, :F3, :P1, :P2]
     for id in (:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA)
         @test closure_axis(id) === :labor
     end
@@ -439,6 +439,11 @@ end
     @test closure_constructor(:F1) === PreferenceReallocation
     @test closure_constructor(:F2) === TaxFinanced
     @test closure_constructor(:F3) === ExternalDebt
+    for id in (:P1, :P2)
+        @test closure_axis(id) === :pricing
+    end
+    @test closure_constructor(:P1) === CapacityPricing
+    @test closure_constructor(:P2) === MarkupPricing
     @test_throws ArgumentError closure_constructor(:NOPE)
     @test_throws ArgumentError closure_axis(:NOPE)
     # The labour builders construct the advertised closures.
