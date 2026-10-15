@@ -305,3 +305,75 @@ end
 	@test_throws PricingFeasibilityError OpenCGE._assert_pricing_feasible(m_big, m_big.pricing, Xμ)
 	@test occursin("injections", sprint(showerror, PricingFeasibilityError("injections")))
 end
+
+# ── Route 2, Stage B: distributed profit (ADR-0030) ──────────────────────────
+
+@testset "pricing: Stage B nests Stage A (s_π = 1) and the baseline (κ = 0)" begin
+	d = split_bill(pricing_fixture())
+	for (cl, η, fin) in _PR_CELLS
+		mA = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, η; closure = cl,
+			financing = fin, pricing = MarkupPricing(0.5))
+		mB = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, η; closure = cl,
+			financing = fin, pricing = MarkupPricing(0.5; s_pi = 1.0))
+		@test bit_identical(mA, solve(mA), mB, solve(mB))
+		m0 = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, η; closure = cl, financing = fin)
+		mκ = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, η; closure = cl,
+			financing = fin, pricing = MarkupPricing(0.0; s_pi = 0.5))
+		@test bit_identical(m0, solve(m0), mκ, solve(mκ))
+	end
+	# The keyword: zero profit income is not added, nonzero is added untaxed.
+	m = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, 1.0; financing = TaxFinanced(_PR_G))
+	p = [1.0, 1.1, 0.9]
+	E0 = household_expenditure(m.financing, m, 0.8, p, 0.8; external_transfer = 0.01)
+	@test household_expenditure(m.financing, m, 0.8, p, 0.8; external_transfer = 0.01,
+		profit_income = 0.0) === E0
+	@test household_expenditure(m.financing, m, 0.8, p, 0.8; external_transfer = 0.01,
+		profit_income = 0.05) ≈ E0 + 0.05 atol = 1e-15
+end
+
+@testset "pricing: Stage B budget, account and diagnostics" begin
+	d = split_bill(pricing_fixture())
+	for (cl, η, fin) in _PR_CELLS, s_pi in (0.0, 0.5)
+		m = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, η; closure = cl,
+			financing = fin, pricing = MarkupPricing(0.5; s_pi = s_pi))
+		s = solve(m)
+		@test maximum(abs, equilibrium_residuals(s)) ≤ 1e-9
+		X = _pr_vec(m, s)
+		can = external_balance_canary(m, X)
+		gc = gdp_components(m, s)
+		Π = gc.profit
+		@test abs(Π) > 1e-3
+		# Budget: E = (1 − τ) w ΣL + F + (1 − s_π) Π, the tax on wages only.
+		w, blocks = OpenCGE._solution_blocks(m, s)
+		L = sum(blocks.L_i)
+		wb = gc.wage_bill
+		τ = tau_rate(fin, m, s.prices_raw, wb / L, L)
+		@test blocks.E ≈ (1 - τ) * wb + s.external_transfer + (1 - s_pi) * Π atol = 1e-12
+		# Reported consumption is the augmented household's.
+		@test dot(s.prices_raw, s.consumption) ≈ (1 - d.saving_rate) * blocks.E atol = 1e-12
+		# Account: saving on the augmented E plus the retained s_π Π; the
+		# distributed rent's import content is inside M. The identity closes.
+		@test can.S ≈ d.saving_rate * blocks.E atol = 1e-14
+		@test can.retained_profit ≈ s_pi * Π atol = 1e-14
+		@test retained_profit(m, s) ≈ s_pi * Π atol = 1e-14
+		@test abs(can.diff) ≤ 1e-9
+		@test gc.wedge ≈ -can.diff atol = 1e-12
+		@test profit_share(m, s) ≈ Π / (wb + Π) atol = 1e-14
+	end
+	# real_income_index: 1 at the base; the real wage-bill index without
+	# distributed profit; labour plus (1 − s_π) Π otherwise.
+	mb = mobile_labor_model(d, Shocks(ones(3), ones(3), zeros(3)), 0.5, 0.5, 0.9, 1.0;
+		closure = :fixed, financing = TaxFinanced(_PR_G))
+	base = solve(mb)
+	@test real_income_index(base, base) ≈ 1.0 atol = 1e-15
+	@test profit_share(mb, base) == 0.0
+	for s_pi in (1.0, 0.5)
+		m = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+			financing = TaxFinanced(_PR_G), pricing = MarkupPricing(0.5; s_pi = s_pi))
+		s = solve(m)
+		gc, gc0 = gdp_components(m, s), gdp_components(mb, base)
+		inc = gc.wage_bill + (1 - s_pi) * gc.profit
+		@test real_income_index(s, base) ≈
+			(inc / gc0.wage_bill) / (OpenCGE.cpi(s) / OpenCGE.cpi(base)) atol = 1e-14
+	end
+end

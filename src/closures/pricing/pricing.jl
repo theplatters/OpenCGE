@@ -51,7 +51,8 @@ end
 Route 2 (distribution): `p_i = μ_i c_i` with `μ_i = 1 + κ (y_i/λ_i − 1)`. The
 rent `Π = Σ (1 − 1/μ_i) p_i y_i` is retained (booked beside saving) at
 `s_pi = 1` (Stage A); `s_pi < 1` distributes `(1 − s_pi) Π` to the household
-(Stage B). `κ = 0` nests the baseline exactly.
+as untaxed income and books `s_pi Π` as the leak (Stage B, ADR-0030). `κ = 0`
+nests the baseline exactly; `s_pi = 1` is Stage A exactly.
 """
 struct MarkupPricing <: AbstractPricing
 	κ::Float64
@@ -116,9 +117,16 @@ _apply_markup(::Nothing, c) = c
 _apply_markup(μ::AbstractVector, c) = μ .* c
 
 # The retained part of the rent, booked as a leak beside saving: all of it at
-# Stage A (`nothing` for a rent-free closure).
+# Stage A (s_pi = 1), s_pi·Π at Stage B (`nothing` for a rent-free closure).
+# The s_pi = 1 branch stays arithmetically separate, so Stage B at s_pi = 1 is
+# Stage A exactly.
 _retained_rent(::AbstractPricing, ::Nothing) = nothing
-_retained_rent(::MarkupPricing, Π::Real) = Π
+_retained_rent(pr::MarkupPricing, Π::Real) = pr.s_pi == 1 ? Π : pr.s_pi * Π
+
+# The distributed part (1 − s_pi)·Π entering household expenditure (Stage B,
+# ADR-0030); 0.0 — which `household_expenditure` does not add — otherwise.
+_distributed_rent(::AbstractPricing, ::Nothing) = 0.0
+_distributed_rent(pr::MarkupPricing, Π::Real) = pr.s_pi == 1 ? 0.0 : (1 - pr.s_pi) * Π
 
 # `x + Π` for a closure with a rent, `x` itself (not `x + 0.0`) without one.
 _plus_rent(x, ::Nothing) = x

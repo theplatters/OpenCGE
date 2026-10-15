@@ -229,14 +229,43 @@ end
 """
 	retained_profit(model, sol) -> Float64
 
-The retained markup rent Π_ret at a solved equilibrium (ADR-0029 Stage A: the
-whole rent `Σ (1 − 1/μ_i) p_i y_i`), the leak `external_balance_canary` books
-beside saving. 0 for the rent-free pricing closures. A post-solve helper, not
-a `Solution` field.
+The retained markup rent Π_ret at a solved equilibrium, the leak
+`external_balance_canary` books beside saving: the whole rent
+`Π = Σ (1 − 1/μ_i) p_i y_i` at Stage A (ADR-0029), `s_π·Π` at Stage B
+(ADR-0030). 0 for the rent-free pricing closures. A post-solve helper, not a
+`Solution` field.
 """
 function retained_profit(model::Model{MobileLaborCES}, sol::Solution)::Float64
 	_, blocks = _solution_blocks(model, sol)
 	return something(_retained_rent(model.pricing, blocks.Π), 0.0)
+end
+
+"""
+	profit_share(model, sol) -> Float64
+
+The rent's share of factor income, `Π / (w·ΣL + Π)` (ADR-0030); 0 for the
+rent-free pricing closures.
+"""
+function profit_share(model::Model{MobileLaborCES}, sol::Solution)::Float64
+	c = gdp_components(model, sol)
+	return c.profit / c.income
+end
+
+"""
+	real_income_index(sol::Solution, base::Solution) -> Float64
+
+Household real income index (ADR-0030): labour income plus the distributed
+rent, `w·ΣL + (1 − s_π)·Π`, relative to `base` and deflated by the CPI
+growth. Without distributed profit it is the real wage-bill index. 1.0 at
+`base`. `real_consumption` stays the consumption index of the (augmented)
+household.
+"""
+function real_income_index(sol::Solution, base::Solution)::Float64
+	inc(s) = begin
+		w, blocks = _solution_blocks(s.model, s)
+		_wage_bill(w, blocks.L_i) + _distributed_rent(s.model.pricing, blocks.Π)
+	end
+	return (inc(sol) / inc(base)) / (cpi(sol) / cpi(base))
 end
 
 function gdp_components(model::Model, ::Solution)

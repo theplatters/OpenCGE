@@ -123,7 +123,7 @@ tau_rate(::TaxFinanced, model::Model{MobileLaborCES}, p, w::Real, L_sum::Real) =
 	dot(p, model.data.gov_demand .+ model.financing.g) / (w * L_sum)
 
 """
-	household_expenditure(fin, model, wage_income, p, L_sum; external_transfer = 0.0)
+	household_expenditure(fin, model, wage_income, p, L_sum; external_transfer = 0.0, profit_income = 0.0)
 
 Household expenditure base: after-tax wage income plus the net external
 transfer, E = (1 - tau) w sum L + F. F is the equilibrium external margin of
@@ -131,10 +131,18 @@ the mobile system (ADR-0019): it enters AFTER tax (decision D1), so the
 lump-sum tax base is wage income alone. The eta = 0 and fixed-wage systems
 clear with F identically 0. The v2 import margin applies *within* spending
 (the domestic content of each consumption category), not to E itself.
+
+`profit_income` is the distributed markup rent `(1 - s_pi) Π` of
+`MarkupPricing` Stage B (ADR-0030): E = (1 - tau) w sum L + F + (1 - s_pi) Π,
+untaxed (the tax base stays wage income, v1). A zero `profit_income` is not
+added at all, so every rent-free or retained-rent cell keeps its arithmetic.
 """
-household_expenditure(fin::AbstractFinancing, model::Model{MobileLaborCES},
-		wage_income::Real, p, L_sum::Real; external_transfer::Real = 0.0) =
-	(1 - tau_rate(fin, model, p, wage_income / max(L_sum, eps(Float64)), L_sum)) * wage_income + external_transfer
+function household_expenditure(fin::AbstractFinancing, model::Model{MobileLaborCES},
+		wage_income::Real, p, L_sum::Real; external_transfer::Real = 0.0,
+		profit_income::Real = 0.0)
+	E = (1 - tau_rate(fin, model, p, wage_income / max(L_sum, eps(Float64)), L_sum)) * wage_income + external_transfer
+	return iszero(profit_income) ? E : E + profit_income
+end
 
 """
 	additive_demand(fin, N)

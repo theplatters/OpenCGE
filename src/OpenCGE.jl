@@ -11,7 +11,7 @@ export labor_market_residual
 export AbstractFinancing, NoFinancing, PreferenceReallocation, TaxFinanced, ExternalDebt
 export AbstractPricing, NoPricing, CapacityPricing, MarkupPricing
 export pricing_technology, pricing_markup, pricing_foc_price, pricing_profit, pricing_bill_factor
-export pricing_admissibility, retained_profit, PricingFeasibilityError
+export pricing_admissibility, retained_profit, profit_share, real_income_index, PricingFeasibilityError
 export preference_weights, tau_rate, household_expenditure, additive_demand, public_budget, external_balance, has_additive_anchor
 export delta_elasticities, delta_model, leontief_multiplier, solve_beta, solve_verified
 export retained_io_table, retained_dataset, dataset_coverage, recalibrate_open, DATASET_VARIANTS

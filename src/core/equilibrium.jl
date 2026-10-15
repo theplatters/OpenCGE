@@ -485,7 +485,8 @@ function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
     # solver's exploration of negative-income trial points (the legacy code
     # did). The E > 0 check belongs to the post-solve validation in the
     # notebooks (headline assertions verify E = w*L - T > 0 at equilibrium).
-    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = external_transfer)
+    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = external_transfer,
+        profit_income = _distributed_rent(pr, Π))
     agg = sum(consumption_share .* ds_eff .* p .^ (1 - σ))
     # v3 open economy: the household consumes (1-s)E gross (saving s·E leaks);
     # only the DOMESTIC content circulates -- the import content of household,
@@ -757,9 +758,11 @@ so S = s·E includes it):
          `k_u = p_u^ϵ · a_u^(ϵ−1) · P_u^(1-ϵ)` (ADR-0016),
   B_gov = Σ p_i g_i under ExternalDebt (F3) financing — the programme value —
          and 0 otherwise,
-  Π_ret = the retained rent of a markup closure (ADR-0029 Stage A), booked
-         as a leak beside S and returned as `retained_profit` (0 for the
-         rent-free closures, where the term is absent from `diff`),
+  Π_ret = the retained rent of a markup closure, booked as a leak beside S
+         and returned as `retained_profit`: Π at Stage A (ADR-0029), s_π·Π at
+         Stage B (ADR-0030), where S = s·E already includes the distributed
+         (1 − s_π)·Π; 0 for the rent-free closures, where the term is absent
+         from `diff`,
   diff = S + Π_ret + T + M − (I+X) − (F + B_gov): the external-account
          identity gap.
          With zero legacy manna (the matrix designs; ADR-0005 path) it is
@@ -1109,7 +1112,8 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
     total_income = w * L_sum
-    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = 0.0)
+    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = 0.0,
+        profit_income = _distributed_profit_income(model, p, q))
     agg = sum(data.consumption_share .* ds_eff .* p .^ (1 - σ))
     consumption = (1 .- data.saving_rate) .* (data.consumption_share .* ds_eff .* E .* p .^ (-σ)) ./ agg  # gross household consumption (saving sE leaks)
 
@@ -1126,6 +1130,14 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     return Solution(p, q, wages, consumption, numeraire, real_gdp_index, nominal_gdp, model; external_transfer = 0.0)
 end
 
+
+"""Distributed rent `(1 − s_pi)·Π` at a solved point (Stage B), for the
+post-solve consumption that must match the demand inside the residual."""
+function _distributed_profit_income(model::Model{MobileLaborCES}, p, y)
+    pr = model.pricing
+    μ = pricing_markup(pr, y, model.data.λ)
+    _distributed_rent(pr, pricing_profit(pr, p, μ, y))
+end
 
 """
     solve(model::Model{MobileLaborCES}; init)
@@ -1261,7 +1273,8 @@ function solve(model::Model{MobileLaborCES};
     ds_eff = preference_weights(fin, shocks.demand_shock)
     L_sum = sum(L_i)
     total_income = _wage_bill(w, L_i)
-    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = F)
+    E = household_expenditure(fin, model, total_income, p, L_sum; external_transfer = F,
+        profit_income = _distributed_profit_income(model, p, q))
     agg = sum(data.consumption_share .* ds_eff .* p .^ (1 - σ))
     consumption = (1 .- data.saving_rate) .* (data.consumption_share .* ds_eff .* E .* p .^ (-σ)) ./ agg  # gross household consumption (saving sE leaks)
 
