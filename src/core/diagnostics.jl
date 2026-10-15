@@ -122,6 +122,22 @@ end
 # --- National-accounts GDP measurement (ADR-0018) ---
 
 """
+	_solution_blocks(model, sol) -> (w, blocks)
+
+The wage argument of `sol` and the shared demand blocks evaluated there. η = 0
+carries the sectoral wage vector (ADR-0020 option C), as does every ADR-0022
+cell with `eta_s_vec !== nothing`; every other regime carries one common wage
+in all entries of `wages_raw`.
+"""
+function _solution_blocks(model::Model{MobileLaborCES}, sol::Solution)
+	w = (model.options.elasticities.η == 0.0 ||
+		 model.options.elasticities.eta_s_vec !== nothing) ? sol.wages_raw : sol.wages_raw[1]
+	blocks = _mobile_market_demand(model, sol.prices_raw, sol.quantities, w;
+		external_transfer = sol.external_transfer)
+	return w, blocks
+end
+
+"""
 	gdp_components(model::Model{MobileLaborCES}, sol::Solution) -> NamedTuple
 
 Seven signed aggregate GDP components at a solved open-economy equilibrium,
@@ -144,8 +160,10 @@ factor `k = p^ϵ · a^(ϵ−1) · P^(1−ϵ)`, the shared `pricing_bill_factor` 
 the pricing hooks, ADR-0029).
 
 Returns `(V, Q, wage_bill, wedge, external_transfer, programme_financing,
-external_financing)` with `V`/`Q` the seven component values / quantities
-(model units), `wage_bill = w·ΣL_i` and `wedge = sum(V) - wage_bill`. The
+external_financing, profit, income)` with `V`/`Q` the seven component values /
+quantities (model units), `wage_bill = w·ΣL_i`, `profit` the markup rent Π (0
+for the rent-free pricing closures, ADR-0029), `income = wage_bill + Π` and
+`wedge = sum(V) - income`. The
 demand hook is evaluated with the solution's external transfer
 (`external_transfer = sol.external_transfer`); `programme_financing =
 Σ p_i g_i` under ExternalDebt (F3) and 0 otherwise, and `external_financing
@@ -161,12 +179,7 @@ closed cores have no open-economy blocks).
 function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	p = sol.prices_raw
 	y = sol.quantities
-	# η = 0 carries the sectoral wage vector (ADR-0020 option C), as does every
-	# ADR-0022 cell with `eta_s_vec !== nothing`; every other regime carries one
-	# common wage in all entries of `wages_raw`.
-	w = (model.options.elasticities.η == 0.0 ||
-		 model.options.elasticities.eta_s_vec !== nothing) ? sol.wages_raw : sol.wages_raw[1]
-	blocks = _mobile_market_demand(model, p, y, w; external_transfer = sol.external_transfer)
+	w, blocks = _solution_blocks(model, sol)
 	(; data, options) = model
 	(; ϵ) = options.elasticities
 	m = data.import_margin
@@ -201,12 +214,29 @@ function gdp_components(model::Model{MobileLaborCES}, sol::Solution)
 	V = Float64[V1, V2, V3, V4, V5, V6, V7]
 	Q = Float64[Q1, Q2, Q3, Q4, Q5, Q6, Q7]
 	wage_bill = _wage_bill(w, blocks.L_i)
+	# Income side: wages plus the markup rent (ADR-0029); the rent-free
+	# closures have no rent term at all.
+	income = _plus_rent(wage_bill, blocks.Π)
 	external_transfer = Float64(sol.external_transfer)
 	programme_financing = model.financing isa ExternalDebt ? dot(p, blocks.additive) : 0.0
 	external_financing = external_transfer + programme_financing
-	return (; V = V, Q = Q, wage_bill = Float64(wage_bill), wedge = sum(V) - wage_bill,
+	return (; V = V, Q = Q, wage_bill = Float64(wage_bill), wedge = sum(V) - income,
 		external_transfer = external_transfer, programme_financing = programme_financing,
-		external_financing = external_financing)
+		external_financing = external_financing,
+		profit = Float64(something(blocks.Π, 0.0)), income = Float64(income))
+end
+
+"""
+	retained_profit(model, sol) -> Float64
+
+The retained markup rent Π_ret at a solved equilibrium (ADR-0029 Stage A: the
+whole rent `Σ (1 − 1/μ_i) p_i y_i`), the leak `external_balance_canary` books
+beside saving. 0 for the rent-free pricing closures. A post-solve helper, not
+a `Solution` field.
+"""
+function retained_profit(model::Model{MobileLaborCES}, sol::Solution)::Float64
+	_, blocks = _solution_blocks(model, sol)
+	return something(_retained_rent(model.pricing, blocks.Π), 0.0)
 end
 
 function gdp_components(model::Model, ::Solution)
@@ -250,13 +280,14 @@ end
 """
 	gdp_income(sol::Solution, base::Solution) -> Float64
 
-Income-side real GDP index (ADR-0018): nominal wage-bill growth deflated by
-`gdp_deflator`. 1.0 at `base`.
+Income-side real GDP index (ADR-0018): nominal factor-income growth (the wage
+bill plus any markup rent, ADR-0029) deflated by `gdp_deflator`. 1.0 at
+`base`.
 """
 function gdp_income(sol::Solution, base::Solution)::Float64
 	c = gdp_components(sol.model, sol)
 	c0 = gdp_components(base.model, base)
-	return (c.wage_bill / c0.wage_bill) / gdp_deflator(sol, base)
+	return (c.income / c0.income) / gdp_deflator(sol, base)
 end
 
 """

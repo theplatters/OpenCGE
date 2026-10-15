@@ -71,7 +71,7 @@ MarkupPricing(κ::Real; s_pi::Real = 1.0) = MarkupPricing(κ, s_pi)
 
 Effective technology entering the unit cost and every FOC site.
 """
-pricing_technology(::NoPricing, A, y, λ) = A
+pricing_technology(::Union{NoPricing, MarkupPricing}, A, y, λ) = A
 # Kept in y ./ λ form: a bare y^(-δ) would break scale determinacy.
 pricing_technology(pr::CapacityPricing, A, y, λ) = A .* (y ./ λ) .^ (-pr.δ)
 
@@ -81,6 +81,7 @@ pricing_technology(pr::CapacityPricing, A, y, λ) = A .* (y ./ λ) .^ (-pr.δ)
 Markup vector, or `nothing` for a closure without a markup.
 """
 pricing_markup(::Union{NoPricing, CapacityPricing}, y, λ) = nothing
+pricing_markup(pr::MarkupPricing, y, λ) = 1 .+ pr.κ .* (y ./ λ .- 1)
 
 """
 	pricing_foc_price(pr, p, μ) -> pFOC
@@ -89,6 +90,7 @@ Multiplier of the first-order conditions: the marginal cost `p/μ` (the
 purchaser price `p` itself without a markup).
 """
 pricing_foc_price(::Union{NoPricing, CapacityPricing}, p, μ) = p
+pricing_foc_price(::MarkupPricing, p, μ) = p ./ μ
 
 """
 	pricing_profit(pr, p, μ, y) -> Π
@@ -96,6 +98,7 @@ pricing_foc_price(::Union{NoPricing, CapacityPricing}, p, μ) = p
 Aggregate rent `Σ (1 − 1/μ_i) p_i y_i`, or `nothing` for a rent-free closure.
 """
 pricing_profit(::Union{NoPricing, CapacityPricing}, p, μ, y) = nothing
+pricing_profit(::MarkupPricing, p, μ, y) = sum((1 .- 1 ./ μ) .* p .* y)
 
 """
 	pricing_bill_factor(pFOC, A_eff, ip, ϵ, ip_exponent = 1 - ϵ) -> k
@@ -110,6 +113,57 @@ pricing_bill_factor(pFOC, A_eff, ip, ϵ, ip_exponent = 1 - ϵ) =
 
 # Purchaser price from marginal cost: `μ .* c`, or `c` itself without a markup.
 _apply_markup(::Nothing, c) = c
+_apply_markup(μ::AbstractVector, c) = μ .* c
+
+# The retained part of the rent, booked as a leak beside saving: all of it at
+# Stage A (`nothing` for a rent-free closure).
+_retained_rent(::AbstractPricing, ::Nothing) = nothing
+_retained_rent(::MarkupPricing, Π::Real) = Π
+
+# `x + Π` for a closure with a rent, `x` itself (not `x + 0.0`) without one.
+_plus_rent(x, ::Nothing) = x
+_plus_rent(x, Π::Real) = x + Π
+
+"""
+	PricingFeasibilityError(msg)
+
+A pricing closure's equilibrium is not economically admissible: the solved
+point has a non-positive output, household expenditure or markup. Under the
+retained markup in the fixed-wage gauge this is the demand-shortfall
+condition of ADR-0029 #7, not a solver failure.
+"""
+struct PricingFeasibilityError <: Exception
+	msg::String
+end
+Base.showerror(io::IO, e::PricingFeasibilityError) = print(io, "PricingFeasibilityError: ", e.msg)
+
+"""
+	_assert_pricing_feasible(model, X)
+
+Post-solve admissibility of a markup equilibrium at the canonical vector `X`:
+`y > 0`, `E > 0` and `μ > 0`, else `PricingFeasibilityError`. A no-op for the
+rent-free closures.
+"""
+_assert_pricing_feasible(::Model{MobileLaborCES}, ::AbstractPricing, X) = nothing
+function _assert_pricing_feasible(model::Model{MobileLaborCES}, pr::MarkupPricing, X)
+	N = length(model.data.factor_share)
+	y = X[N+1:2N]
+	μ = pricing_markup(pr, y, model.data.λ)
+	# E is evaluated only where it is defined: the FOC price p/μ needs μ > 0.
+	E = if all(>(0), y) && all(>(0), μ)
+		p, yf, w, F = _unpack_vector(model, X)
+		_mobile_market_demand(model, p, yf, w; external_transfer = F).E
+	else
+		NaN
+	end
+	E > 0 && return nothing
+	throw(PricingFeasibilityError(
+		"the retained-markup equilibrium is not positive (min y = $(minimum(y)), " *
+		"E = $E, min μ = $(minimum(μ))). Retention needs injections: the aggregate " *
+		"add-up (μ − 1)·c·y + (s + m − s·m)·w·L = p·(1 − m)·(gG + exo) + p·X has no " *
+		"positive solution without them in the fixed-wage gauge (ADR-0029 #7); " *
+		"reduce κ or use a design that carries injections"))
+end
 
 """
 	_pricing_state(model, p, y) -> (; A_eff, μ, pFOC)

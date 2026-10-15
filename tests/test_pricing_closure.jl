@@ -167,3 +167,141 @@ end
 		@test 1 ≤ adm.cond < 1e6
 	end
 end
+
+# ── Route 2, Stage A: the retained markup ────────────────────────────────────
+
+@testset "pricing: κ = 0 nests the baseline bit for bit" begin
+	d = pricing_fixture()
+	for data in (d, split_bill(d)), sh in (_pr_demand(), _pr_supply()),
+			(cl, η, fin) in _PR_CELLS
+		m0 = mobile_labor_model(data, sh, 0.5, 0.5, 0.9, η; closure = cl, financing = fin)
+		m1 = mobile_labor_model(data, sh, 0.5, 0.5, 0.9, η; closure = cl, financing = fin,
+			pricing = MarkupPricing(0.0))
+		s0, s1 = solve(m0), solve(m1)
+		@test bit_identical(m0, s0, m1, s1)
+		@test external_balance_canary(m0, _pr_vec(m0, s0)).diff ==
+			external_balance_canary(m1, _pr_vec(m1, s1)).diff
+	end
+end
+
+@testset "pricing: labour FOC at marginal cost (Shephard)" begin
+	# At a κ > 0 solution, y·∂c/∂w = L_i with c the MARGINAL cost (p/μ). The
+	# FOC evaluated at the purchaser price p inflates every L_i by μ^ϵ.
+	d = pricing_fixture()
+	m = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+		financing = TaxFinanced(_PR_G), pricing = MarkupPricing(0.5))
+	s = solve(m)
+	p, y = s.prices_raw, s.quantities
+	(; ϵ, θ) = m.options.elasticities
+	ip = OpenCGE._intermediate_price(d.Ω_raw, p, θ)
+	c(w) = OpenCGE._ces_unit_cost(m.shocks.supply_shock, d.factor_share, w, ip, ϵ)
+	h = 1e-6
+	shephard = (c(1 + h) .- c(1 - h)) ./ (2h) .* y
+	L = sectoral_labor_demand(p, y, 1.0, m)
+	@test L ≈ shephard rtol = 1e-7
+	@test p ≈ pricing_markup(m.pricing, y, d.λ) .* c(1.0) rtol = 1e-10
+	m_p = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+		financing = TaxFinanced(_PR_G))   # same (p, y), FOC at p
+	@test maximum(abs, sectoral_labor_demand(p, y, 1.0, m_p) .- shephard) > 1e-3
+end
+
+@testset "pricing: Stage A leaves the household budget unchanged" begin
+	d = pricing_fixture()
+	for (cl, η, fin) in _PR_CELLS[1:4]
+		m = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, η; closure = cl,
+			financing = fin, pricing = MarkupPricing(0.5))
+		s = solve(m)
+		w = s.wages_raw[1]
+		L = sum(sectoral_labor_demand(s.prices_raw, s.quantities, w, m))
+		τ = tau_rate(fin, m, s.prices_raw, w, L)
+		@test household_expenditure(fin, m, w * L, s.prices_raw, L;
+			external_transfer = s.external_transfer) ≈
+			(1 - τ) * w * L + s.external_transfer atol = 1e-14
+		@test OpenCGE._solution_blocks(m, s)[2].E ≈
+			(1 - τ) * w * L + s.external_transfer atol = 1e-14
+	end
+end
+
+@testset "pricing: external account closes with the retained rent booked" begin
+	d = split_bill(pricing_fixture())
+	for (cl, η, fin) in _PR_CELLS, κ in (0.25, 0.5)
+		m = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, η; closure = cl,
+			financing = fin, pricing = MarkupPricing(κ))
+		s = solve(m)
+		can = external_balance_canary(m, _pr_vec(m, s))
+		Π = retained_profit(m, s)
+		@test abs(Π) > 1e-3                           # the cell carries a rent
+		@test can.retained_profit ≈ Π atol = 1e-14
+		@test abs(can.diff) ≤ 1e-9                    # booked: the identity closes
+		@test can.diff - can.retained_profit ≈ -Π atol = 1e-9   # unbooked: short by Π
+		gc = gdp_components(m, s)
+		@test gc.profit ≈ Π atol = 1e-14
+		@test gc.income ≈ gc.wage_bill + Π atol = 1e-14
+		@test gc.wedge ≈ -can.diff atol = 1e-12
+	end
+	m0 = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, 1.0)
+	@test retained_profit(m0, solve(m0)) == 0.0
+	@test external_balance_canary(m0, _pr_vec(m0, solve(m0))).retained_profit == 0.0
+end
+
+@testset "pricing: legacy-manna reading unchanged by the rent term" begin
+	# ADR-0005 path: the gap reads the unbooked manna p·(A+G), with the rent
+	# booked, exactly as without a markup.
+	d = pricing_fixture()
+	autonomous = [0.1, 0.0, 0.0]
+	sh = Shocks(ones(3), ones(3); autonomous_demand = autonomous)
+	A = autonomous .* d.consumption_share .* sum(d.labor_share)
+	for pr in (NoPricing(), MarkupPricing(0.5))
+		m = mobile_labor_model(d, sh, 0.5, 0.5, 0.9, 1.0; pricing = pr)
+		s = solve(m)
+		can = external_balance_canary(m, _pr_vec(m, s))
+		@test dot(s.prices_raw, A) > 1e-3
+		@test can.diff ≈ dot(s.prices_raw, A) atol = 1e-9
+		pr isa MarkupPricing && @test abs(can.retained_profit) > 1e-5
+	end
+end
+
+@testset "pricing: monotone in κ" begin
+	# Demand-only shock on sector 1 (fixed wage, F2): the expanding sector's
+	# price rises and the contracting sectors' fall as κ grows.
+	d = pricing_fixture()
+	sols = map(0.0:0.1:0.5) do κ
+		solve(mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+			financing = TaxFinanced(_PR_G), pricing = MarkupPricing(κ)))
+	end
+	p1 = [s.prices[1] for s in sols]
+	p2 = [s.prices[2] for s in sols]
+	@test p1[1] ≈ 1.0 atol = 1e-12
+	@test all(diff(p1) .> 0)
+	@test all(diff(p2) .< 0)
+	@test all(diff([s.real_gdp for s in sols]) .< 0)
+end
+
+@testset "pricing: Cobb–Douglas price identity (markup)" begin
+	# The capacity identity with log μ ≠ 0; contains the uniform-markup
+	# cascade p = μ̄^((I−B)⁻¹ 1) as a special case (not p = μ̄).
+	d = pricing_fixture()
+	B = Diagonal(1 .- d.factor_share) * d.Ω_raw
+	for κ in (0.25, 0.5)
+		m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :fixed,
+			financing = TaxFinanced(_PR_G), pricing = MarkupPricing(κ))
+		s = solve(m)
+		μ = pricing_markup(m.pricing, s.quantities, d.λ)
+		@test log.(s.prices_raw) ≈ (I - B) \ (log.(μ) .- log.(m.shocks.supply_shock)) atol = 1e-9
+	end
+end
+
+@testset "pricing: non-positive markup equilibrium raises a named error" begin
+	d = pricing_fixture()
+	m = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+		financing = TaxFinanced(_PR_G), pricing = MarkupPricing(0.5))
+	X = _pr_vec(m, solve(m))
+	@test OpenCGE._assert_pricing_feasible(m, m.pricing, X) === nothing
+	Xneg = copy(X); Xneg[4] = -0.01                     # y_1 < 0
+	@test_throws PricingFeasibilityError OpenCGE._assert_pricing_feasible(m, m.pricing, Xneg)
+	m_big = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+		financing = TaxFinanced(_PR_G), pricing = MarkupPricing(20.0))
+	Xμ = copy(X); Xμ[5] = 0.5 * d.λ[2]                  # μ_2 = 1 + 20·(0.5 − 1) < 0
+	@test_throws PricingFeasibilityError OpenCGE._assert_pricing_feasible(m_big, m_big.pricing, Xμ)
+	@test occursin("injections", sprint(showerror, PricingFeasibilityError("injections")))
+end

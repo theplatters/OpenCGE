@@ -445,6 +445,8 @@ and the canary/diagnostics:
   A_eff, μ, pFOC, Π    the pricing hooks (ADR-0029): effective technology,
                        markup (`nothing` without one), FOC price and rent
                        (`nothing` for a rent-free closure)
+  marginal_cost        the CES unit cost c; `cost = μ .* c` under a markup
+                       (zero profit becomes p = μ·c), `cost = c` otherwise
   intermediate_price   the intermediate-goods price index
 
 Budget-consistent CES demand over the household's (possibly financed)
@@ -508,9 +510,10 @@ function _mobile_market_demand(model::Model{MobileLaborCES}, p::AbstractVector,
     # "labor-reallocation wedge" is retired: it only existed to carry the
     # interpolated 0 < η < 1 cases and was never derived as a CES
     # allocative-loss coefficient.
-    cost = _apply_markup(μ, _ces_unit_cost(A_eff, factor_share, w, intermediate_price, ϵ))
+    marginal_cost = _ces_unit_cost(A_eff, factor_share, w, intermediate_price, ϵ)
+    cost = _apply_markup(μ, marginal_cost)
     return (; intermediary_demand, total_final_demand, c_dom, additive = additive_demand(fin, N),
-        L_i, cost, E, A_eff, μ, pFOC, Π, intermediate_price)
+        L_i, cost, marginal_cost, E, A_eff, μ, pFOC, Π, intermediate_price)
 end
 
 """
@@ -688,6 +691,19 @@ clamped exactly as in `problem`. At a solved all-N system every entry is ~0
 the solve.
 """
 function market_clearing_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
+    p, y, w, F = _unpack_vector(model, X)
+    blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
+    return y .- blocks.intermediary_demand .- blocks.total_final_demand
+end
+
+"""
+    _unpack_vector(model, X) -> (p, y, w, F)
+
+Split a [p; y] (2N, w = 1, F = 0), [p; y; w] (2N+1, F = 0), [p; y; w; F]
+(2N+2) or [p; y; w(1:N); F] (3N+1) vector, clamped exactly as in `problem`.
+Shared by the diagnostics that evaluate the demand blocks at a given point.
+"""
+function _unpack_vector(model::Model{MobileLaborCES}, X::AbstractVector)
     N = length(model.data.factor_share)
     Xv = collect(X)
     if length(Xv) == 2N
@@ -715,8 +731,7 @@ function market_clearing_residuals(model::Model{MobileLaborCES}, X::AbstractVect
         throw(DimensionMismatch(
             "mobile-labor canary expects a $(2N)-, $(2N+1)-, $(2N+2)- or $(3N+1)-element vector [p; y(; w(; F))]"))
     end
-    blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
-    return y .- blocks.intermediary_demand .- blocks.total_final_demand
+    return p, y, w, F
 end
 
 """
@@ -742,7 +757,11 @@ so S = s·E includes it):
          `k_u = p_u^ϵ · a_u^(ϵ−1) · P_u^(1-ϵ)` (ADR-0016),
   B_gov = Σ p_i g_i under ExternalDebt (F3) financing — the programme value —
          and 0 otherwise,
-  diff = S + T + M − (I+X) − (F + B_gov): the external-account identity gap.
+  Π_ret = the retained rent of a markup closure (ADR-0029 Stage A), booked
+         as a leak beside S and returned as `retained_profit` (0 for the
+         rent-free closures, where the term is absent from `diff`),
+  diff = S + Π_ret + T + M − (I+X) − (F + B_gov): the external-account
+         identity gap.
          With zero legacy manna (the matrix designs; ADR-0005 path) it is
          ≈ 0 at every η = 1 solution (mobile and fixed-wage, where the
          cost-minimizing allocation closes the account); at BF η = 0 it
@@ -759,33 +778,7 @@ superseded by ADR-0019: every market clears, and the identity closes through
 the booked external position instead.
 """
 function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector)
-    N = length(model.data.factor_share)
-    Xv = collect(X)
-    if length(Xv) == 2N
-        p = _positive_floor(Xv[1:N])
-        y = _positive_floor(Xv[N+1:2N])
-        w = 1.0
-        F = 0.0
-    elseif length(Xv) == 2N + 1
-        p = _positive_floor(Xv[1:N])
-        y = _positive_floor(Xv[N+1:2N])
-        w = max(Xv[2N+1], 1e-10)
-        F = 0.0
-    elseif length(Xv) == 2N + 2
-        p = _positive_floor(Xv[1:N])
-        y = _positive_floor(Xv[N+1:2N])
-        w = max(Xv[2N+1], 1e-10)
-        F = Xv[2N+2]
-    elseif length(Xv) == 3N + 1
-        # eta = 0 sectoral-wage vector [p; y; w(1:N); F] (ADR-0020 option C)
-        p = _positive_floor(Xv[1:N])
-        y = _positive_floor(Xv[N+1:2N])
-        w = _positive_floor(Xv[2N+1:3N])
-        F = Xv[3N+1]
-    else
-        throw(DimensionMismatch(
-            "mobile-labor canary expects a $(2N)-, $(2N+1)-, $(2N+2)- or $(3N+1)-element vector [p; y(; w(; F))]"))
-    end
+    p, y, w, F = _unpack_vector(model, X)
     blocks = _mobile_market_demand(model, p, y, w; external_transfer = F)
     (; data, options) = model
     (; ϵ) = options.elasticities
@@ -808,10 +801,12 @@ function external_balance_canary(model::Model{MobileLaborCES}, X::AbstractVector
     IX = dot(p, data.exo_demand .+ data.exports_demand)
     B_gov = model.financing isa ExternalDebt ? dot(p, blocks.additive) : 0.0
     M = M_cons + M_inj + M_intl
+    Π_ret = _retained_rent(model.pricing, blocks.Π)
     return (; S = S, IX = IX,
         M = M, T = T_intl,
-        diff = S + T_intl + M - IX - (F + B_gov),
-        external_transfer = F, programme_financing = B_gov, financing = F + B_gov)
+        diff = _plus_rent(S, Π_ret) + T_intl + M - IX - (F + B_gov),
+        external_transfer = F, programme_financing = B_gov, financing = F + B_gov,
+        retained_profit = something(Π_ret, 0.0))
 end
 
 """Return the exact residual vector for either mobile-labor closure.
@@ -1093,6 +1088,7 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
 
     # Pricing closures: the reference guard above no longer covers the
     # solution, so the residual Jacobian must have full rank there.
+    _assert_pricing_feasible(model, model.pricing, x)
     model.pricing isa NoPricing || _assert_locally_determinate(model, x)
 
     p = x[1:N]
@@ -1238,6 +1234,8 @@ function solve(model::Model{MobileLaborCES};
             error("MobileLaborCES.solve did not converge: $(sprint(showerror, e))")
         end
     end
+
+    _assert_pricing_feasible(model, model.pricing, x)
 
     # Full unknowns -> Solution fields (clamp solver dust below zero; the
     # Tornqvist index requires nonnegative quantities)
