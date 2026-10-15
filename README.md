@@ -1,9 +1,9 @@
 # OpenCGE
 
 A production-network CGE model in the Baqaee–Farhi lineage: N-sector economy,
-CES production/network structure, pluggable labour-market and financing
-closures, an explicit external account, and national-accounts (Törnqvist)
-measurement of real GDP.
+CES production/network structure, pluggable labour-market, financing and
+pricing closures, an explicit external account, and national-accounts
+(Törnqvist) measurement of real GDP.
 
 OpenCGE is the kernel of the [BeyondHulten](https://github.com/theplatters/BeyondHulten)
 project on green public investment, split out into its own package so that the
@@ -14,7 +14,7 @@ and its run records.
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.1.0")
+Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.2.0")
 ```
 
 For development, clone and `dev` the checkout:
@@ -43,9 +43,12 @@ sol    = solve(model)
 sol.prices_raw, sol.quantities, sol.external_transfer
 
 # The closure catalogue: ids, their axis, and the constructor implementing them.
-closure_ids()                  # [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1, :F2, :F3]
+closure_ids()                  # [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1, :F2, :F3, :P1, :P2]
 closure_axis(:BETA)            # :labor
 closure_constructor(:BETA)     # beta_model
+
+# A pricing closure (ADR-0029): demand enters the price block.
+solve(mobile_labor_model(data, shocks, 0.5, 0.5, 0.9, 1.0; pricing = CapacityPricing(0.5)))
 ```
 
 `read_data("I-O_DE2019_formatiert.csv"; datadir = "...")` loads a real
@@ -59,7 +62,7 @@ runtime by whoever supplies the table.
 | --- | --- |
 | `src/OpenCGE.jl` | Package entry point (module `OpenCGE`, the exports). |
 | `src/core/` | Accounting, calibration, technology, equilibrium, diagnostics. |
-| `src/closures/` | Labour and financing closure plugins, plus the status-free id→constructor map `registry.jl`. |
+| `src/closures/` | Labour, financing and pricing closure plugins, plus the status-free id→constructor map `registry.jl`. |
 | `ext/` | `OpenCGEGLMakieExt` (GLMakie plotting, loaded only when GLMakie is loaded) and the matrix-plot helpers. |
 | `tests/` | The test suite (synthetic fixtures only) and its entry `tests/runtests.jl`; `test/runtests.jl` is the `Pkg.test` shim. |
 | `DECISIONS.md` | The decision record (ADR/DE/IDEA one-liners). |
