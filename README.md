@@ -14,7 +14,7 @@ and its run records.
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.2.0")
+Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.2.1")
 ```
 
 For development, clone and `dev` the checkout:
@@ -47,7 +47,8 @@ closure_ids()                  # [:BF, :ALPHA, :BETA, :GAMMA, :DELTA, :ZETA, :F1
 closure_axis(:BETA)            # :labor
 closure_constructor(:BETA)     # beta_model
 
-# A pricing closure (ADR-0029): demand enters the price block.
+# A pricing closure (ADR-0029, ADR-0031): demand enters the price block;
+# the capacity exponent is δ scaled by each sector's value-added share.
 solve(mobile_labor_model(data, shocks, 0.5, 0.5, 0.9, 1.0; pricing = CapacityPricing(0.5)))
 ```
 
