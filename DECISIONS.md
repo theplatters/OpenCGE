@@ -121,6 +121,17 @@ Kernel-relevant decisions whose full record stays in the paper repository
   canary books saving `s·E + s_pi·Π`; `s_pi = 1` is Stage A exactly.
   Implemented in OpenCGE v0.2.0 ahead of the ADR body, which the paper
   repository has not written yet. (full record: ADR-0030, paper repo)
+- **OpenCGE@ADR-0031 — Value-added-scaled capacity exponent.**
+  `CapacityPricing(δ)` now reads `A_eff_i = A_i·(y_i/λ_i)^(−δ_i·v_i)` with
+  `v_i = factor_share_i` the value-added share of gross output, so `δ` is the
+  elasticity of value-added productivity with respect to output (Verdoorn
+  coefficient `β = −δ`) and `v_i` turns it into the gross-output exponent;
+  the unscaled ADR-0029 form `(y/λ)^(−δ)` mis-states that exponent and is
+  superseded. `δ` may be a per-sector vector (a constant vector is the scalar
+  bit for bit); `δ = 0` still nests the baseline exactly. Breaking for P1
+  results: the same `δ` now gives a weaker exponent. `pricing_technology`
+  takes `v` as a fifth argument. (kernel-only; full record: this
+  repository's git history)
 
 ## Dead ends and ideas
 
