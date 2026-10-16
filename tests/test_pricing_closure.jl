@@ -107,21 +107,21 @@ end
 				financing = fin, pricing = CapacityPricing(δ))
 			s = solve(m)
 			@test maximum(abs, equilibrium_residuals(s)) ≤ 1e-9
-			@test maximum(abs, s.prices .- 1) > 1e-2   # measured 0.023–0.052
+			@test maximum(abs, s.prices .- 1) > 1e-2   # measured 0.016–0.025
 		end
 	end
 end
 
 @testset "pricing: Cobb–Douglas price identity (capacity)" begin
 	# θ = ϵ = 1, w = 1: log p = (I − B)⁻¹ (log μ − log A_eff), B = diag(1−fs)·Ω_raw,
-	# with μ ≡ 1 on the capacity route and A_eff = A (y/λ)^(−δ).
+	# with μ ≡ 1 on the capacity route and A_eff = A (y/λ)^(−δ·fs).
 	d = pricing_fixture()
 	B = Diagonal(1 .- d.factor_share) * d.Ω_raw
 	for δ in (0.5, -0.5)
 		m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :fixed,
 			financing = TaxFinanced(_PR_G), pricing = CapacityPricing(δ))
 		s = solve(m)
-		A_eff = m.shocks.supply_shock .* (s.quantities ./ d.λ) .^ (-δ)
+		A_eff = m.shocks.supply_shock .* (s.quantities ./ d.λ) .^ (-δ .* d.factor_share)
 		@test log.(s.prices_raw) ≈ (I - B) \ (-log.(A_eff)) atol = 1e-9
 	end
 end
@@ -141,7 +141,7 @@ end
 		# the raw supply shock instead of A_eff opens the identity.
 		ϵ = m.options.elasticities.ϵ
 		ip = OpenCGE._intermediate_price(d.Ω_raw, s.prices_raw, m.options.elasticities.θ)
-		k = pricing_bill_factor(s.prices_raw, m.shocks.supply_shock .* (s.quantities ./ d.λ) .^ (-δ), ip, ϵ)
+		k = pricing_bill_factor(s.prices_raw, m.shocks.supply_shock .* (s.quantities ./ d.λ) .^ (-δ .* d.factor_share), ip, ϵ)
 		k_raw = pricing_bill_factor(s.prices_raw, m.shocks.supply_shock, ip, ϵ)
 		@test abs(dot((k_raw .- k) .* ((d.M_int .+ d.T_int) ./ d.λ), s.quantities)) > 1e-4
 	end
@@ -154,7 +154,7 @@ end
 	@test_throws ArgumentError solve(mobile_labor_model(data, Shocks(ones(2), ones(2), zeros(2)),
 		0.5, 0.5, 0.9, 1.0; closure = :fixed, pricing = CapacityPricing(0.3)))
 	# Increasing returns (δ < 0) is positive feedback; the multi-start runs
-	# agree on the open fixture (s > 0). Measured spread ≤ 1.7e-10, cond ≈ 20–29.
+	# agree on the open fixture (s > 0). Measured spread ≤ 1e-10, cond ≈ 11–12.
 	d = pricing_fixture()
 	for (θ, ϵ) in ((0.5, 0.5), (1.0, 1.0))
 		m = mobile_labor_model(d, _pr_demand(), θ, ϵ, 0.9, 1.0; closure = :fixed,
@@ -165,6 +165,50 @@ end
 		@test adm.spread ≤ 1e-8
 		@test adm.rank == adm.n == 6
 		@test 1 ≤ adm.cond < 1e6
+	end
+end
+
+@testset "pricing: value-added scaling and sector-specific δ" begin
+	d = pricing_fixture()
+	@test CapacityPricing([0.1, 0.2, 0.3]) == CapacityPricing([0.1, 0.2, 0.3])
+	@test hash(CapacityPricing([0.1, 0.2, 0.3])) == hash(CapacityPricing([0.1, 0.2, 0.3]))
+	@test CapacityPricing([1, 2, 3]).δ isa Vector{Float64}
+	@test_throws ArgumentError CapacityPricing([0.1, NaN, 0.3])
+	@test_throws ArgumentError CapacityPricing(Float64[])
+	@test_throws DimensionMismatch mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0;
+		pricing = CapacityPricing([0.1, 0.2]))
+	# The hook scales the exponent by the value-added share and refuses to run
+	# without it.
+	A, y, λ = [1.1, 1.0, 0.9], [1.0, 2.0, 3.0], [1.0, 1.0, 1.0]
+	@test pricing_technology(CapacityPricing(0.5), A, y, λ, d.factor_share) ==
+		A .* (y ./ λ) .^ (-0.5 .* d.factor_share)
+	@test pricing_technology(CapacityPricing([0.5, 0.4, 0.3]), A, y, λ, d.factor_share) ==
+		A .* (y ./ λ) .^ (-[0.5, 0.4, 0.3] .* d.factor_share)
+	@test_throws ArgumentError pricing_technology(CapacityPricing(0.5), A, y, λ)
+	# A constant δ vector is the scalar closure to the last bit.
+	for (cl, η, fin) in _PR_CELLS, sh in (_pr_demand(), _pr_supply())
+		ms = mobile_labor_model(d, sh, 0.5, 0.5, 0.9, η; closure = cl, financing = fin,
+			pricing = CapacityPricing(0.3))
+		mv = mobile_labor_model(d, sh, 0.5, 0.5, 0.9, η; closure = cl, financing = fin,
+			pricing = CapacityPricing(fill(0.3, 3)))
+		@test bit_identical(ms, solve(ms), mv, solve(mv))
+	end
+	# Cobb–Douglas price identity with a sector-specific δ.
+	B = Diagonal(1 .- d.factor_share) * d.Ω_raw
+	δ = [0.5, -0.3, 0.2]
+	m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :fixed,
+		financing = TaxFinanced(_PR_G), pricing = CapacityPricing(δ))
+	s = solve(m)
+	A_eff = m.shocks.supply_shock .* (s.quantities ./ d.λ) .^ (-δ .* d.factor_share)
+	@test log.(s.prices_raw) ≈ (I - B) \ (-log.(A_eff)) atol = 1e-9
+	# The external account still closes on the hand-split bill.
+	ds = split_bill(d)
+	for (cl, η, fin) in _PR_CELLS
+		m = mobile_labor_model(ds, _pr_supply(), 0.5, 0.5, 0.9, η; closure = cl,
+			financing = fin, pricing = CapacityPricing(δ))
+		s = solve(m)
+		@test maximum(abs, equilibrium_residuals(s)) ≤ 1e-9
+		@test abs(external_balance_canary(m, _pr_vec(m, s)).diff) ≤ 1e-9
 	end
 end
 

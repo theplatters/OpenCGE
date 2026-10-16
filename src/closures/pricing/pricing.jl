@@ -10,8 +10,10 @@
 # or as a markup on it. Three closures:
 #
 #   NoPricing()            the baseline: demand-invariant unit cost, p = c.
-#   CapacityPricing(δ)     A_eff_i = A_i (y_i/λ_i)^(-δ): δ > 0 capacity
-#                          pressure, δ < 0 the Kaldor–Verdoorn sign. Rent-free.
+#   CapacityPricing(δ)     A_eff_i = A_i (y_i/λ_i)^(-δ_i v_i), v_i the
+#                          value-added share, δ scalar or per sector: δ > 0
+#                          capacity pressure, δ < 0 the Kaldor–Verdoorn sign
+#                          (Verdoorn coefficient β = -δ). Rent-free.
 #   MarkupPricing(κ; s_pi) p_i = μ_i c_i, μ_i = 1 + κ (y_i/λ_i − 1). Creates a
 #                          rent Π = Σ (1 − 1/μ_i) p_i y_i.
 #
@@ -33,16 +35,46 @@ struct NoPricing <: AbstractPricing end
 	CapacityPricing(δ)
 
 Route 1 (capacity / Kaldor–Verdoorn): effective technology
-`A_eff_i = A_i (y_i/λ_i)^(-δ)`. `δ > 0` is capacity pressure (unit cost rises
-with own output), `δ < 0` increasing returns. Rent-free; `δ = 0` nests the
-baseline exactly.
+
+	A_eff_i = A_i (y_i/λ_i)^(-δ_i v_i),
+
+with `v_i = data.factor_share[i]` the value-added share of gross output. `δ`
+is the elasticity of value-added (labour) productivity with respect to output,
+the quantity the Verdoorn literature estimates: the Verdoorn coefficient is
+`β = -δ`, and the scaling by `v_i` turns it into the gross-output technology
+exponent (with one factor, zero profit makes value added equal the labour
+cost; `1 − v_i` is the intermediate bill). `δ` is a scalar (one coefficient
+for every sector) or a per-sector vector. `δ > 0` is capacity pressure (unit
+cost rises with own output), `δ < 0` increasing returns. Rent-free; `δ = 0`
+nests the baseline exactly.
 """
-struct CapacityPricing <: AbstractPricing
-	δ::Float64
+struct CapacityPricing{T <: Union{Float64, Vector{Float64}}} <: AbstractPricing
+	δ::T
 	function CapacityPricing(δ::Real)
 		isfinite(δ) || throw(ArgumentError("the capacity elasticity δ must be finite"))
-		new(Float64(δ))
+		new{Float64}(Float64(δ))
 	end
+	function CapacityPricing(δ::AbstractVector{<:Real})
+		isempty(δ) && throw(ArgumentError("the capacity elasticity vector δ must not be empty"))
+		all(isfinite, δ) || throw(ArgumentError("every capacity elasticity δ_i must be finite"))
+		new{Vector{Float64}}(Vector{Float64}(δ))
+	end
+end
+# Value semantics for the vector form (the default `==` on a mutable field is
+# identity).
+Base.:(==)(a::CapacityPricing, b::CapacityPricing) = a.δ == b.δ
+Base.hash(pr::CapacityPricing, h::UInt) = hash(pr.δ, hash(:CapacityPricing, h))
+
+# Sector count of a pricing closure's parameters; `nothing` if it carries none
+# that are sector-specific.
+_pricing_dims(::AbstractPricing) = nothing
+_pricing_dims(pr::CapacityPricing{Vector{Float64}}) = length(pr.δ)
+
+function _check_pricing_dims(pr::AbstractPricing, n::Integer)
+	k = _pricing_dims(pr)
+	(k === nothing || k == n) || throw(DimensionMismatch(
+		"pricing closure $pr has $k sector parameters, the data have $n sectors"))
+	return nothing
 end
 
 """
@@ -68,13 +100,20 @@ MarkupPricing(κ::Real; s_pi::Real = 1.0) = MarkupPricing(κ, s_pi)
 # ── Hooks (one definition per expression) ──
 
 """
-	pricing_technology(pr, A, y, λ) -> A_eff
+	pricing_technology(pr, A, y, λ, v) -> A_eff
 
-Effective technology entering the unit cost and every FOC site.
+Effective technology entering the unit cost and every FOC site; `v` is the
+value-added share (`data.factor_share`) that scales the capacity exponent.
+The 4-argument form omits `v` and exists only for closures that do not read it.
 """
+pricing_technology(::Union{NoPricing, MarkupPricing}, A, y, λ, v) = A
 pricing_technology(::Union{NoPricing, MarkupPricing}, A, y, λ) = A
-# Kept in y ./ λ form: a bare y^(-δ) would break scale determinacy.
-pricing_technology(pr::CapacityPricing, A, y, λ) = A .* (y ./ λ) .^ (-pr.δ)
+# Kept in y ./ λ form: a bare y^(-δ v) would break scale determinacy. A vector
+# δ broadcasts elementwise, so a constant vector is bit-identical to the scalar.
+pricing_technology(pr::CapacityPricing, A, y, λ, v) = A .* (y ./ λ) .^ (-pr.δ .* v)
+pricing_technology(pr::CapacityPricing, A, y, λ) = throw(ArgumentError(
+	"CapacityPricing scales its exponent by the value-added share: call " *
+	"pricing_technology(pr, A, y, λ, data.factor_share)"))
 
 """
 	pricing_markup(pr, y, λ) -> μ
@@ -181,7 +220,8 @@ and the public wrappers that are called outside it.
 """
 function _pricing_state(model::Model{MobileLaborCES}, p, y)
 	pr = model.pricing
-	A_eff = pricing_technology(pr, model.shocks.supply_shock, y, model.data.λ)
+	A_eff = pricing_technology(pr, model.shocks.supply_shock, y, model.data.λ,
+		model.data.factor_share)
 	μ = pricing_markup(pr, y, model.data.λ)
 	pFOC = pricing_foc_price(pr, p, μ)
 	return (; A_eff, μ, pFOC)

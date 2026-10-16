@@ -1327,6 +1327,7 @@ function mobile_labor_model(data::Data, shocks::Shocks, θ::Float64, ϵ::Float64
     lb = labor_bar === nothing ? sum(data.labor_share) : Float64(labor_bar)
     fin = financing === nothing ? NoFinancing() : financing
     pr = pricing === nothing ? NoPricing() : pricing
+    _check_pricing_dims(pr, length(data.factor_share))
     model = Model(data, shocks, MobileLaborCES(el, lb, closure_symbol), fin, pr)
     return model
 end
