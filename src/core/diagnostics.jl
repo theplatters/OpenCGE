@@ -358,6 +358,171 @@ function real_consumption(sol::Solution)::Float64
 	return sol.real_gdp
 end
 
+# --- Final-demand bundle and the welfare indices (2026-10-16) ---------------
+# The aggregate measures the paper reports:
+#   (a)  real_consumption        Tornqvist quantity index of consumption
+#   (a') real_consumption_ev     exact money-metric of consumption
+#   (b)  real_final_demand_ces   CES quantity index of the c + lambda*g bundle
+#   (c)  welfare_leisure         first-order leisure-augmented measure
+# Specification and decisions: revision/proposals/45-welfare-indices.md.
+
+"""
+	final_demand_bundle(model, p, y, w; lambda = 1.0, external_transfer = 0.0)
+	    -> (; c, g, f, L_i, wage_bill)
+
+Per-sector final-demand quantities at `(p, y, w)`: gross private consumption
+`c` (the domestic block grossed up by the import margin, as in
+`gdp_components`), public absorption `g` (baseline government purchases plus the
+financed programme bundle) and the valued bundle `f = c + lambda .* g`.
+
+`lambda` is the weight put on public relative to private absorption. It is a
+STANCE, not an implication of the model: public demand is exogenous here, so
+nothing in the kernel makes it welfare-relevant. `lambda = 0` values public
+spending at nothing and returns the pure consumption bundle.
+
+Throws for model types other than the open-economy `Model{MobileLaborCES}`;
+the closed cores have no government or programme block.
+"""
+function final_demand_bundle(model::Model{MobileLaborCES}, p::AbstractVector,
+		y::AbstractVector, w; lambda::Real = 1.0, external_transfer::Real = 0.0)
+	blocks = _mobile_market_demand(model, p, y, w; external_transfer = external_transfer)
+	m = model.data.import_margin
+	c = blocks.c_dom ./ (1 .- m)
+	g = model.data.gov_demand .+ blocks.additive
+	return (; c = c, g = g, f = c .+ lambda .* g, L_i = blocks.L_i,
+		wage_bill = _wage_bill(w, blocks.L_i), E = blocks.E)
+end
+
+function final_demand_bundle(model::Model, ::AbstractVector, ::AbstractVector, w; kwargs...)
+	throw(ArgumentError("final_demand_bundle is only defined for the open-economy " *
+		"Model{MobileLaborCES}; got $(typeof(model))"))
+end
+
+"""
+	ces_quantity_index(q, q0, sigma) -> Float64
+
+CES quantity index of `q` against its baseline `q0`, with baseline quantity
+weights and elasticity of substitution `sigma`:
+
+	[ sum_i w_i (q_i/q_i0)^((sigma-1)/sigma) ]^(sigma/(sigma-1)),  w_i = q_i0/sum q0
+
+`sigma = 1` is the Cobb-Douglas (geometric) limit. Components with a
+non-positive baseline are dropped, since a ratio index cannot represent them.
+
+This is NOT the value ratio `sum(q)/sum(q0)`. The two agree only when every
+component grows by the same factor; for a lopsided basket they differ, and the
+gap is first order in the reallocation. Fixed-weight arithmetic indices
+(Laspeyres, Paasche) do collapse to the value ratio at unchanged prices;
+geometric and curvature-weighted indices do not.
+"""
+function ces_quantity_index(q::AbstractVector{<:Real}, q0::AbstractVector{<:Real},
+		sigma::Real)::Float64
+	length(q) == length(q0) ||
+		throw(DimensionMismatch("q and q0 must have equal length"))
+	any(<(0), q) && throw(DomainError(q, "quantities must be nonnegative"))
+	keep = (q0 .> 0) .& (q .> 0)
+	any(keep) || throw(DomainError(q0, "baseline must have a positive entry"))
+	qk, q0k = q[keep], q0[keep]
+	w = q0k ./ sum(q0k)
+	r = qk ./ q0k
+	abs(sigma - 1) < 1e-12 && return exp(sum(w .* log.(r)))
+	return (sum(w .* r .^ ((sigma - 1) / sigma)))^(sigma / (sigma - 1))
+end
+
+"""Wage vector the demand hook needs, `gdp_components` convention."""
+function _bundle_wage(sol::Solution)
+	es = sol.model.options.elasticities
+	return (es.η == 0.0 || es.eta_s_vec !== nothing) ? sol.wages_raw : sol.wages_raw[1]
+end
+
+"""
+	real_consumption_ev(sol, base) -> Float64
+
+Exact money-metric of household consumption: the ratio of real consumption
+expenditure `sum(p .* c_gross)`, which is exact to all orders because the
+consumption price index is the numeraire (`Pi(p) = 1` on every solve path).
+Equals 1.0 at `base`.
+"""
+function real_consumption_ev(sol::Solution, base::Solution)::Float64
+	bs = final_demand_bundle(sol.model, sol.prices_raw, sol.quantities, _bundle_wage(sol);
+		lambda = 0.0, external_transfer = sol.external_transfer)
+	bb = final_demand_bundle(base.model, base.prices_raw, base.quantities, _bundle_wage(base);
+		lambda = 0.0, external_transfer = base.external_transfer)
+	return sum(sol.prices .* bs.c) / sum(base.prices .* bb.c)
+end
+
+"""
+	real_final_demand_ces(sol, base; lambda = 1.0, sigma = 0.9) -> Float64
+
+CES quantity index of the valued final-demand bundle `c + lambda*(gG + g)`
+against its baseline, with baseline bundle weights and substitution elasticity
+`sigma` (decisions D1/D3, 2026-10-16). Equals 1.0 at `base`.
+"""
+function real_final_demand_ces(sol::Solution, base::Solution; lambda::Real = 1.0,
+		sigma::Real = 0.9)::Float64
+	bs = final_demand_bundle(sol.model, sol.prices_raw, sol.quantities, _bundle_wage(sol);
+		lambda = lambda, external_transfer = sol.external_transfer)
+	bb = final_demand_bundle(base.model, base.prices_raw, base.quantities, _bundle_wage(base);
+		lambda = lambda, external_transfer = base.external_transfer)
+	return ces_quantity_index(bs.f, bb.f, sigma)
+end
+
+"""
+	welfare_leisure(sol, base; lambda = 1.0, sigma = 0.9, saving = :leak)
+	    -> (; q, value_ratio, employment, leisure_cost, welfare, v0)
+
+First-order leisure-augmented money-metric on the valued final-demand bundle:
+
+	dW = (Q - 1) - w * dN / V0
+
+`Q` = `real_final_demand_ces`; `w` the wage-bill-weighted real wage; `dN` the
+change in total employment; `V0` the bundle's baseline value in numeraire
+units, so that the leisure cost is expressed on the same scale as `Q - 1`. The
+returned `welfare` is a fraction, not a percentage.
+
+The first-order form is parameter-free: at the calibrated baseline the marginal
+disutility of labour equals the wage, so the extra wage income and the leisure
+given up coincide to first order and only the curvature of the labour-leisure
+preference survives, as a second-order refinement not implemented here.
+
+`saving` decides what counts as household resources, and it changes the answer:
+	:leak      private demand is consumption; `s*E` never returns (the kernel's own reading)
+	:deferred  private demand is resources, `c ./ (1 - s)` (saving is later consumption)
+
+Only the private part stretches under `:deferred`; the public bundle does not.
+Both are reportable; see the proposal note for why neither is privileged.
+
+`aggregator` chooses how the bundle is valued (spec v6, proposal note §v6):
+	:ces        the fixed-weight CES quantity index --- the *stanced* measure, which
+	            values public absorption through private preferences
+	:ownweights each state under its OWN composition weights, which reduces
+	            identically to the bundle value ratio; regime-consistent, and the
+	            only bundle measure defined when the preferences themselves move
+"""
+function welfare_leisure(sol::Solution, base::Solution; lambda::Real = 1.0,
+		sigma::Real = 0.9, saving::Symbol = :leak, aggregator::Symbol = :ces)
+	saving in (:leak, :deferred) ||
+		throw(ArgumentError("saving must be :leak or :deferred, got $(saving)"))
+	aggregator in (:ces, :ownweights) || throw(ArgumentError(
+		"aggregator must be :ces or :ownweights, got $(aggregator)"))
+	stretch(mod) = saving === :deferred ? 1 / (1 - mod.data.saving_rate) : 1.0
+	bs = final_demand_bundle(sol.model, sol.prices_raw, sol.quantities, _bundle_wage(sol);
+		lambda = lambda, external_transfer = sol.external_transfer)
+	bb = final_demand_bundle(base.model, base.prices_raw, base.quantities, _bundle_wage(base);
+		lambda = lambda, external_transfer = base.external_transfer)
+	f = stretch(sol.model) .* bs.c .+ lambda .* bs.g
+	f0 = stretch(base.model) .* bb.c .+ lambda .* bb.g
+	vr = sum(f) / sum(f0)
+	q = aggregator === :ownweights ? vr : ces_quantity_index(f, f0, sigma)
+	v0 = sum(base.prices .* f0)
+	ls, ls0 = sum(bs.L_i), sum(bb.L_i)
+	w = bs.wage_bill / ls
+	leisure_cost = w * (ls - ls0) / v0
+	return (; q = q, value_ratio = vr, employment = ls - ls0,
+		shock_employment = ls, leisure_cost = leisure_cost,
+		welfare = (q - 1) - leisure_cost, v0 = v0, wage = w)
+end
+
 """
 	sectoral_labor_gap(model, p, q, w) -> Float64
 
