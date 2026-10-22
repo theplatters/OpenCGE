@@ -6,7 +6,7 @@ using Printf
 # (`matrix_labour_order()` x `matrix_financing_order()`), percent units with
 # labelled axes, and one shared colour scale per metric per figure. Sectoral
 # panels sort sectors by baseline gross output descending. Figures state
-# their baseline in a footnote or, for manuscript panels, the legends.
+# their baseline in a footnote or, for manuscript panels, the axis labels.
 # Missing cells render as NaN (blank); NaN sectoral relatives (zero
 # baselines) are masked everywhere. All functions return a `Figure`;
 # `save_matrix_figures` writes files and returns the paths.
@@ -750,7 +750,7 @@ end
 function _mp_panel_size(style::Symbol, size)
 	style in (:exploratory, :manuscript) || throw(ArgumentError(
 		"style must be :exploratory or :manuscript; got $(repr(style))"))
-	return size === nothing ? (style == :manuscript ? (1100, 560) : (1900, 900)) : size
+	return size === nothing ? (style == :manuscript ? (1100, 520) : (1900, 900)) : size
 end
 
 """Black capped line representing the central-cell/σ-variant range."""
@@ -760,87 +760,190 @@ function _mp_range_element()
 			(0.9, 0.5), (0.9, 0.2), (0.9, 0.8)])
 end
 
-"""Wrap sector names for print, treating CSV-header dots as word separators."""
-function _mp_panel_label(label::AbstractString; width::Int = 18)
-	words = split(replace(label, r"[._]+" => " "))
-	lines = String[]
-	line = ""
-	for word in words
-		if !isempty(line) && length(line) + length(word) + 1 > width
-			push!(lines, line)
-			line = ""
-		end
-		line = isempty(line) ? String(word) : line * " " * word
-	end
-	!isempty(line) && push!(lines, line)
-	return join(lines, "\n")
+"""Clean and shorten fallback names; curated caller labels are used verbatim."""
+function _mp_panel_label(label::AbstractString)
+	clean = join(split(replace(label, r"[._]+" => " ")), " ")
+	return length(clean) > 25 ? rstrip(first(clean, 24)) * "…" : clean
 end
 
-"""Place print annotations inside the axis using measured text bounds.
+_mp_panel_tickformat(lo, hi) = hi - lo < 3 ? "{:.1f}%" : "{:.0f}%"
 
-Choose the nearest free label box, avoiding earlier labels and markers;
-short leaders keep displaced labels attached to their sector. Coordinates
-are relative to the axis so leaders remain attached when saving at 2×."""
-function _mp_panel_annotations!(ax, labels, xs, ys, xlo, xhi, ylo, yhi;
-		above = nothing, width::Int = 22)
-	isempty(labels) && return nothing
+"""Place a nearby label only in a free measured box, checked in data space.
+
+`boxes` carries accepted labels between calls. Programme numbers may sit
+inside their own marker. Other labels avoid every marker and are dropped
+when none of the nearby candidates fits; there are no leader lines.
+"""
+function _mp_panel_annotation!(ax, label, x, y, limits, points, boxes;
+		number::Bool = false, above::Bool = false)
+	xlo, xhi, ylo, yhi = limits
 	aw, ah = Float64.(size(ax.scene))
-	points = [(aw * (x - xlo) / (xhi - xlo), ah * (y - ylo) / (yhi - ylo))
-		for (x, y) in zip(xs, ys)]
-	boxes = NTuple{4,Float64}[]
-	for (_, label, x, y) in labels
-		p = text!(ax, [Point2f(0, 0)]; text = _mp_panel_label(label; width = width),
-			space = :relative, align = (:left, :bottom), fontsize = 14)
-		bb = Makie.boundingbox(p, :pixel)
-		w, h = Float64(bb.widths[1]), Float64(bb.widths[2])
-		cx, cy = aw * (x - xlo) / (xhi - xlo), ah * (y - ylo) / (yhi - ylo)
-		maxx, maxy = max(6.0, aw - w - 6), max(6.0, ah - h - 6)
-		miny = above === nothing ? 6.0 :
-			min(maxy, max(6.0, cy + 10, ah * (above - ylo) / (yhi - ylo) + 10))
-		xs_try = vcat(clamp.([cx + 10, cx - w - 10, cx - w / 2], 6, maxx),
-			collect(6.0:12.0:maxx), maxx)
-		ys_try = vcat(clamp.([cy + 10, cy - h - 10, cy - h / 2], miny, maxy),
-			collect(miny:12.0:maxy), maxy)
-		best, bestscore = (6.0, 6.0), Inf
-		for tx in xs_try, ty in ys_try
-			dx, dy = cx - clamp(cx, tx, tx + w), cy - clamp(cy, ty, ty + h)
-			score = dx^2 + dy^2
-			for (bx, by, bw, bh) in boxes
-				ox = max(0.0, min(tx + w + 4, bx + bw) - max(tx - 4, bx))
-				oy = max(0.0, min(ty + h + 4, by + bh) - max(ty - 4, by))
-				score += 1e6 * ox * oy
-			end
-			for (px, py) in points
-				tx - 8 < px < tx + w + 8 && ty - 8 < py < ty + h + 8 && (score += 1e5)
-			end
-			if score < bestscore
-				best, bestscore = (tx, ty), score
-			end
+	dx, dy = (xhi - xlo) / aw, (yhi - ylo) / ah
+	p = text!(ax, [Point2f(0, 0)]; text = label, space = :relative,
+		align = (:left, :bottom), fontsize = 17, color = :black)
+	bb = Makie.boundingbox(p, :pixel)
+	w, h = Float64(bb.widths[1]) * dx, Float64(bb.widths[2]) * dy
+	px, py = 3dx, 3dy
+	candidates = Tuple{Float64,Float64}[]
+	if above
+		# Keep each number directly above its bar; stagger only vertically.
+		append!(candidates, [(x - w / 2, y + gap * dy) for gap in 8:22:140])
+	else
+		number && push!(candidates, (x - w / 2, y - h / 2))
+		for gap in (12, 28, 44, 60)
+			append!(candidates, [(x + gap * dx, y + 6dy),
+				(x - w - gap * dx, y + 6dy),
+				(x - w / 2, y + gap * dy), (x - w / 2, y - h - gap * dy),
+				(x + gap * dx, y - h - 6dy), (x - w - gap * dx, y - h - 6dy)])
 		end
-		tx, ty = best
-		# The measured box may have a small font-bearing offset from its anchor.
-		p[1] = [Point2f((tx - bb.origin[1]) / aw, (ty - bb.origin[2]) / ah)]
-		ex, ey = clamp(cx, tx, tx + w), clamp(cy, ty, ty + h)
-		lines!(ax, [cx / aw, ex / aw], [cy / ah, ey / ah]; space = :relative,
-			color = :gray, linewidth = 0.7)
-		push!(boxes, (tx, ty, w, h))
 	end
-	return nothing
+	for (tx, ty) in candidates
+		(tx >= xlo + px && tx + w <= xhi - px &&
+			ty >= ylo + py && ty + h <= yhi - py) || continue
+		any(b -> tx < b[1] + b[3] + px && tx + w + px > b[1] &&
+			ty < b[2] + b[4] + py && ty + h + py > b[2], boxes) && continue
+		any(points) do point
+			qx, qy = point
+			number && qx == x && qy == y && return false
+			return tx - 10dx < qx < tx + w + 10dx && ty - 10dy < qy < ty + h + 10dy
+		end && continue
+		p[1] = [Point2f((tx - xlo) / (xhi - xlo) - bb.origin[1] / aw,
+			(ty - ylo) / (yhi - ylo) - bb.origin[2] / ah)]
+		push!(boxes, (tx, ty, w, h))
+		return true
+	end
+	delete!(ax, p)
+	return false
+end
+
+"""Print layout; the exploratory drawing path is kept separate below."""
+function _mp_manuscript_panel(ds, cell, idx, programme, vars, right, size, labels)
+	colors = Makie.wong_colors()
+	fig = Figure(; size, figure_padding = (12, 12, 10, 8))
+	fonts = (; xticklabelsize = 16, yticklabelsize = 16, xlabelsize = 17, ylabelsize = 17)
+	axl = Axis(fig[2, 1]; fonts..., xlabel = "Change vs. no-programme baseline (%)",
+		yticks = (1:length(idx), ["$k $(labels[j])" for (k, j) in enumerate(idx)]),
+		yreversed = true, ygridvisible = false)
+	vlines!(axl, [0.0]; color = :gray, linestyle = :dash)
+	vectors = (100 .* programme ./ ds.baseline.quantities,
+		100 .* (cell.quantities .- 1), 100 .* (cell.consumption .- 1), 100 .* (cell.prices .- 1))
+	# Numerical baseline noise is treated consistently with right=:auto.
+	active = [k for k in 1:4 if any(v -> isfinite(v) && abs(v) > 1e-6, vectors[k])]
+	width = 0.76 / max(length(active), 1)
+	xs, ys, cs = Float64[], Float64[], Any[]
+	ex, ey, elo, ehi = Float64[], Float64[], Float64[], Float64[]
+	getvec(c, k) = k == 2 ? c.quantities : k == 3 ? c.consumption : c.prices
+	for (si, k) in enumerate(active), (rank, j) in enumerate(idx)
+		v = vectors[k][j]
+		isfinite(v) || continue
+		pos = rank + (si - (length(active) + 1) / 2) * width
+		push!(xs, pos)
+		push!(ys, v)
+		push!(cs, colors[k])
+		k == 1 && continue
+		vs = [v]
+		for vc in vars
+			vv = getvec(vc, k)
+			j <= length(vv) && isfinite(vv[j]) && push!(vs, 100 * (vv[j] - 1))
+		end
+		length(vs) > 1 || continue
+		push!(ex, v)
+		push!(ey, pos)
+		push!(elo, v - minimum(vs))
+		push!(ehi, maximum(vs) - v)
+	end
+	barplot!(axl, xs, ys; direction = :x, width, color = cs)
+	!isempty(ex) && errorbars!(axl, ex, ey, elo, ehi; direction = :x,
+		whiskerwidth = 7, color = :black)
+	xlo, xhi, _ = _mp_panel_span(vcat(0.0, ys, ex .- elo, ex .+ ehi))
+	xlims!(axl, xlo, xhi)
+	ylims!(axl, 0.4, length(idx) + 0.6)
+	axl.yreversed = true
+	axl.xtickformat = _mp_panel_tickformat(xlo, xhi)
+
+	flat = _mp_panel_right(cell) == :bars
+	axr = Axis(fig[2, 2]; fonts...,
+		xlabel = right == :bars ? "Sectors (output change, descending)" : "Output change vs. baseline (%)",
+		ylabel = right == :bars ? "Output change vs. baseline (%)" : "Price change vs. baseline (%)",
+		subtitle = flat ? "Prices at baseline; price dimension omitted" : "",
+		subtitlesize = 17, subtitlegap = 6)
+	hlines!(axr, [0.0]; color = :gray, linestyle = :dash)
+	inprog = Set(idx)
+	dq, dp = 100 .* (cell.quantities .- 1), 100 .* (cell.prices .- 1)
+	if right == :bars
+		order = sort(filter(j -> isfinite(dq[j]), collect(eachindex(dq))); by = j -> dq[j], rev = true)
+		barplot!(axr, 1:length(order), dq[order]; width = 0.85,
+			color = [colors[j in inprog ? 2 : 1] for j in order])
+		axr.xticks = (Float64[], String[])
+		# Leave a full glyph width at the first/last narrow bar.
+		xlo, xhi = -1.0, Float64(length(order) + 2)
+		ylo, yhi, _ = _mp_panel_span(vcat(0.0, dq[order]); pad = 0.12)
+		# Enough room for adjacent numbered tips, without a label/leader band.
+		yhi += 0.12 * (yhi - ylo)
+		ranks = Dict(j => k for (k, j) in enumerate(order))
+		points = [(Float64(ranks[j]), max(0.0, dq[j])) for j in order]
+	else
+		order = [j for j in eachindex(dq) if isfinite(dq[j]) && isfinite(dp[j])]
+		for (group, color, ms) in (([j for j in order if !(j in inprog)], colors[1], 9),
+				([j for j in order if j in inprog], colors[2], 24))
+			!isempty(group) && scatter!(axr, dq[group], dp[group]; color, markersize = ms)
+		end
+		vlines!(axr, [0.0]; color = :gray, linestyle = :dash)
+		xlo, xhi, _ = _mp_panel_span(dq[order]; pad = 0.10)
+		ylo, yhi, _ = _mp_panel_span(dp[order]; pad = 0.10)
+		points = [(dq[j], dp[j]) for j in order]
+		axr.xtickformat = _mp_panel_tickformat(xlo, xhi)
+		flat && (axr.subtitle = "Prices at baseline")
+	end
+	xlims!(axr, xlo, xhi)
+	ylims!(axr, ylo, yhi)
+	axr.ytickformat = _mp_panel_tickformat(ylo, yhi)
+	names = ["Programme demand (% of gross output)", "Output", "Consumption", "Price"]
+	elements = Any[PolyElement(polycolor = colors[k]) for k in active]
+	legend_labels = names[active]
+	if !isempty(ex)
+		push!(elements, _mp_range_element()); push!(legend_labels, "σ ∈ {0.6, 0.99} range")
+	end
+	append!(elements, right == :bars ?
+		[PolyElement(polycolor = colors[2]), PolyElement(polycolor = colors[1])] :
+		[MarkerElement(marker = :circle, color = colors[2]), MarkerElement(marker = :circle, color = colors[1])])
+	append!(legend_labels, ["Programme sector", "Other sector"])
+	Legend(fig[1, 1:2], elements, legend_labels; orientation = :horizontal, nbanks = 2,
+		labelsize = 17, framevisible = false, tellwidth = false, padding = (0, 0, 0, 0),
+		rowgap = 4, colgap = 16, patchsize = (22, 17))
+	rowgap!(fig.layout, 8)
+	colgap!(fig.layout, 24)
+	# Finalise layout before measuring labels in axis data coordinates.
+	Makie.update_state_before_display!(fig)
+	limits = (xlo, xhi, ylo, yhi)
+	boxes = NTuple{4,Float64}[]
+	for (number, j) in enumerate(idx)
+		j in order || continue
+		x, y = right == :bars ? (Float64(ranks[j]), max(0.0, dq[j])) : (dq[j], dp[j])
+		_mp_panel_annotation!(axr, string(number), x, y, limits, points, boxes;
+			number = true, above = right == :bars)
+	end
+	if right == :scatter
+		others = sort([j for j in order if !(j in inprog)];
+			by = j -> max(abs(dq[j]), abs(dp[j])), rev = true)
+		for j in first(others, min(2, length(others)))
+			_mp_panel_annotation!(axr, labels[j], dq[j], dp[j], limits, points, boxes)
+		end
+	end
+	return fig
 end
 
 """Sorted quantity bars, with the three largest movers in each sector group labelled."""
-function _mp_quantity_bars(fig, cell, idx, colors; manuscript::Bool = false, row::Int = 2)
+function _mp_quantity_bars(fig, cell, idx, colors; row::Int = 2, labels = cell.labels)
 	inprog = Set(idx)
 	dq = 100.0 .* (cell.quantities .- 1.0)
 	order = sort([j for j in eachindex(dq) if isfinite(dq[j])];
 		by = j -> dq[j], rev = true)
-	axis_labels = manuscript ? (; xlabelsize = 18, ylabelsize = 18) : (;)
 	ax = Axis(fig[row, 2];
-		xlabel = manuscript ? "Sectors (quantity change, descending)" :
-			"Sectors sorted by change in quantity (descending)",
-		ylabel = manuscript ? "Quantity change\nvs. baseline (%)" : "Change in quantities (%)",
+		xlabel = "Sectors sorted by change in quantity (descending)",
+		ylabel = "Change in quantities (%)",
 		ytickformat = "{:.2f}%", xticks = (Float64[], String[]),
-		yticklabelsize = manuscript ? 16 : 11, axis_labels...)
+		yticklabelsize = 11)
 	hlines!(ax, [0.0]; color = :gray, linestyle = :dash)
 	barplot!(ax, 1:length(order), dq[order]; width = 0.85,
 		color = [colors[j in inprog ? 2 : 1] for j in order])
@@ -851,20 +954,11 @@ function _mp_quantity_bars(fig, cell, idx, colors; manuscript::Bool = false, row
 	ylo, yhi = lo - 0.30 * span, hi + 1.10 * span
 	ylims!(ax, ylo, yhi)
 	elements = [PolyElement(polycolor = colors[2]), PolyElement(polycolor = colors[1])]
-	if manuscript
-		note = _mp_panel_right(cell) == :bars ?
-			"Prices at baseline;\nprice dimension omitted." :
-			"Quantity-only view;\nprice dimension omitted."
-		Legend(fig[row + 1, 2], elements, ["Programme sectors", "Other sectors"], note;
-			labelsize = 17, titlesize = 17, titlefont = :regular,
-			framevisible = false, tellwidth = false, tellheight = true, halign = :left, valign = :top)
-	else
-		axislegend(ax, elements, ["Programme sectors", "Other sectors"];
-			position = :rb, labelsize = 12)
-		text!(ax, 0.02, 0.98; space = :relative,
-			text = "Quantity-only view; price dimension omitted.",
-			align = (:left, :top), fontsize = 11, color = :gray)
-	end
+	axislegend(ax, elements, ["Programme sectors", "Other sectors"];
+		position = :rb, labelsize = 12)
+	text!(ax, 0.02, 0.98; space = :relative,
+		text = "Quantity-only view; price dimension omitted.",
+		align = (:left, :top), fontsize = 11, color = :gray)
 	selected = Int[]
 	for group in (idx, [j for j in order if !(j in inprog)])
 		movers = sort([j for j in group if isfinite(dq[j])];
@@ -873,12 +967,7 @@ function _mp_quantity_bars(fig, cell, idx, colors; manuscript::Bool = false, row
 	end
 	ranks = Dict(j => k for (k, j) in enumerate(order))
 	sort!(selected; by = j -> ranks[j])
-	if manuscript
-		labels = [(j, cell.labels[j], Float64(ranks[j]), dq[j]) for j in selected]
-		_mp_panel_annotations!(ax, labels, Float64.(1:length(order)), dq[order],
-			0.0, Float64(length(order) + 1), ylo, yhi; above = 0.0, width = 18)
-		return ax
-	end
+
 	# Adjacent tips need separate text lanes. Vertical labels use little width;
 	# stagger toward the interior at either edge, with short tip connectors.
 	for (k, j) in enumerate(selected)
@@ -888,8 +977,8 @@ function _mp_quantity_bars(fig, cell, idx, colors; manuscript::Bool = false, row
 		labelx = x + 1.1 * lane
 		labely = dq[j] + 0.025 * span
 		lines!(ax, [x, labelx], [dq[j], labely]; color = :gray, linewidth = 0.7)
-		text!(ax, labelx, labely; text = cell.labels[j], rotation = π / 2,
-			align = (:left, :center), offset = (0, 4), fontsize = manuscript ? 14 : 11)
+		text!(ax, labelx, labely; text = labels[j], rotation = π / 2,
+			align = (:left, :center), offset = (0, 4), fontsize = 11)
 	end
 	return ax
 end
@@ -916,10 +1005,10 @@ its converged variants (no error bar when no variant is available)."""
 function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(),
-		title = nothing, size = nothing, right::Symbol = :auto, style::Symbol = :exploratory)
+		title = nothing, size = nothing, right::Symbol = :auto, style::Symbol = :exploratory,
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing)
 	size = _mp_panel_size(style, size)
 	manuscript = style == :manuscript
-	axis_labels = manuscript ? (; xlabelsize = 18, ylabelsize = 18) : (;)
 	right in (:auto, :bars, :scatter) || throw(ArgumentError(
 		"right must be :auto, :bars, or :scatter; got $(repr(right))"))
 	rid = String(run_id)
@@ -929,6 +1018,8 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 		" (have: $(join(sort([c.run_id for c in ds.cells]), ", ")))"))
 	right_panel = right == :auto ? _mp_panel_right(cell) : right
 	n = length(cell.quantities)
+	sector_labels !== nothing && length(sector_labels) != n && throw(DimensionMismatch(
+		"sector_labels has length $(length(sector_labels)); expected $n"))
 	!isempty(programme) && length(programme) != n && throw(DimensionMismatch(
 		"programme has length $(length(programme)); expected $n"))
 	idx = _mp_programme_order(programme)
@@ -938,24 +1029,22 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 	isempty(idx) && throw(ArgumentError("no programme sector index fits this dataset"))
 	has_prog = !isempty(programme)
 	vars = _mp_variant_list(variants, rid)
+	if manuscript
+		labels = sector_labels === nothing ? _mp_panel_label.(cell.labels) : String.(sector_labels)
+		return _mp_manuscript_panel(ds, cell, idx, programme, vars, right_panel, size, labels)
+	end
+	labels = sector_labels === nothing ? cell.labels : String.(sector_labels)
 	y0 = ds.baseline.quantities
 	colors = Makie.wong_colors()
 	fig = Figure(size = size)
 	panel_title = _mp_title(title,
 		"5x3 matrix panel — $(cell.labour)-$(cell.financing) (bars = cell; error bars: σ ∈ {0.6, 0.99})")
-	show_title = !manuscript && !isempty(panel_title)
+	show_title = !isempty(panel_title)
 	row = show_title ? 2 : 1
 	show_title && Label(fig[1, 1:2], panel_title, fontsize = 20)
 	# ── Left: grouped bars over the programme sectors (this cell's values). ──
-	series_names = if manuscript
-		["Programme demand\n(% of baseline gross output)",
-			"Output change vs. no-programme baseline (%)",
-			"Consumption change vs.\nno-programme baseline (%)",
-			"Price change vs. no-programme baseline (%)"]
-	else
-		["Programme demand (% of baseline gross output)",
-			"Change in output", "Change in consumption", "Price deviation from numeraire"]
-	end
+	series_names = ["Programme demand (% of baseline gross output)",
+		"Change in output", "Change in consumption", "Price deviation from numeraire"]
 	!has_prog && popfirst!(series_names)
 	ns = length(series_names)
 	width = 0.7 / ns
@@ -963,10 +1052,9 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 		xlabel = "Sector",
 		ylabel = "%",
 		ytickformat = "{:.2f}%",
-		xticks = (1:length(idx), [manuscript ? _mp_panel_label(cell.labels[j]) : cell.labels[j] for j in idx]),
-		xticklabelrotation = manuscript ? π / 2 : π / 4,
-		xticklabelsize = manuscript ? 16 : 11, yticklabelsize = manuscript ? 16 : 11,
-		axis_labels...)
+		xticks = (1:length(idx), [labels[j] for j in idx]),
+		xticklabelrotation = π / 4,
+		xticklabelsize = 11, yticklabelsize = 11)
 	hlines!(axl, [0.0]; color = :gray, linestyle = :dash)
 	bxs = Float64[]
 	bhs = Float64[]
@@ -1018,25 +1106,16 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 		whiskerwidth = 10, color = :black)
 	elements = Any[PolyElement(polycolor = colors[has_prog ? si : si + 1])
 		for si in 1:ns]
-	if manuscript
-		push!(elements, isempty(vars) ? LineElement(color = :transparent) : _mp_range_element())
-		push!(series_names, isempty(vars) ? "No σ variant converged" :
-			"Range over σ ∈ {0.6, 0.99}\n(including central cell)")
-		Legend(fig[row + 1, 1], elements, series_names; labelsize = 17,
-			framevisible = false, tellwidth = false, tellheight = true, halign = :left, valign = :top)
-	else
-		axislegend(axl, elements, series_names; position = :rt, labelsize = 11)
-	end
+	axislegend(axl, elements, series_names; position = :rt, labelsize = 11)
 	if right_panel == :bars
-		_mp_quantity_bars(fig, cell, idx, colors; manuscript = manuscript, row = row)
+		_mp_quantity_bars(fig, cell, idx, colors; row = row, labels = labels)
 	else
 	# ── Right: quantity/price scatter over all sectors (this cell's values). ──
 	axr = Axis(fig[row, 2];
-		xlabel = manuscript ? "Quantity change vs. baseline (%)" : "Change in quantities (%)",
-		ylabel = manuscript ? "Price change\nvs. baseline (%)" : "Change in prices (%)",
+		xlabel = "Change in quantities (%)",
+		ylabel = "Change in prices (%)",
 		xtickformat = "{:.2f}%", ytickformat = "{:.2f}%",
-		xticklabelsize = manuscript ? 16 : 11, yticklabelsize = manuscript ? 16 : 11,
-		axis_labels...)
+		xticklabelsize = 11, yticklabelsize = 11)
 	hlines!(axr, [0.0]; color = :gray, linestyle = :dash)
 	vlines!(axr, [0.0]; color = :gray, linestyle = :dash)
 	inprog = Set(idx)
@@ -1056,12 +1135,12 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 		if j in inprog
 			push!(px, x)
 			push!(py, y)
-			push!(plabs, cell.labels[j])
+			push!(plabs, labels[j])
 			push!(pj, j)
 		else
 			push!(ox, x)
 			push!(oy, y)
-			push!(olabs, cell.labels[j])
+			push!(olabs, labels[j])
 			push!(oj, j)
 		end
 	end
@@ -1069,14 +1148,8 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 	!isempty(px) && scatter!(axr, px, py; color = colors[2], markersize = 16)
 	elements_r = [MarkerElement(marker = :circle, color = colors[2]),
 		MarkerElement(marker = :circle, color = colors[1])]
-	if manuscript
-		Legend(fig[row + 1, 2], elements_r, ["Programme sectors", "Other sectors"];
-			labelsize = 17, framevisible = false, tellwidth = false, tellheight = true,
-			halign = :left, valign = :top)
-	else
-		axislegend(axr, elements_r, ["Programme sectors", "Other sectors"];
-			position = :rb, labelsize = 12)
-	end
+	axislegend(axr, elements_r, ["Programme sectors", "Other sectors"];
+		position = :rb, labelsize = 12)
 	# Limits are per-cell (each file is standalone): degenerate ranges get a
 	# minimum span so the ticks read sensibly, with an annotation naming the
 	# small variation rather than claiming an absent sectoral-wage channel.
@@ -1093,7 +1166,7 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 		if !isempty(notes)
 			text!(axr, xlo + 0.02 * (xhi - xlo), yhi - 0.05 * (yhi - ylo);
 				text = join(notes, "; "), align = (:left, :top),
-				fontsize = manuscript ? 17 : 11, color = :gray)
+				fontsize = 11, color = :gray)
 		end
 	else
 		(xlo, xhi, ylo, yhi) = (-1.0, 1.0, -1.0, 1.0)
@@ -1113,9 +1186,7 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 	for (_, k) in omove[1:min(3, length(omove))]
 		push!(lablist, (oj[k], olabs[k], ox[k], oy[k]))
 	end
-	if manuscript
-		_mp_panel_annotations!(axr, lablist, allx, ally, xlo, xhi, ylo, yhi)
-	elseif !isempty(lablist)
+	if !isempty(lablist)
 		xspan = xhi - xlo
 		(!isfinite(xspan) || xspan <= 0.0) && (xspan = 1.0)
 		sort!(lablist; by = t -> t[3])
@@ -1156,14 +1227,10 @@ function _plot_matrix_panel(ds::OpenCGE.MatrixDataset, run_id::AbstractString;
 			# closures) get diagonal labels: they extend into the empty
 			# panel space instead of overprinting horizontally.
 			rot = counts[c] > 1 ? π / 4 : 0.0
-			text!(axr, x, y; text = t, align = al, fontsize = manuscript ? 14 : 10,
+			text!(axr, x, y; text = t, align = al, fontsize = 10,
 				offset = (xoff, yoff), rotation = rot)
 		end
 	end
-	end
-	if manuscript
-		trim!(fig.layout)
-		return fig
 	end
 	# Footnote in short centred lines: a single `Label` does not wrap, so one
 	# long line would clip symmetrically past the figure edges.
@@ -1195,9 +1262,13 @@ function _save_matrix_panels(ds::OpenCGE.MatrixDataset;
 		outdir = "plots", prefix = "panel_5x3",
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(), formats = ("png",), right::Symbol = :auto,
-		style::Symbol = :exploratory, title = nothing, size = nothing)
+		style::Symbol = :exploratory, title = nothing, size = nothing,
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing)
 
 	_mp_panel_size(style, size)
+	sector_labels !== nothing && length(sector_labels) != length(ds.baseline.quantities) &&
+		throw(DimensionMismatch("sector_labels has length $(length(sector_labels)); " *
+			"expected $(length(ds.baseline.quantities))"))
 	right in (:auto, :bars, :scatter) || throw(ArgumentError(
 		"right must be :auto, :bars, or :scatter; got $(repr(right))"))
 	mkpath(outdir)
@@ -1206,7 +1277,8 @@ function _save_matrix_panels(ds::OpenCGE.MatrixDataset;
 	used = Set{String}()
 	for cell in cells
 		f = _plot_matrix_panel(ds, cell.run_id; programme = programme,
-			variants = variants, right = right, style = style, title = title, size = size)
+			variants = variants, right = right, style = style, title = title, size = size,
+			sector_labels = sector_labels)
 		for ext in formats
 			name = "$(prefix)_$(cell.labour)_$(cell.financing).$(ext)"
 			name in used && (name = "$(prefix)_$(cell.run_id).$(ext)")
@@ -1233,7 +1305,8 @@ end
 	plot_matrix_panel(ds::MatrixDataset, run_id::AbstractString;
 	    programme = Float64[], variants = Dict{String,Any}(),
 	    title = nothing, size = nothing, right::Symbol = :auto,
-	    style::Symbol = :exploratory) -> Figure
+	    style::Symbol = :exploratory,
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing) -> Figure
 
 Manuscript panel figure for one matrix cell: grouped bars over the
 programme sectors (left) plus sorted quantity bars when prices are at baseline
@@ -1245,10 +1318,11 @@ cell's actual prices, so sectoral BETA retains its price response;
 cell, with all other parameters fixed).
 
 `style = :exploratory` preserves the 1900 × 900 layout with title and footnotes;
-`title = ""` suppresses its title. `style = :manuscript` defaults to 1100 × 560
+`title = ""` suppresses its title. `style = :manuscript` defaults to 1100 × 520
 logical pixels for printing at about 14 cm, omits the title and footnotes
-(including the run id), and places explanatory legends below the axes.
-Tick, legend/axis, and point-label sizes are respectively 16, 17–18, and 14.
+(including the run id), and uses horizontal numbered programme bars and one shared legend.
+Ticks are 16 px; labels and legend are 17 px. `sector_labels` supplies N curated
+sector names; omitted manuscript labels are cleaned and truncated to 25 characters.
 `size` overrides either style's default. Save at `px_per_unit = 2` or higher.
 Requires `using GLMakie`.
 """
@@ -1256,25 +1330,28 @@ function OpenCGE.plot_matrix_panel(ds::OpenCGE.MatrixDataset,
 		run_id::AbstractString;
 		programme::AbstractVector = Float64[],
 		variants::AbstractDict = Dict{String,Any}(),
-		title = nothing, size = nothing, right::Symbol = :auto, style::Symbol = :exploratory)
+		title = nothing, size = nothing, right::Symbol = :auto, style::Symbol = :exploratory,
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing)
 	return _plot_matrix_panel(ds, run_id; programme = programme,
-		variants = variants, title = title, size = size, right = right, style = style)
+		variants = variants, title = title, size = size, right = right, style = style,
+		sector_labels = sector_labels)
 end
 
 """
 	save_matrix_panels(ds::MatrixDataset; outdir = "plots",
 	    prefix = "panel_5x3", programme = Float64[],
 	    variants = Dict{String,Any}(), formats = ("png",), right::Symbol = :auto,
-	    style::Symbol = :exploratory, title = nothing, size = nothing) -> Vector{String}
+	    style::Symbol = :exploratory, title = nothing, size = nothing,
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing) -> Vector{String}
 
 Write one manuscript panel figure per matrix cell present in `ds.cells`,
 named `<prefix>_<labour>_<financing>` in canonical labour × financing
 order. `right = :auto` uses sorted quantity bars only when prices are at
 baseline, and the quantity/price scatter otherwise (including sectoral BETA);
-`:bars` / `:scatter` force either. `style`, `title` and `size` are forwarded to
+`:bars` / `:scatter` force either. `sector_labels`, `style`, `title` and `size` are forwarded to
 [`plot_matrix_panel`](@ref): `:exploratory` preserves the original layout;
-`:manuscript` uses a print-ready 1100 × 560 layout without title, footnotes or
-run id. PNGs are saved at `px_per_unit = 2` (2200 × 1120 by default for
+`:manuscript` uses a print-ready 1100 × 520 layout without title, footnotes or
+run id. PNGs are saved at `px_per_unit = 2` (2200 × 1040 by default for
 manuscript panels).
 Requires `using GLMakie`.
 """
@@ -1282,8 +1359,9 @@ function OpenCGE.save_matrix_panels(ds::OpenCGE.MatrixDataset;
 		outdir = "plots", prefix = "panel_5x3",
 		programme::AbstractVector = Float64[], variants::AbstractDict = Dict{String,Any}(),
 		formats = ("png",), right::Symbol = :auto,
-		style::Symbol = :exploratory, title = nothing, size = nothing)
+		style::Symbol = :exploratory, title = nothing, size = nothing,
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing)
 	return _save_matrix_panels(ds; outdir = outdir, prefix = prefix,
 		programme = programme, variants = variants, formats = formats, right = right,
-		style = style, title = title, size = size)
+		style = style, title = title, size = size, sector_labels = sector_labels)
 end

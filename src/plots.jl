@@ -564,35 +564,39 @@ end
 
 """
 	plot_matrix_panel(ds, run_id; style::Symbol = :exploratory,
-	    title = nothing, size = nothing, kwargs...)
+	    title = nothing, size = nothing, sector_labels = nothing, kwargs...)
 
 Two-panel manuscript figure for one matrix cell: grouped programme-sector
 bars (left), all-sector quantity bars sorted descending or a quantity/price
 scatter (right). `right = :auto` uses bars when all prices are at baseline
 and scatter otherwise; `right = :bars` / `:scatter` force either path.
 `style = :exploratory` preserves the 1900 × 900 layout; `title = ""` omits
-its title. `style = :manuscript` uses 1100 × 560 with larger text and legends
-below the axes, omitting title, footnotes and run id. `size` overrides the
+its title. `style = :manuscript` uses 1100 × 520 with numbered horizontal bars and one
+shared legend above the axes, omitting title, footnotes and run id. `size` overrides the
 style's default. Save at `px_per_unit = 2` or higher for print.
+`sector_labels` accepts N curated names. Manuscript fallback names are cleaned
+and truncated to 25 characters.
 Implemented by the GLMakie extension; requires `using GLMakie`.
 """
-function plot_matrix_panel(args...; kwargs...)
+function plot_matrix_panel(args...;
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing, kwargs...)
 	_require_glmakie(:plot_matrix_panel)
 end
 
 """
 	save_matrix_panels(ds; style::Symbol = :exploratory,
-	    title = nothing, size = nothing, kwargs...)
+	    title = nothing, size = nothing, sector_labels = nothing, kwargs...)
 
 Write one manuscript panel figure per matrix cell with per-cell axis limits.
 `right = :auto` uses sorted quantity bars when all prices are at baseline and
 a quantity/price scatter otherwise; `right = :bars` / `:scatter` force either.
-`style`, `title` and `size` are forwarded to [`plot_matrix_panel`](@ref).
+`sector_labels`, `style`, `title` and `size` are forwarded to [`plot_matrix_panel`](@ref).
 Use `style = :manuscript` for the print layout without title, footnotes or
 run id; the default `:exploratory` preserves the original output.
 PNGs are saved at `px_per_unit = 2`.
 Implemented by the GLMakie extension; requires `using GLMakie`.
 """
-function save_matrix_panels(args...; kwargs...)
+function save_matrix_panels(args...;
+		sector_labels::Union{Nothing,AbstractVector{<:AbstractString}} = nothing, kwargs...)
 	_require_glmakie(:save_matrix_panels)
 end

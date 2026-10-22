@@ -133,13 +133,30 @@ Kernel-relevant decisions whose full record stays in the paper repository
   takes `v` as a fifth argument. (kernel-only; full record: this
   repository's git history)
 
-- **ADR-0032 — Opt-in print layout for matrix panels.** `plot_matrix_panel`
+- **ADR-0034 — Opt-in print layout for matrix panels.** `plot_matrix_panel`
   and `save_matrix_panels` retain the exploratory layout by default and add
   `style = :manuscript`: a 1100 × 560 logical-pixel layout for about 14 cm
   print width, with larger fonts, legends below the axes explaining the
   baseline and central-cell/σ-variant range, and no title, footnotes or run
   id. This changes presentation only; saved PNGs use two pixels per logical
   unit, and `title = ""` also suppresses the exploratory title.
+
+- **ADR-0035 — Compact numbered manuscript panels (v0.3.2).** Supersedes
+  ADR-0034's print presentation: 1100 × 520 logical pixels, horizontal
+  programme-sector bars numbered in programme order, matching numbers in
+  the scatter or above quantity bars, one shared two-row legend, baseline
+  axis labels and integer-percent ticks (one decimal below a 3-point span).
+  Callers supply curated `sector_labels`; fallback names are cleaned and
+  shortened to 25 characters. Zero response series are omitted; error bars
+  retain the central-cell/converged-σ-variant min/max meaning. At most two
+  non-programme scatter outliers receive nearby labels, accepted only when
+  measured data-space text boxes fit without overlapping markers or labels;
+  no leader lines are used. Exploratory output is preserved. Presentation
+  only: no solver, closure, calibration or data-layer changes. The original
+  print-layout entry is renumbered from ADR-0032 to ADR-0034 to avoid the
+  paper repository's ADR-0032 (pricing doors on every labour row) and
+  ADR-0033 (financing balancing variables); its historical content is retained.
+  Project and citation versions are aligned at 0.3.2; tagging awaits approval.
 
 ## Dead ends and ideas
 

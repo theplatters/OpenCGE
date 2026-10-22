@@ -1,6 +1,6 @@
 name = "OpenCGE"
 uuid = "ce182077-ed3b-4f5d-9409-09ef275840d9"
-version = "0.3.0"
+version = "0.3.2"
 authors = ["Franz Scharnreitner <fscharnreitner@gmail.com>"]
 
 [deps]
