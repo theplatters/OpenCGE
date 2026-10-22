@@ -14,7 +14,7 @@ and its run records.
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.2.1")
+Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.3.0")
 ```
 
 For development, clone and `dev` the checkout:
@@ -50,6 +50,12 @@ closure_constructor(:BETA)     # beta_model
 # A pricing closure (ADR-0029, ADR-0031): demand enters the price block;
 # the capacity exponent is δ scaled by each sector's value-added share.
 solve(mobile_labor_model(data, shocks, 0.5, 0.5, 0.9, 1.0; pricing = CapacityPricing(0.5)))
+
+# First-order welfare measures of a solved cell against a base (read-only).
+base = solve(mobile_labor_model(data, Shocks(ones(2), ones(2), zeros(2)), 0.5, 0.5, 0.9, 1.0))
+real_consumption_ev(sol, base)                 # money-metric household read, E / π(p)
+real_final_demand_ces(sol, base; lambda = 1.0) # CES index of the c + λg bundle
+welfare_leisure(sol, base).welfare             # bundle index less w·ΔN / V₀
 ```
 
 `read_data("I-O_DE2019_formatiert.csv"; datadir = "...")` loads a real
