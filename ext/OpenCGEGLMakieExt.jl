@@ -14,6 +14,7 @@ using DataFrames
 using ThreadsX
 
 include(joinpath(@__DIR__, "matrix_plots.jl"))
+include(joinpath(@__DIR__, "closure_comparison.jl"))
 
 function OpenCGE.axis_change_in_level!(fig, data, impulses; options)
 	shocks = OpenCGE.impulse_shock(data, impulses)
