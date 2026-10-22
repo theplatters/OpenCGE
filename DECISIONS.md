@@ -133,6 +133,14 @@ Kernel-relevant decisions whose full record stays in the paper repository
   takes `v` as a fifth argument. (kernel-only; full record: this
   repository's git history)
 
+- **ADR-0032 — Opt-in print layout for matrix panels.** `plot_matrix_panel`
+  and `save_matrix_panels` retain the exploratory layout by default and add
+  `style = :manuscript`: a 1100 × 560 logical-pixel layout for about 14 cm
+  print width, with larger fonts, legends below the axes explaining the
+  baseline and central-cell/σ-variant range, and no title, footnotes or run
+  id. This changes presentation only; saved PNGs use two pixels per logical
+  unit, and `title = ""` also suppresses the exploratory title.
+
 ## Dead ends and ideas
 
 - **DE-0001 — Unnormalized household demand shifter.** Multiplying CES weights

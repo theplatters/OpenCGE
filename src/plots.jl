@@ -563,12 +563,17 @@ function save_matrix_figures(args...; kwargs...)
 end
 
 """
-	plot_matrix_panel(args...; kwargs...)
+	plot_matrix_panel(ds, run_id; style::Symbol = :exploratory,
+	    title = nothing, size = nothing, kwargs...)
 
 Two-panel manuscript figure for one matrix cell: grouped programme-sector
 bars (left), all-sector quantity bars sorted descending or a quantity/price
-scatter (right). `right = :auto` uses bars for ALPHA/BETA/GAMMA/DELTA and
-scatter otherwise; `right = :bars` / `:scatter` force either path.
+scatter (right). `right = :auto` uses bars when all prices are at baseline
+and scatter otherwise; `right = :bars` / `:scatter` force either path.
+`style = :exploratory` preserves the 1900 × 900 layout; `title = ""` omits
+its title. `style = :manuscript` uses 1100 × 560 with larger text and legends
+below the axes, omitting title, footnotes and run id. `size` overrides the
+style's default. Save at `px_per_unit = 2` or higher for print.
 Implemented by the GLMakie extension; requires `using GLMakie`.
 """
 function plot_matrix_panel(args...; kwargs...)
@@ -576,11 +581,16 @@ function plot_matrix_panel(args...; kwargs...)
 end
 
 """
-	save_matrix_panels(args...; kwargs...)
+	save_matrix_panels(ds; style::Symbol = :exploratory,
+	    title = nothing, size = nothing, kwargs...)
 
 Write one manuscript panel figure per matrix cell with per-cell axis limits.
-`right = :auto` uses sorted quantity bars for ALPHA/BETA/GAMMA/DELTA and a
-quantity/price scatter otherwise; `right = :bars` / `:scatter` force either.
+`right = :auto` uses sorted quantity bars when all prices are at baseline and
+a quantity/price scatter otherwise; `right = :bars` / `:scatter` force either.
+`style`, `title` and `size` are forwarded to [`plot_matrix_panel`](@ref).
+Use `style = :manuscript` for the print layout without title, footnotes or
+run id; the default `:exploratory` preserves the original output.
+PNGs are saved at `px_per_unit = 2`.
 Implemented by the GLMakie extension; requires `using GLMakie`.
 """
 function save_matrix_panels(args...; kwargs...)
