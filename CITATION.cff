@@ -6,7 +6,7 @@ authors:
     email: "jakob.kapeller@uni-due.de"
   - name: "Franz Scharnreitner"
     email: "fscharnreitner@gmail.com"
-version: 0.3.2
+version: 0.4.0
 date-released: "2026-10-22"
 license: MIT
 repository-code: "https://github.com/theplatters/OpenCGE"

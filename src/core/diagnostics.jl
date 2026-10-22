@@ -116,7 +116,7 @@ Returns the consumer price index (β ̇ p^(1 - σ))^(1/(1-σ)
 """
 function cpi(sol::Solution)
 	σ = sol.model.options.elasticities.σ
-	(sol.model.data.consumption_share' * sol.prices_raw .^ (1- σ))^(1/(1 - σ))
+	_consumption_price_index(sol.model.data.consumption_share, sol.prices_raw, σ)
 end
 
 # --- National-accounts GDP measurement (ADR-0018) ---
@@ -438,9 +438,9 @@ end
 """
 	real_consumption_ev(sol, base) -> Float64
 
-Exact money-metric of household consumption: the ratio of real consumption
-expenditure `sum(p .* c_gross)`, which is exact to all orders because the
-consumption price index is the numeraire (`Pi(p) = 1` on every solve path).
+Exact money-metric of household consumption: the ratio of consumption
+expenditure `sum(p .* c_gross)` at the CPI-normalized prices `sol.prices`.
+These prices have `Pi(p) = 1`, including in the legacy nominal-wage closure.
 Equals 1.0 at `base`.
 """
 function real_consumption_ev(sol::Solution, base::Solution)::Float64
@@ -552,8 +552,7 @@ The `cpi` of a price vector (the `cpi` of a `Solution` without building one).
 function _cpi_from_prices(model::Model{MobileLaborCES}, p::AbstractVector)::Float64
 	σ = model.options.elasticities.σ
 	csh = vec(model.data.consumption_share)
-	abs(σ - 1.0) < 1e-12 && return prod(p .^ csh)
-	return sum(csh .* p .^ (1 - σ))^(1 / (1 - σ))
+	return _consumption_price_index(csh, p, σ)
 end
 
 """

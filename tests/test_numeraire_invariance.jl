@@ -15,8 +15,8 @@ isdefined(Main, :v3_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
 #   (b) off the solution, the residual mapping is gauge-covariant: zero-profit
 #       is degree 1 in (p, w), clearing and the real-wage labour row are degree
 #       0, and the CPI pin is covariant (k*(r+1) - 1), exactly;
-#   (c) the fixed-wage closure pins w = 1 INSTEAD of a CPI row, so scaling p
-#       alone must break zero profit (the missing gauge freedom is the point).
+#   (c) the fixed-real-wage closure uses nominal gauge w = 1 and separately
+#       enforces w/CPI = 1; scaling p alone breaks both economic conditions.
 
 @testset "numeraire invariance: mobile block is gauge-covariant" begin
     fx = v3_fixture()
@@ -53,8 +53,7 @@ isdefined(Main, :v3_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
         @test rk[2N+2] ≈ k * (r[2N+2] + 1) - 1             rtol = 1e-9 atol = 1e-9  # pin gauge-covariance
     end
 
-    # (c) the fixed-wage closure pins w = 1 instead of a CPI row: scaling p alone
-    #      must break zero profit (there is no gauge freedom to absorb it).
+    # (c) w = 1 fixes the nominal gauge; w/CPI = 1 is an additional restriction.
     mfix = Model(data, shocks,
         MobileLaborCES(MobileLaborCESElasticities(Θ, Ε, Σ, 1.0), 1.0, :fixed))
     sfix = solve(mfix)
@@ -62,4 +61,5 @@ isdefined(Main, :v3_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
     Xfk = copy(Xf); Xfk[1:N] .*= 2.0
     rfk = equilibrium_residuals(mfix, Xfk)
     @test maximum(abs, rfk[1:N]) > 1e-3    # zero profit no longer holds
+    @test rfk[end] ≈ -0.5 atol = 1e-9    # the real wage is no longer one
 end

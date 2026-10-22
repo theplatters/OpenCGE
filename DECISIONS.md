@@ -158,6 +158,38 @@ Kernel-relevant decisions whose full record stays in the paper repository
   ADR-0033 (financing balancing variables); its historical content is retained.
   Project and citation versions are aligned at 0.3.2; tagging awaits approval.
 
+- **ADR-0036 — Genuine fixed real wage with zero household transfer.**
+  GAMMA/DELTA (`FixedWageClosure`, `:fixed`) enforce `w/Π(p) = 1` while
+  retaining `F = 0`, all N unit-cost equations, and all N goods-market
+  clearings. With the nominal gauge `w = 1`, the extra real-wage restriction
+  gives 2N+1 equations in 2N unknowns; least squares is used to find a common
+  root, and a nonzero residual minimum raises
+  `FixedRealWageFeasibilityError` rather than returning a moving real wage or
+  introducing a household transfer. This supersedes the nominal-wage reading
+  of GAMMA/DELTA in ADR-0021 and the pricing applications of ADR-0029 through
+  ADR-0031: those results require new runs and may be incompatible with the
+  fixed real wage. The previous equations remain available explicitly as
+  `NominalWageClosure()` / `:nominal` for reproduction, with no new closure id.
+  Demand-only NoPricing results continue to satisfy the real-wage restriction.
+  A shared CES CPI evaluates the geometric-mean limit at `σ = 1` so the
+  restriction cannot disappear through the degenerate `1^Inf` expression.
+  Synthetic tests cover employment adjustment, infeasible pricing and
+  productivity shocks, and compatible pricing with nonuniform prices and
+  zero external-account gaps. A numerical failure to find a common root is
+  reported as such, not as a global nonexistence proof.
+
+- **ADR-0037 — Closure-comparison range bars.** Add a headless selector and
+  GLMakie recipe over existing `MatrixDataset` cells. Each selected sector
+  has output, household consumption (W_D), and price bars in the existing
+  panel palette (Wong colours 2–4); each bar spans the exact selected-cell
+  minimum and maximum, with individual closure ticks in ordered separate
+  lanes to preserve coincident responses. Labour ids expand over explicitly
+  selected financing ids; exact run ids select individual cells. Missing,
+  ambiguous and nonfinite selected responses fail explicitly. Print defaults
+  are 17 cm, 10-point text, and 600-dpi PNGs with resolution metadata; height
+  grows with the selection and labels wrap. Presentation only; no solver or
+  closure formulation changes.
+
 ## Dead ends and ideas
 
 - **DE-0001 — Unnormalized household demand shifter.** Multiplying CES weights

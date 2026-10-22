@@ -14,7 +14,7 @@ and its run records.
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.3.0")
+Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.4.0")
 ```
 
 For development, clone and `dev` the checkout:
@@ -58,6 +58,24 @@ real_final_demand_ces(sol, base; lambda = 1.0) # CES index of the c + λg bundle
 welfare_leisure(sol, base).welfare             # bundle index less w·ΔN / V₀
 ```
 
+`gamma_model(...)`, `delta_model(...)`, and `closure=:fixed` enforce a fixed
+real wage, `w / cpi(sol) = 1`, with endogenous employment and household external
+transfer `F = 0`. The solver retains every goods-market and unit-cost equation;
+if it cannot also satisfy the real-wage restriction it raises
+`FixedRealWageFeasibilityError`. Pricing and productivity shocks can make these
+conditions incompatible. Fixing the nominal wage as the gauge does not remove
+this economic restriction.
+
+For `:fixed`, `equilibrium_residuals` now appends the real-wage residual after
+the N cost and N goods residuals (2N+1 residuals; the unknown vector remains
+`[p; y]`). The solver accepts only a common root of all equations.
+
+To reproduce the earlier wage-normalized pricing formulation, explicitly use
+`closure=NominalWageClosure()` (or `:nominal`) in `mobile_labor_model`. It fixes
+`w = 1` and `F = 0` while allowing the real wage to move. Earlier GAMMA/DELTA
+pricing results need new runs under the fixed-real-wage formulation; some cells
+may have no compatible equilibrium. `delta_model` accepts a `pricing` keyword.
+
 `read_data("I-O_DE2019_formatiert.csv"; datadir = "...")` loads a real
 input–output table (e.g. the German 2019 use table) into the same `Data`
 type. The package itself needs **no data**; `read_data` is only exercised at
@@ -75,6 +93,43 @@ runtime by whoever supplies the table.
 | `DECISIONS.md` | The decision record (ADR/DE/IDEA one-liners). |
 | `STATUS.md` | Short plain-prose status. |
 | `AGENTS.md` | Operating contract for agents and contributors. |
+
+## Comparing closures
+
+`plot_closure_comparison` uses an existing `MatrixDataset` of relative
+sectoral results; it does not run models. Select sectors in the desired order
+and either labour ids (expanded across F1–F3) or exact run ids:
+
+```julia
+using OpenCGE, GLMakie
+
+# ds is a MatrixDataset constructed from your solved cells and baseline.
+sectors = [3, 1, 2]                     # indices, sector ids, or display names
+closures = [:BF, :BETA]                 # all three financing cells for each
+fig = plot_closure_comparison(ds, sectors, closures;
+    sector_labels = ["Construction", "Machinery", "Electrical equipment"])
+save_closure_comparison("closures.png", ds, sectors, closures;
+    sector_labels = ["Construction", "Machinery", "Electrical equipment"])
+
+# Exact run ids select just those cells, in the requested order:
+fig = plot_closure_comparison(ds, sectors, [ds.cells[1].run_id, ds.cells[2].run_id])
+```
+
+Each sector has output, household consumption (W_D), and price bars, using
+the same orange, green, and purple as the existing panel figures. Bars span
+the exact minimum and maximum across the selected cells. Individual closure
+ticks occupy separate lanes, in legend order from top to bottom, so ties
+remain visible. These ranges compare closures, not confidence intervals or
+elasticity variants. Missing, ambiguous, or undefined selected results are
+errors. `closure_comparison_data` exposes the changes and extrema headlessly.
+
+Defaults are 17 cm width and 10-point text at that width. The PNG helper
+exports at 600 dpi and records the physical resolution; embed it at 17 cm
+to retain the intended font size. `width_cm`, `fontsize`, and `dpi` are
+configurable (minimum 8-point text and 300 dpi). Height grows with the
+selection; split long sector lists across figures to fit an A4 page without
+reducing the text. Sector names wrap without truncation. No title or run
+metadata is added to the publication figure.
 
 ## Tests
 

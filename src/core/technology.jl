@@ -297,3 +297,9 @@ function solve(
   return Solution(p, q, wages, consumption, numeraire, real_gdp, wages' * labor, model)
 
 end
+
+"""CES consumption price index, including its Cobb–Douglas limit at σ = 1."""
+function _consumption_price_index(weights, p, σ)
+	abs(σ - 1.0) < 1e-12 && return prod(p .^ weights)
+	return sum(weights .* p .^ (1 - σ))^(1 / (1 - σ))
+end

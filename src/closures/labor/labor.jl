@@ -18,7 +18,7 @@
 #         wage IS w; the anchor w0 = 1 (baseline numeraire wage).
 #
 #   DELTA IO endpoint (a corner of the matrix, never an independent row):
-#         GAMMA (:fixed real factor price w = 1) + Leontief limit of the CES
+#         GAMMA (:fixed real factor price w/CPI = 1) + Leontief limit of the CES
 #         core (θ, ϵ, σ → 0⁺, solved at a small ε for numerical robustness)
 #         with full cost-minimizing allocation (η = 1). Under demand-only
 #         shocks (A = 1) the zero-profit system pins prices at p = 1 exactly,
@@ -55,6 +55,33 @@ function labor_market_residual(c::ElasticLaborClosure, model::Model{MobileLaborC
 	L_sum - model.options.labor_bar * (rw / c.w0)^(c.η_s)
 end
 
+labor_market_residual(::FixedWageClosure, model::Model{MobileLaborCES},
+		L_sum::Real, w::Real, cpi::Real) = w / cpi - 1.0
+
+# The nominal gauge w = 1 leaves 2N unknowns. A genuine fixed real wage adds
+# one economic restriction to all N cost and N clearing equations. Keep F = 0
+# and solve the overdetermined system, accepting only an actual root; a
+# least-squares minimum with nonzero residual is not an equilibrium.
+function _fixed_nonlinear_problem(model::Model{MobileLaborCES}, init)
+	if labor_closure(model) isa FixedWageClosure
+		f = NonlinearSolve.NonlinearFunction(problem_fixed;
+			resid_prototype = zeros(eltype(init), length(init) + 1))
+		return NonlinearSolve.NonlinearLeastSquaresProblem(f, init, model)
+	end
+	return NonlinearSolve.NonlinearProblem(problem_fixed, init, model)
+end
+
+function _fixed_real_wage_failure(model::Model{MobileLaborCES}, x)
+	r = equilibrium_residuals(model, x)
+	N = length(model.data.factor_share)
+	return FixedRealWageFeasibilityError(
+		"no fixed-real-wage equilibrium found with household external transfer F = 0: " *
+		"max|cost residual| = $(maximum(abs, r[1:N])), " *
+		"max|goods residual| = $(maximum(abs, r[N+1:2N])), " *
+		"|w/CPI - 1| = $(abs(r[end])). The real wage and goods markets must " *
+		"hold simultaneously; a nonzero least-squares minimum is not an equilibrium.")
+end
+
 # ── DELTA corner ──────────────────────────────────────────────────────────────
 
 """
@@ -68,14 +95,17 @@ results are insensitive to `ε` up to O(ε).
 delta_elasticities(ε::Real = 1e-4) = MobileLaborCESElasticities(ε, ε, ε, 1.0)
 
 """
-	delta_model(data, shocks; ε = 1e-4, financing = NoFinancing())
+	delta_model(data, shocks; ε = 1e-4, financing = NoFinancing(), pricing = NoPricing())
 
-DELTA-corner model: `:fixed` closure + `delta_elasticities(ε)`.
+DELTA-corner model: fixed real wage `w / CPI = 1`, `F = 0`, and
+`delta_elasticities(ε)`. Pricing/shock combinations incompatible with the real
+wage restriction raise `FixedRealWageFeasibilityError`.
 """
 delta_model(data::Data, shocks::Shocks; ε::Real = 1e-4,
-		financing::AbstractFinancing = NoFinancing()) =
+		financing::AbstractFinancing = NoFinancing(), pricing::AbstractPricing = NoPricing()) =
 	mobile_labor_model(data, shocks, delta_elasticities(ε).θ, delta_elasticities(ε).ϵ,
-		delta_elasticities(ε).σ, delta_elasticities(ε).η; closure = :fixed, financing = financing)
+		delta_elasticities(ε).σ, delta_elasticities(ε).η; closure = :fixed,
+		financing = financing, pricing = pricing)
 
 """
 	leontief_multiplier(data, g; mode = :F3) -> (y, L, c_dom, F)

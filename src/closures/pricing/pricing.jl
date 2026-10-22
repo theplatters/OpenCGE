@@ -289,7 +289,9 @@ Uniqueness diagnostic for a pricing closure (ADR-0029 #11). Re-solves `model`
 from several starting points and reports how far the solutions spread from
 `sol`, plus the rank and condition number of the residual Jacobian at `sol`.
 The default starts are the default init (`p = 1`, `y = λ`), the NoPricing
-(`δ = 0`, `κ = 0`) solution, and `sol` with its quantities scaled by 0.9 and
+(`δ = 0`, `κ = 0`) solution (in the nominal-wage closure for a fixed real
+wage, since NoPricing may be incompatible with that restriction), and `sol`
+with its quantities scaled by 0.9 and
 1.1; `inits` replaces them with a vector of `label => init` pairs (canonical
 vectors of the model's closure, or `nothing` for the default init).
 
@@ -302,7 +304,9 @@ function pricing_admissibility(model::Model{MobileLaborCES}, sol::Solution; init
 	X = _solution_vector(model, sol)
 	N = length(model.data.factor_share)
 	if inits === nothing
-		base = Model(model.data, model.shocks, model.options, model.financing, NoPricing())
+		base_options = labor_closure(model) isa FixedWageClosure ?
+			MobileLaborCES(model.options.elasticities, model.options.labor_bar, :nominal) : model.options
+		base = Model(model.data, model.shocks, base_options, model.financing, NoPricing())
 		Xb = _solution_vector(base, solve(base))
 		ylo = copy(X); ylo[N+1:2N] .*= 0.9
 		yhi = copy(X); yhi[N+1:2N] .*= 1.1

@@ -2,10 +2,12 @@ using OpenCGE, DataFrames, LinearAlgebra, Test
 
 isdefined(Main, :tiny_fixture) || include(joinpath(@__DIR__, "test_helpers.jl"))
 
+# Pricing algebra is exercised under the explicit legacy nominal-wage closure.
+# Genuine fixed-real-wage feasibility is tested in test_fixed_real_wage.jl.
 # Contract tests for the pricing door (ADR-0029, Foundation III): the
 # capacity / Verdoorn route (CapacityPricing) and the markup route
 # (MarkupPricing). Synthetic fixtures only. The open fixture carries saving,
-# an import margin and injections (s > 0), so the fixed-wage η = 1 system is
+# an import margin and injections (s > 0), so the nominal-wage η = 1 system is
 # determinate; `split_bill` hand-splits its purchaser-price bill
 # (A_bill + M_int + T_int = (1 − fs)·λ) so the bill-factor sites of the canary
 # and `gdp_components` are actually exercised (on the compact constructor
@@ -50,7 +52,7 @@ _pr_vec(m, s) = OpenCGE._solution_vector(m, s)
 
 # (closure, η, financing) cells shared by the nesting and account testsets.
 const _PR_CELLS = [
-	(:fixed, 1.0, TaxFinanced(_PR_G)), (:fixed, 1.0, ExternalDebt(_PR_G)),
+	(:nominal, 1.0, TaxFinanced(_PR_G)), (:nominal, 1.0, ExternalDebt(_PR_G)),
 	(:mobile, 1.0, TaxFinanced(_PR_G)), (:mobile, 1.0, ExternalDebt(_PR_G)),
 	(:mobile, 0.0, TaxFinanced(_PR_G)), (:mobile, 0.0, ExternalDebt(_PR_G)),
 ]
@@ -118,7 +120,7 @@ end
 	d = pricing_fixture()
 	B = Diagonal(1 .- d.factor_share) * d.Ω_raw
 	for δ in (0.5, -0.5)
-		m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :fixed,
+		m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :nominal,
 			financing = TaxFinanced(_PR_G), pricing = CapacityPricing(δ))
 		s = solve(m)
 		A_eff = m.shocks.supply_shock .* (s.quantities ./ d.λ) .^ (-δ .* d.factor_share)
@@ -149,15 +151,15 @@ end
 
 @testset "pricing: capacity guard and uniqueness" begin
 	# The ADR-0017 guard runs on a NoPricing clone, so a closed fixture is
-	# still rejected at the fixed-wage η = 1 system.
+	# still rejected at the nominal-wage η = 1 system.
 	data = tiny_fixture()
 	@test_throws ArgumentError solve(mobile_labor_model(data, Shocks(ones(2), ones(2), zeros(2)),
-		0.5, 0.5, 0.9, 1.0; closure = :fixed, pricing = CapacityPricing(0.3)))
+		0.5, 0.5, 0.9, 1.0; closure = :nominal, pricing = CapacityPricing(0.3)))
 	# Increasing returns (δ < 0) is positive feedback; the multi-start runs
 	# agree on the open fixture (s > 0). Measured spread ≤ 1e-10, cond ≈ 11–12.
 	d = pricing_fixture()
 	for (θ, ϵ) in ((0.5, 0.5), (1.0, 1.0))
-		m = mobile_labor_model(d, _pr_demand(), θ, ϵ, 0.9, 1.0; closure = :fixed,
+		m = mobile_labor_model(d, _pr_demand(), θ, ϵ, 0.9, 1.0; closure = :nominal,
 			financing = TaxFinanced(_PR_G), pricing = CapacityPricing(-0.5))
 		s = solve(m)
 		adm = pricing_admissibility(m, s)
@@ -196,7 +198,7 @@ end
 	# Cobb–Douglas price identity with a sector-specific δ.
 	B = Diagonal(1 .- d.factor_share) * d.Ω_raw
 	δ = [0.5, -0.3, 0.2]
-	m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :fixed,
+	m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :nominal,
 		financing = TaxFinanced(_PR_G), pricing = CapacityPricing(δ))
 	s = solve(m)
 	A_eff = m.shocks.supply_shock .* (s.quantities ./ d.λ) .^ (-δ .* d.factor_share)
@@ -232,7 +234,7 @@ end
 	# At a κ > 0 solution, y·∂c/∂w = L_i with c the MARGINAL cost (p/μ). The
 	# FOC evaluated at the purchaser price p inflates every L_i by μ^ϵ.
 	d = pricing_fixture()
-	m = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+	m = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :nominal,
 		financing = TaxFinanced(_PR_G), pricing = MarkupPricing(0.5))
 	s = solve(m)
 	p, y = s.prices_raw, s.quantities
@@ -244,7 +246,7 @@ end
 	L = sectoral_labor_demand(p, y, 1.0, m)
 	@test L ≈ shephard rtol = 1e-7
 	@test p ≈ pricing_markup(m.pricing, y, d.λ) .* c(1.0) rtol = 1e-10
-	m_p = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+	m_p = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :nominal,
 		financing = TaxFinanced(_PR_G))   # same (p, y), FOC at p
 	@test maximum(abs, sectoral_labor_demand(p, y, 1.0, m_p) .- shephard) > 1e-3
 end
@@ -306,11 +308,11 @@ end
 end
 
 @testset "pricing: monotone in κ" begin
-	# Demand-only shock on sector 1 (fixed wage, F2): the expanding sector's
+	# Demand-only shock on sector 1 (nominal wage, F2): the expanding sector's
 	# price rises and the contracting sectors' fall as κ grows.
 	d = pricing_fixture()
 	sols = map(0.0:0.1:0.5) do κ
-		solve(mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+		solve(mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :nominal,
 			financing = TaxFinanced(_PR_G), pricing = MarkupPricing(κ)))
 	end
 	p1 = [s.prices[1] for s in sols]
@@ -327,7 +329,7 @@ end
 	d = pricing_fixture()
 	B = Diagonal(1 .- d.factor_share) * d.Ω_raw
 	for κ in (0.25, 0.5)
-		m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :fixed,
+		m = mobile_labor_model(d, _pr_supply(), 1.0, 1.0, 0.9, 1.0; closure = :nominal,
 			financing = TaxFinanced(_PR_G), pricing = MarkupPricing(κ))
 		s = solve(m)
 		μ = pricing_markup(m.pricing, s.quantities, d.λ)
@@ -337,13 +339,13 @@ end
 
 @testset "pricing: non-positive markup equilibrium raises a named error" begin
 	d = pricing_fixture()
-	m = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+	m = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :nominal,
 		financing = TaxFinanced(_PR_G), pricing = MarkupPricing(0.5))
 	X = _pr_vec(m, solve(m))
 	@test OpenCGE._assert_pricing_feasible(m, m.pricing, X) === nothing
 	Xneg = copy(X); Xneg[4] = -0.01                     # y_1 < 0
 	@test_throws PricingFeasibilityError OpenCGE._assert_pricing_feasible(m, m.pricing, Xneg)
-	m_big = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+	m_big = mobile_labor_model(d, _pr_demand(), 0.5, 0.5, 0.9, 1.0; closure = :nominal,
 		financing = TaxFinanced(_PR_G), pricing = MarkupPricing(20.0))
 	Xμ = copy(X); Xμ[5] = 0.5 * d.λ[2]                  # μ_2 = 1 + 20·(0.5 − 1) < 0
 	@test_throws PricingFeasibilityError OpenCGE._assert_pricing_feasible(m_big, m_big.pricing, Xμ)
@@ -407,12 +409,12 @@ end
 	# real_income_index: 1 at the base; the real wage-bill index without
 	# distributed profit; labour plus (1 − s_π) Π otherwise.
 	mb = mobile_labor_model(d, Shocks(ones(3), ones(3), zeros(3)), 0.5, 0.5, 0.9, 1.0;
-		closure = :fixed, financing = TaxFinanced(_PR_G))
+		closure = :nominal, financing = TaxFinanced(_PR_G))
 	base = solve(mb)
 	@test real_income_index(base, base) ≈ 1.0 atol = 1e-15
 	@test profit_share(mb, base) == 0.0
 	for s_pi in (1.0, 0.5)
-		m = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, 1.0; closure = :fixed,
+		m = mobile_labor_model(d, _pr_supply(), 0.5, 0.5, 0.9, 1.0; closure = :nominal,
 			financing = TaxFinanced(_PR_G), pricing = MarkupPricing(0.5; s_pi = s_pi))
 		s = solve(m)
 		gc, gc0 = gdp_components(m, s), gdp_components(mb, base)

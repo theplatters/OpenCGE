@@ -8,6 +8,7 @@ using LinearAlgebra
 export CESElasticities, LeontiefElasticies, CobbDouglasElasticities, LeontiefElasticiesLabor, MobileLaborCESElasticities
 export AbstractLaborClosure, ExogenousLaborClosure, FlexibleWageClosure, FixedWageClosure, ElasticLaborClosure, SectoralElasticLaborClosure, labor_closure
 export labor_market_residual
+export NominalWageClosure, FixedRealWageFeasibilityError
 export AbstractFinancing, NoFinancing, PreferenceReallocation, TaxFinanced, ExternalDebt
 export AbstractPricing, NoPricing, CapacityPricing, MarkupPricing
 export pricing_technology, pricing_markup, pricing_foc_price, pricing_profit, pricing_bill_factor
@@ -44,6 +45,7 @@ export gdp_components, gdp_deflator, gdp_income, gdp_expenditure, gdp_wedge, rea
 export final_demand_bundle, ces_quantity_index, real_consumption_ev, real_final_demand_ces, welfare_leisure
 export matrix_labour_order, matrix_financing_order, MatrixBaseline, MatrixCellData, MatrixDataset, matrix_baseline, sectoral_trade_flows, matrix_cell_data, matrix_dataset, matrix_cell_ids, matrix_sectoral_frame, matrix_summary_frame, validate_cell, plot_matrix_overview, plot_matrix_wages, plot_matrix_prices, plot_matrix_quantities, plot_matrix_consumption, plot_matrix_trade, save_matrix_figures, plot_matrix_panel, save_matrix_panels
 export sectoral_labor_gap, sectoral_supply_gap
+export closure_comparison_data, plot_closure_comparison, save_closure_comparison
 const inflator = 1.46
 
 include("core/accounting.jl")
@@ -57,5 +59,6 @@ include("closures/pricing/pricing.jl")
 include("closures/registry.jl")
 include("core/diagnostics.jl")
 include("plots.jl")
+include("closure_comparison.jl")
 
 end

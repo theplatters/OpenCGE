@@ -11,8 +11,17 @@ struct ExogenousLaborClosure <: AbstractLaborClosure
 end
 """Mobile labor with a flexible, market-clearing wage."""
 struct FlexibleWageClosure <: AbstractLaborClosure end
-"""Mobile labor with a fixed wage and unconstrained employment demand."""
+"""Fixed real wage `w / CPI = 1`, zero household external transfer, and endogenous employment."""
 struct FixedWageClosure <: AbstractLaborClosure end
+"""Fixed nominal wage `w = 1` and zero household external transfer (legacy pricing formulation)."""
+struct NominalWageClosure <: AbstractLaborClosure end
+
+"""No equilibrium satisfying the fixed real wage and all goods markets was found with `F = 0`."""
+struct FixedRealWageFeasibilityError <: Exception
+	msg::String
+end
+Base.showerror(io::IO, e::FixedRealWageFeasibilityError) =
+	print(io, "FixedRealWageFeasibilityError: ", e.msg)
 """
 	SectoralElasticLaborClosure(eta_s_vec)
 
@@ -51,7 +60,8 @@ labor_closure(options::CobbDouglas) = ExogenousLaborClosure(options.labor_slack)
 _closure_symbol(closure::Symbol) = closure
 _closure_symbol(::FlexibleWageClosure) = :mobile
 _closure_symbol(::FixedWageClosure) = :fixed
+_closure_symbol(::NominalWageClosure) = :nominal
 _closure_symbol(::ElasticLaborClosure) = :beta
 _closure_symbol(::SectoralElasticLaborClosure) = :beta
 _closure_symbol(closure) = throw(ArgumentError(
-    "unsupported MobileLaborCES closure $closure; use :mobile, :fixed, :beta, FlexibleWageClosure(), FixedWageClosure(), or ElasticLaborClosure()"))
+    "unsupported MobileLaborCES closure $closure; use :mobile, :fixed, :nominal, :beta, FlexibleWageClosure(), FixedWageClosure(), NominalWageClosure(), or ElasticLaborClosure()"))
