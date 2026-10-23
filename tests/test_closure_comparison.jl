@@ -38,6 +38,8 @@ end
         ["BF-F3", "BETA-F1"]
     data = closure_comparison_data(ds, [1], [:BETA, :BF]; financing = [:F3, :F1])
     @test data.run_ids == ["BETA-F3", "BETA-F1", "BF-F3", "BF-F1"]
+    @test data.labours == ["BETA", "BETA", "BF", "BF"]
+    @test data.financings == ["F3", "F1", "F3", "F1"]
     @test data.minima[1, 1] ≈ 3
     @test data.maxima[1, 1] ≈ 5.25
     @test closure_comparison_data(ds, [1], ["BF-F1"]).minima ==
@@ -90,107 +92,80 @@ if get(ENV, "OPENCGE_TEST_GLMAKIE", "false") == "true"
     end
 
     @testset "Publication closure-comparison graphics" begin
-        ds = closure_comparison_fixture()
-        fig = plot_closure_comparison(ds, [3, 1, 2], [:BF])
-        ax = only(filter(b -> b isa Axis, fig.content))
+        ds = closure_comparison_fixture(; labours = ["BF", "BETA", "GAMMA"])
+        fig = plot_closure_comparison(ds, [3, 1, 2], [:BF, :BETA, :GAMMA])
+        axes = filter(b -> b isa Axis, fig.content)
+        @test length(axes) == 2
+        ax, sector_axis = axes
         @test size(fig.scene, 1) == round(Int, 17 / 2.54 * 72)
-        @test ax.xticklabelsize[] == ax.yticklabelsize[] == ax.xlabelsize[] == 10
-        @test ax.yreversed[]
+        @test ax.xticklabelsize[] == ax.yticklabelsize[] == ax.ylabelsize[] == 10
+        @test ax.xticks[][2] == repeat(["BF", "BETA", "GAMMA"], 3)
+        @test sector_axis.xticks[][2] == ["Transport equipment", "Construction", "Electrical equipment"]
+        @test sector_axis.xaxisposition[] == :top
         limits = ax.finallimits[]
-        locations = GLMakie.Makie.get_tickvalues(ax.xticks[],
-            Float64(limits.origin[1]), Float64(limits.origin[1] + limits.widths[1]))
+        locations = GLMakie.Makie.get_tickvalues(ax.yticks[],
+            Float64(limits.origin[2]), Float64(limits.origin[2] + limits.widths[2]))
         @test length(locations) >= 4
         @test any(<(0), locations)
-        @test ax.yticks[][2] == ["Transport equipment", "Construction", "Electrical equipment"]
+        # One bar per sector × labour closure × variable: 3 × 3 × 3.
         bars = filter(p -> p isa GLMakie.Makie.BarPlot, ax.scene.plots)
         @test length(bars) == 3
+        @test sum(length(p[1][]) for p in bars) == 27
         colors = GLMakie.Makie.wong_colors()[[2, 3, 4]]
         @test [GLMakie.Makie.to_color(p.color[]) for p in bars] ==
             [GLMakie.Makie.to_color((c, 0.28)) for c in colors]
-        @test all(p.strokewidth[] == 1.0 for p in bars)
-        @test [GLMakie.Makie.to_color(p.strokecolor[]) for p in bars] ==
-            [GLMakie.Makie.to_color((c, 0.85)) for c in colors]
-        @test bars[1].fillto[] ≈ [-1, 3, -4]
-        @test last.(bars[1][1][]) ≈ [1, 5, -2]
-        caps = filter(p -> p isa GLMakie.Makie.LineSegments, ax.scene.plots)
-        @test length(caps) == 3
-        # Two flat price ranges have one cap each; the middle range has two.
-        @test [length(p[1][]) for p in caps] == [12, 12, 8]
-        @test all(p[1][1] == p[2][1] && p[1][2] != p[2][2]
-            for cap in caps for p in Iterators.partition(cap[1][], 2))
-        markers = filter(p -> p isa GLMakie.Makie.Scatter, ax.scene.plots)
-        @test length(markers) == 9
-        @test all(all(==(7.5f0), p.markersize[]) && p.strokewidth[] == 0.9f0 for p in markers)
-        # Untied output responses stay on the centreline; flat prices separate.
-        @test last.(markers[1][1][]) == last.(markers[2][1][]) == last.(markers[3][1][])
-        @test length(unique(first(p[1][])[2] for p in markers[7:9])) == 3
-        @test sum(first(p[1][])[2] for p in markers[7:9]) / 3 ≈ 1 + 14 / 56
-        separators = filter(p -> p isa GLMakie.Makie.HLines, ax.scene.plots)
-        @test only(separators)[1][] == [1.5, 2.5]
+        @test all(p.direction[] == :y for p in bars)
+        # Output bars, sector-major then labour: extrema over F1–F3 only.
+        @test bars[1].fillto[] ≈ [-1, -0.75, -0.5, 3, 3.25, 3.5, -4, -3.75, -3.5]
+        @test last.(bars[1][1][]) ≈ [1, 1.25, 1.5, 5, 5.25, 5.5, -2, -1.75, -1.5]
+        xs = first.(bars[1][1][])
+        @test issorted(xs)
+        @test all(first.(bars[1][1][]) .< first.(bars[2][1][]) .< first.(bars[3][1][]))
+        # One line style per financing id; each spans its bar at the cell value.
+        lines = filter(p -> p isa GLMakie.Makie.LineSegments, ax.scene.plots)
+        @test length(lines) == 3
+        linestyles = [GLMakie.Makie.convert_attribute(s, GLMakie.Makie.Key{:linestyle}())
+            for s in (:solid, :dash, :dot)]
+        @test [p.linestyle[] for p in lines] == linestyles
+        @test all(length(p[1][]) == 2 * 27 for p in lines)
+        f1 = lines[1][1][]
+        @test f1[1] ≈ Point2f(xs[1] - 0.4, -1) && f1[2] ≈ Point2f(xs[1] + 0.4, -1)
+        @test all(p[1] == p[2] for line in lines for p in Iterators.partition(last.(line[1][]), 2))
+        separators = filter(p -> p isa GLMakie.Makie.VLines, ax.scene.plots)
+        @test length(only(separators)[1][]) == 2
         legends = cc_test_legends_fit(fig)
         @test all(l.labelsize[] == 10 for l in legends)
         variable_entries = only(legends[1].entrygroups[])[2]
-        @test [e.attributes[:label][] for e in variable_entries] ==
-            ["Output", "Consumption (W_D)", "Price"]
+        @test all(e.attributes[:label][] isa GLMakie.Makie.LaTeXString for e in variable_entries)
+        @test [String(e.attributes[:label][]) for e in variable_entries] ==
+            [raw"$\Delta y$", raw"$\Delta W_D$", raw"$\Delta p$"]
         @test all(only(e.elements) isa PolyElement for e in variable_entries)
-        closure_entries = only(legends[2].entrygroups[])[2]
-        for (entry, marker) in zip(closure_entries, markers[1:3])
-            element = only(entry.elements)
-            @test element isa MarkerElement
-            @test GLMakie.Makie.to_spritemarker(element.attributes[:marker][]) == marker.marker[]
-            @test GLMakie.Makie.to_color(element.attributes[:markercolor][]) == marker.color[]
-            @test Float32(element.attributes[:markerstrokewidth][]) == marker.strokewidth[]
-        end
-        more = plot_closure_comparison(ds, [1, 2, 3], [:BF, :BETA])
-        @test size(more.scene, 2) > size(fig.scene, 2)
-        multi_legend = last(filter(b -> b isa Legend, more.content))
-        @test multi_legend.orientation[] == :vertical
-        @test multi_legend.nbanks[] == 4
-        @test multi_legend.patchsize[] == (14, 12)
-        @test multi_legend.rowgap[] == 2
-        @test multi_legend.colgap[] == 12
-        cc_test_legends_fit(more)
+        financing_entries = only(legends[2].entrygroups[])[2]
+        @test [e.attributes[:label][] for e in financing_entries] == ["F1", "F2", "F3"]
+        @test [only(e.elements).attributes[:linestyle][] for e in financing_entries] ==
+            [:solid, :dash, :dot]
 
-        # Near-coincident responses separate without shifting a third, distant
-        # closure or the same closures' untied responses in another sector.
-        near = deepcopy(ds)
-        near.cells[2].quantities[1] = near.cells[1].quantities[1] + 0.0005
-        nearfig = plot_closure_comparison(near, [1, 2, 3], [:BF])
-        nearax = only(filter(b -> b isa Axis, nearfig.content))
-        nearmarkers = filter(p -> p isa GLMakie.Makie.Scatter, nearax.scene.plots)
-        @test first(nearmarkers[1][1][])[2] < first(nearmarkers[3][1][])[2] < first(nearmarkers[2][1][])[2]
-        @test [p[1][][2][2] for p in nearmarkers[1:3]] ≈ fill(2 - 14 / 56, 3)
-        @test abs(first(nearmarkers[2][1][])[2] - first(nearmarkers[1][1][])[2]) * 56 ≈ 2.2 atol = 1e-5
+        renamed = plot_closure_comparison(ds, [1], [:GAMMA, :BF]; financing = [:F3, :F1],
+            labour_labels = ["Gamma", "Baqaee–Farhi"], financing_labels = ["High", "Low"])
+        renamed_ax = first(filter(b -> b isa Axis, renamed.content))
+        @test renamed_ax.xticks[][2] == ["Gamma", "Baqaee–Farhi"]
+        @test [e.attributes[:label][] for e in only(last(cc_test_legends_fit(renamed)).entrygroups[])[2]] ==
+            ["High", "Low"]
+        @test_throws DimensionMismatch plot_closure_comparison(ds, [1], [:BF]; labour_labels = ["a", "b"])
+        @test_throws DimensionMismatch plot_closure_comparison(ds, [1], [:BF]; financing_labels = ["a"])
+        # Exact run ids group by labour in order of first appearance.
+        mixed = plot_closure_comparison(ds, [1, 2], ["BETA-F2", "BF-F1", "BETA-F3"])
+        mixed_ax = first(filter(b -> b isa Axis, mixed.content))
+        @test mixed_ax.xticks[][2] == ["BETA", "BF", "BETA", "BF"]
+        @test [p.linestyle[] for p in mixed_ax.scene.plots if p isa GLMakie.Makie.LineSegments] ==
+            linestyles
 
         many = closure_comparison_fixture(; labours = ["BF", "BETA", "GAMMA", "DELTA", "ZETA"])
-        for nc in (9, 15)
-            selection = [c.run_id for c in many.cells[1:nc]]
-            densefig = plot_closure_comparison(many, [1, 2, 3], selection)
-            denseax = only(filter(b -> b isa Axis, densefig.content))
-            densebars = filter(p -> p isa GLMakie.Makie.BarPlot, denseax.scene.plots)
-            densemarkers = filter(p -> p isa GLMakie.Makie.Scatter, denseax.scene.plots)
-            @test size(denseax.scene, 2) ≈ size(ax.scene, 2) ≈ 3 * 56
-            @test all(p.width[] * size(denseax.scene, 2) / 3 ≈ 9 for p in densebars)
-            @test size(densefig.scene, 2) - size(fig.scene, 2) <= 50
-            @test size(densefig.scene, 2) < 320
-            # Fractional tick locations must retain their decimal places.
-            ticklimits = denseax.finallimits[]
-            tickvalues = GLMakie.Makie.get_tickvalues(denseax.xticks[],
-                Float64(ticklimits.origin[1]), Float64(ticklimits.origin[1] + ticklimits.widths[1]))
-            @test denseax.xtickformat[] == (all(isinteger, tickvalues) ? "{:.0f}%" : "{:.1f}%")
-            # All closures share flat prices in sector 1: distinct symmetric
-            # positions within the same nine-point band, including 15-way ties.
-            price_markers = densemarkers[(2nc + 1):3nc]
-            ys = [first(p[1][])[2] for p in price_markers]
-            @test length(unique(ys)) == nc
-            @test sum(ys) / nc ≈ 1 + 14 / 56
-            @test (maximum(ys) - minimum(ys)) * 56 <= 9
-            @test length(unique((p.marker[], p.color[]) for p in densemarkers[1:nc])) == nc
-            cc_test_legends_fit(densefig)
-            longfig = plot_closure_comparison(many, [1, 2, 3], selection;
-                width_cm = 12, closure_labels = ["Capacity constrained sectoral closure $k" for k in 1:nc])
-            cc_test_legends_fit(longfig)
-        end
+        longfig = plot_closure_comparison(many, [1, 2, 3], [:BF, :BETA, :GAMMA, :DELTA, :ZETA];
+            width_cm = 12, sector_labels = ["Capacity constrained sector $k" for k in 1:3])
+        cc_test_legends_fit(longfig)
+        tall = plot_closure_comparison(ds, [1], [:BF]; axis_height_cm = 10)
+        @test size(tall.scene, 2) > size(plot_closure_comparison(ds, [1], [:BF]).scene, 2)
         ext = Base.get_extension(OpenCGE, :OpenCGEGLMakieExt)
         @test ext._cc_wrap("Electrical equipment manufacturing", 16) == "Electrical\nequipment\nmanufacturing"
         @test replace(ext._cc_wrap("Supercalifragilisticexpialidocious", 10), "\n" => "") ==
@@ -202,19 +177,19 @@ if get(ENV, "OPENCGE_TEST_GLMAKIE", "false") == "true"
             cell.prices .= 1
         end
         smallfig = plot_closure_comparison(tiny, [1], [:BF])
-        smallax = only(filter(b -> b isa Axis, smallfig.content))
-        @test smallax.xtickformat[] == "{:.2e}%"
-        @test smallax.finallimits[].widths[1] < 1e-4
+        smallax = first(filter(b -> b isa Axis, smallfig.content))
+        @test smallax.ytickformat[] == "{:.2e}%"
+        @test smallax.finallimits[].widths[2] < 1e-4
         for cell in tiny.cells
             cell.quantities .= 1
         end
         flatfig = plot_closure_comparison(tiny, [1], ["BF-F1"])
-        flatax = only(filter(b -> b isa Axis, flatfig.content))
-        @test all(length(p[1][]) == 2 for p in flatax.scene.plots if p isa GLMakie.Makie.LineSegments)
-        @test all(length(p[1][]) == 1 for p in flatax.scene.plots if p isa GLMakie.Makie.Scatter)
+        flatax = first(filter(b -> b isa Axis, flatfig.content))
+        @test [length(p[1][]) for p in flatax.scene.plots if p isa GLMakie.Makie.LineSegments] == [6]
         cc_test_legends_fit(flatfig)
         @test_throws ArgumentError plot_closure_comparison(ds, [1], [:BF]; width_cm = 5)
         @test_throws ArgumentError plot_closure_comparison(ds, [1], [:BF]; fontsize = 6)
+        @test_throws ArgumentError plot_closure_comparison(ds, [1], [:BF]; axis_height_cm = 1)
         @test_throws ArgumentError save_closure_comparison("unused.png", ds, [1], [:BF]; dpi = 72)
         @test_throws ArgumentError save_closure_comparison("unused.pdf", ds, [1], [:BF])
         mktempdir() do dir

@@ -17,7 +17,8 @@ to select a subset or distinguish parameter variants. `closure_labels` supplies
 one label per expanded cell. No solutions are computed or silently omitted.
 
 Returns `changes[sector, variable, closure]`, `minima[sector, variable]`,
-`maxima[sector, variable]`, and identifying labels. Variables are output,
+`maxima[sector, variable]`, identifying labels, and the `labours` and
+`financings` ids of each expanded cell. Variables are output,
 household consumption, and price, in that order. Ranges are the exact extrema
 over the selected cells; zero is not included unless a cell attains it.
 Undefined/nonfinite selected observations are rejected.
@@ -42,6 +43,7 @@ function closure_comparison_data(ds::MatrixDataset, sectors::AbstractVector,
         end
     end
     return (; sectors = ref.sectors[idx], labels, run_ids, closure_labels = clabels,
+        labours = [c.labour for c in cells], financings = [c.financing for c in cells],
         variables = (:output, :consumption, :price), changes,
         minima = dropdims(minimum(changes; dims = 3); dims = 3),
         maxima = dropdims(maximum(changes; dims = 3); dims = 3))
@@ -108,22 +110,26 @@ function _closure_comparison_selection(ds::MatrixDataset, sectors::AbstractVecto
 end
 
 """
-    plot_closure_comparison(ds, sectors, closures; width_cm = 17, fontsize = 10,
-        financing = matrix_financing_order(), sector_labels = nothing,
-        closure_labels = nothing)
+    plot_closure_comparison(ds, sectors, closures; width_cm = 17,
+        axis_height_cm = 7, fontsize = 10, financing = matrix_financing_order(),
+        sector_labels = nothing, closure_labels = nothing,
+        labour_labels = nothing, financing_labels = nothing)
 
-Publication-sized horizontal range bars: one group per selected sector, with
-output, household consumption (W_D), and price in the existing panel palette.
-Each translucent band runs from the smallest to the largest selected closure
-result. Marker shapes and filled/outlined styles identify individual closures;
-near-coincident values receive small symmetric vertical offsets inside the band.
-All three variables are retained,
-including unchanged prices. The dashed vertical reference is zero change.
+Publication-sized vertical range bars. Each selected sector holds one group of
+bars per labour closure, and each group holds output, household consumption
+(W_D), and price bars in the existing panel palette. A translucent bar runs
+from the smallest to the largest result over that labour closure's selected
+financing cells; a line across the bar marks each financing cell's result,
+with one line style per financing id (at most five). Labour groups and
+financing styles follow the order of first appearance in the selection. All
+three variables are retained, including unchanged prices. The dashed
+horizontal reference is zero change.
 
-Selectors follow [`closure_comparison_data`](@ref). Font sizes are in print
-points at `width_cm`; sector rows and bands have fixed, compact heights as
-closures are added, with extra rows only in the legend. Long labels wrap without truncation.
-For long selections, split sectors across figures to fit the page height.
+Selectors follow [`closure_comparison_data`](@ref); `closure_labels` is
+validated but not drawn. `labour_labels` and `financing_labels` supply one
+display label per distinct labour or financing id. Font sizes are in print
+points at `width_cm`; `axis_height_cm` is the plot-area height. Long labels
+wrap without truncation. For long selections, split sectors across figures.
 Requires `using GLMakie`. Returns a Makie `Figure`; see
 [`save_closure_comparison`](@ref) for a PNG at the intended physical size.
 """

@@ -235,6 +235,17 @@ Kernel-relevant decisions whose full record stays in the paper repository
   This replaces the initial scatter input as explicitly requested; the range
   comparison API and all model formulations are unchanged.
 
+- **ADR-0041 — Vertical range bars grouped by labour closure.** Supersedes
+  ADR-0037/ADR-0038's one-band-per-variable layout, closure markers and tie
+  offsets. `plot_closure_comparison` draws vertical bars: per sector one group
+  per labour closure, each with output, consumption and price bars spanning
+  the extrema over that labour closure's financing cells. A line across each
+  bar marks every financing cell, with one line style per financing id (at
+  most five, otherwise an error). Sector names sit above the plot, labour ids
+  below. Additive API: `closure_comparison_data` also returns per-cell
+  `labours` and `financings`; the plot gains `labour_labels`,
+  `financing_labels` and `axis_height_cm`. Presentation only.
+
 - **ADR-0042 — Names attached to scatter closure pairs.** Add optional
   `"Name" => (labour, financing)` entries to the scatter's pair selection.
   Their names appear in the top legend, with closure ids as the fallback

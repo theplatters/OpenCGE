@@ -112,26 +112,24 @@ save_closure_comparison("closures.png", ds, sectors, closures;
 fig = plot_closure_comparison(ds, sectors, [ds.cells[1].run_id, ds.cells[2].run_id])
 ```
 
-Each sector has output, household consumption (W_D), and price bands, using
-the same orange, green, and purple as the existing panel figures. Translucent
-bands span the exact minimum and maximum across the selected cells, with
-crisp endpoint caps even for unchanged responses. Marker shapes and
-filled/outlined styles identify closures in a compact legend. Only nearby
-markers (within 1.5% of the displayed x-axis span) receive small symmetric
-vertical offsets inside the band; their x-values are preserved.
-These ranges compare closures, not confidence intervals or
+Each sector holds one group of vertical bars per labour closure; each group
+has output, household consumption (W_D), and price bars, using the same
+orange, green, and purple as the existing panel figures. A translucent bar
+spans the exact minimum and maximum across that labour closure's financing
+cells, and a line across the bar marks each financing cell (solid, dashed,
+dotted, … per financing id). Three sectors and three labour closures give 27
+bars. These ranges compare closures, not confidence intervals or
 elasticity variants. Missing, ambiguous, or undefined selected results are
-errors. `closure_comparison_data` exposes the changes and extrema headlessly.
+errors. `closure_comparison_data` exposes the changes, extrema, and each
+cell's labour and financing ids headlessly.
 
-Defaults are 17 cm width and 10-point text at that width. The PNG helper
-exports at 600 dpi and records the physical resolution; embed it at 17 cm
-to retain the intended font size. `width_cm`, `fontsize`, and `dpi` are
-configurable (minimum 8-point text and 300 dpi). Bands stay 9 points thick
-and sector rows stay 56 points high as closures are added; extra closures
-add only compact legend rows. Long sector labels can increase row height.
-Split long sector lists across figures to fit an A4 page without
-reducing the text. Sector names wrap without truncation. No title or run
-metadata is added to the publication figure.
+Defaults are 17 cm width, a 7 cm plot area, and 10-point text at that width.
+The PNG helper exports at 600 dpi and records the physical resolution; embed
+it at 17 cm to retain the intended font size. `width_cm`, `axis_height_cm`,
+`fontsize`, and `dpi` are configurable (minimum 8-point text and 300 dpi).
+`labour_labels` and `financing_labels` rename the group and line-style
+labels. Split long sector lists across figures to keep the bars readable.
+No title or run metadata is added to the publication figure.
 
 ## Comparing closures in an output/price scatter
 
