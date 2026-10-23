@@ -136,6 +136,45 @@ Split long sector lists across figures to fit an A4 page without
 reducing the text. Sector names wrap without truncation. No title or run
 metadata is added to the publication figure.
 
+## Comparing closures in an output/price scatter
+
+`plot_closure_scatter` compares explicit labour–financing closure pairs on the
+matrix panel's output-change/price-change axes. All sectors are circular points.
+Each pair has its own color, and point area is proportional to pre-shock Domar
+weight. A sector keeps the same size across every pair. Shocked sectors use
+darker opaque shades; other sectors use lighter, more transparent shades.
+
+```julia
+using OpenCGE, GLMakie
+
+# ds is an existing MatrixDataset; programme follows its sector order.
+pairs = [(:BF, :F1), (:BETA, :F2), (:DELTA, :F3)]
+fig = plot_closure_scatter(ds, pairs; programme = programme)
+save("closure_scatter.png", fig; px_per_unit = 2)
+
+# Attach names directly to the pairs for the top legend.
+named_pairs = ["Benchmark" => (:BF, :F1), "Alternative" => (:BETA, :F2)]
+fig = plot_closure_scatter(ds, named_pairs; programme = programme)
+
+# Optionally supply the calibrated pre-shock Domar weights explicitly.
+fig = plot_closure_scatter(ds, pairs;
+    programme = programme, domar_weights = data.λ,
+    unshocked_alpha = 0.25, max_markersize = 24)
+```
+
+Only the supplied pairs are selected, in order; `:BF => :F1` pairs are also
+accepted. Missing or ambiguous pairs are errors. Default point areas use
+baseline `prices .* quantities`, proportional to Domar weights because the
+common baseline GDP denominator cancels. Sizes depend on pre-shock values,
+including for unshocked sectors. `max_markersize` sets the largest diameter;
+all others scale by the square root of relative weight, so areas carry the
+correct ratios. Every nonzero programme entry marks a shocked sector.
+`closure_colors` optionally provides one distinct base color per pair.
+Named and unnamed pairs may be mixed; unnamed pairs keep their closure ids.
+`closure_labels` supplies or overrides all top-legend names in selection order.
+`closure_scatter_data` exposes percentage changes, the shock mask, and sizing
+weights without GLMakie.
+
 ## Tests
 
 ```bash

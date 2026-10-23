@@ -25,6 +25,31 @@ Undefined/nonfinite selected observations are rejected.
 function closure_comparison_data(ds::MatrixDataset, sectors::AbstractVector,
         closures::AbstractVector; financing = matrix_financing_order(),
         sector_labels = nothing, closure_labels = nothing)
+    (; ref, idx, cells, labels, clabels, run_ids) = _closure_comparison_selection(
+        ds, sectors, closures; financing, sector_labels, closure_labels)
+    n = length(ref.sectors)
+    changes = Array{Float64}(undef, length(idx), 3, length(cells))
+    for (k, cell) in enumerate(cells)
+        cell.sectors == ref.sectors || throw(ArgumentError("sector order differs in $(cell.run_id)"))
+        for (v, values) in enumerate((cell.quantities, cell.consumption, cell.prices))
+            length(values) == n || throw(DimensionMismatch("sector vector in $(cell.run_id) must have $n entries"))
+            for (i, j) in enumerate(idx)
+                change = 100.0 * (values[j] - 1.0)
+                isfinite(change) || throw(ArgumentError(
+                    "undefined/nonfinite response in $(cell.run_id), sector $(ref.sectors[j]), variable $v"))
+                changes[i, v, k] = change
+            end
+        end
+    end
+    return (; sectors = ref.sectors[idx], labels, run_ids, closure_labels = clabels,
+        variables = (:output, :consumption, :price), changes,
+        minima = dropdims(minimum(changes; dims = 3); dims = 3),
+        maxima = dropdims(maximum(changes; dims = 3); dims = 3))
+end
+
+# Shared selectors keep the range and scatter plots on the same cell ordering.
+function _closure_comparison_selection(ds::MatrixDataset, sectors::AbstractVector,
+        closures::AbstractVector; financing, sector_labels, closure_labels)
     isempty(sectors) && throw(ArgumentError("select at least one sector"))
     isempty(closures) && throw(ArgumentError("select at least one closure"))
     isempty(ds.cells) && throw(ArgumentError("dataset contains no cells"))
@@ -79,23 +104,7 @@ function closure_comparison_data(ds::MatrixDataset, sectors::AbstractVector,
     length(unique(clabels)) == length(clabels) || throw(ArgumentError(
         "closure labels must be unique; supply closure_labels to distinguish parameter variants"))
     all(s -> !isempty(strip(s)), vcat(labels, clabels)) || throw(ArgumentError("display labels cannot be empty"))
-    changes = Array{Float64}(undef, length(idx), 3, length(cells))
-    for (k, cell) in enumerate(cells)
-        cell.sectors == ref.sectors || throw(ArgumentError("sector order differs in $(cell.run_id)"))
-        for (v, values) in enumerate((cell.quantities, cell.consumption, cell.prices))
-            length(values) == n || throw(DimensionMismatch("sector vector in $(cell.run_id) must have $n entries"))
-            for (i, j) in enumerate(idx)
-                change = 100.0 * (values[j] - 1.0)
-                isfinite(change) || throw(ArgumentError(
-                    "undefined/nonfinite response in $(cell.run_id), sector $(ref.sectors[j]), variable $v"))
-                changes[i, v, k] = change
-            end
-        end
-    end
-    return (; sectors = ref.sectors[idx], labels, run_ids, closure_labels = clabels,
-        variables = (:output, :consumption, :price), changes,
-        minima = dropdims(minimum(changes; dims = 3); dims = 3),
-        maxima = dropdims(maximum(changes; dims = 3); dims = 3))
+    return (; ref, idx, cells, labels, clabels, run_ids)
 end
 
 """

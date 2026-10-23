@@ -46,6 +46,7 @@ export final_demand_bundle, ces_quantity_index, real_consumption_ev, real_final_
 export matrix_labour_order, matrix_financing_order, MatrixBaseline, MatrixCellData, MatrixDataset, matrix_baseline, sectoral_trade_flows, matrix_cell_data, matrix_dataset, matrix_cell_ids, matrix_sectoral_frame, matrix_summary_frame, validate_cell, plot_matrix_overview, plot_matrix_wages, plot_matrix_prices, plot_matrix_quantities, plot_matrix_consumption, plot_matrix_trade, save_matrix_figures, plot_matrix_panel, save_matrix_panels
 export sectoral_labor_gap, sectoral_supply_gap
 export closure_comparison_data, plot_closure_comparison, save_closure_comparison
+export closure_scatter_data, plot_closure_scatter
 const inflator = 1.46
 
 include("core/accounting.jl")
@@ -60,5 +61,6 @@ include("closures/registry.jl")
 include("core/diagnostics.jl")
 include("plots.jl")
 include("closure_comparison.jl")
+include("closure_scatter.jl")
 
 end

@@ -207,6 +207,42 @@ Kernel-relevant decisions whose full record stays in the paper repository
   The headless data contract and public plotting signatures remain unchanged. Release as
   v0.4.1, retaining the existing v0.4.0 tag.
 
+- **ADR-0039 — Closure-comparison output/price scatter.** Add a headless
+  `closure_scatter_data` selector and GLMakie `plot_closure_scatter` over
+  existing `MatrixDataset` cells, sharing the range plot's closure selection
+  rules. Plot all sectors' exact percentage changes in output and price on
+  shared axes, with sector colors independent of the closure selection and
+  distinct marker shapes for up to 15 closures by default. Every nonzero
+  programme entry identifies a shocked sector, including negative shocks.
+  Shocked sectors use darker opaque markers; other sectors use lighter,
+  smaller translucent markers and are drawn first across all closures.
+  Sector legends default to shocked sectors, with all/none options. Flat-price
+  responses remain visible without jitter; invalid plotted responses fail
+  explicitly, while unplotted consumption is irrelevant. Presentation only;
+  no solver or closure formulation changes.
+
+- **ADR-0040 — Domar-sized points and explicit closure pairs.** Supersedes
+  ADR-0039's sector colors, closure shapes, and shock-dependent marker sizes.
+  The scatter accepts explicit labour–financing pairs, each matching one cell,
+  and assigns a distinct color to each pair. Every sector is a circular point
+  with area proportional to its pre-shock Domar weight, shared across pairs
+  and shock groups. Default weights use baseline gross-output values, whose
+  ratios equal Domar-weight ratios; explicit `domar_weights` may be supplied.
+  Marker diameters scale with square roots of weights. Shocked sectors use
+  darker opaque shades; other sectors use lighter translucent shades drawn
+  first. Pair colors remain stable under reordering and subsetting within a
+  dataset. Legends show closure pairs and explain shock shading and area.
+  This replaces the initial scatter input as explicitly requested; the range
+  comparison API and all model formulations are unchanged.
+
+- **ADR-0042 — Names attached to scatter closure pairs.** Add optional
+  `"Name" => (labour, financing)` entries to the scatter's pair selection.
+  Their names appear in the top legend, with closure ids as the fallback
+  for unnamed entries in mixed selections. The existing `closure_labels`
+  keyword overrides attached names. Label validation retains nonempty,
+  unique display names; pair selection, colors, weights and coordinates
+  depend only on the underlying closure pair.
+
 ## Dead ends and ideas
 
 - **DE-0001 — Unnormalized household demand shifter.** Multiplying CES weights
