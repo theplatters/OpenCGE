@@ -190,6 +190,23 @@ Kernel-relevant decisions whose full record stays in the paper repository
   grows with the selection and labels wrap. Presentation only; no solver or
   closure formulation changes.
 
+- **ADR-0038 — Compact closure ranges and markers (v0.4.1).** Supersedes
+  ADR-0037's separate closure lanes and tick legend. Translucent 9-point
+  min–max bands with bordered endpoint caps sit in 56-point sector rows,
+  separated by subtle rules. Closure markers use nine shapes, then repeat
+  with white fills; a standard marker legend uses up to four columns
+  (three for long labels). Only responses connected by gaps of at most
+  1.5% of the displayed x-axis span receive symmetric vertical offsets;
+  the step is at most 2.2 points and shrinks for large tie groups to stay
+  inside the band. X-values and exact extrema remain unchanged. Measured
+  legend layout determines figure height while sector and band heights
+  remain independent of closure count; long labels wrap. Synthetic graphics
+  checks cover near/exact ties, flat responses, 9–15 closures, marker styles,
+  compact physical geometry, legend bounds and PNG resolution. Tick precision
+  follows the actual tick locations so fractional steps retain their decimals.
+  The headless data contract and public plotting signatures remain unchanged. Release as
+  v0.4.1, retaining the existing v0.4.0 tag.
+
 ## Dead ends and ideas
 
 - **DE-0001 — Unnormalized household demand shifter.** Multiplying CES weights

@@ -14,7 +14,7 @@ and its run records.
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.4.0")
+Pkg.add(url = "https://github.com/theplatters/OpenCGE", rev = "v0.4.1")
 ```
 
 For development, clone and `dev` the checkout:
@@ -115,19 +115,24 @@ save_closure_comparison("closures.png", ds, sectors, closures;
 fig = plot_closure_comparison(ds, sectors, [ds.cells[1].run_id, ds.cells[2].run_id])
 ```
 
-Each sector has output, household consumption (W_D), and price bars, using
-the same orange, green, and purple as the existing panel figures. Bars span
-the exact minimum and maximum across the selected cells. Individual closure
-ticks occupy separate lanes, in legend order from top to bottom, so ties
-remain visible. These ranges compare closures, not confidence intervals or
+Each sector has output, household consumption (W_D), and price bands, using
+the same orange, green, and purple as the existing panel figures. Translucent
+bands span the exact minimum and maximum across the selected cells, with
+crisp endpoint caps even for unchanged responses. Marker shapes and
+filled/outlined styles identify closures in a compact legend. Only nearby
+markers (within 1.5% of the displayed x-axis span) receive small symmetric
+vertical offsets inside the band; their x-values are preserved.
+These ranges compare closures, not confidence intervals or
 elasticity variants. Missing, ambiguous, or undefined selected results are
 errors. `closure_comparison_data` exposes the changes and extrema headlessly.
 
 Defaults are 17 cm width and 10-point text at that width. The PNG helper
 exports at 600 dpi and records the physical resolution; embed it at 17 cm
 to retain the intended font size. `width_cm`, `fontsize`, and `dpi` are
-configurable (minimum 8-point text and 300 dpi). Height grows with the
-selection; split long sector lists across figures to fit an A4 page without
+configurable (minimum 8-point text and 300 dpi). Bands stay 9 points thick
+and sector rows stay 56 points high as closures are added; extra closures
+add only compact legend rows. Long sector labels can increase row height.
+Split long sector lists across figures to fit an A4 page without
 reducing the text. Sector names wrap without truncation. No title or run
 metadata is added to the publication figure.
 

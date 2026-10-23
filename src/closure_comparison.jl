@@ -105,14 +105,15 @@ end
 
 Publication-sized horizontal range bars: one group per selected sector, with
 output, household consumption (W_D), and price in the existing panel palette.
-Each bar runs from the smallest to the largest selected closure result. Black
-ticks identify individual closures, in separate lanes from top to bottom in
-legend order, so equal values remain visible. All three variables are retained,
+Each translucent band runs from the smallest to the largest selected closure
+result. Marker shapes and filled/outlined styles identify individual closures;
+near-coincident values receive small symmetric vertical offsets inside the band.
+All three variables are retained,
 including unchanged prices. The dashed vertical reference is zero change.
 
 Selectors follow [`closure_comparison_data`](@ref). Font sizes are in print
-points at `width_cm`; height grows with the number of sectors and closures,
-rather than shrinking text. Long sector labels wrap without truncation.
+points at `width_cm`; sector rows and bands have fixed, compact heights as
+closures are added, with extra rows only in the legend. Long labels wrap without truncation.
 For long selections, split sectors across figures to fit the page height.
 Requires `using GLMakie`. Returns a Makie `Figure`; see
 [`save_closure_comparison`](@ref) for a PNG at the intended physical size.

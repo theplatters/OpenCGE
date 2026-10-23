@@ -19,6 +19,29 @@ function _cc_wrap(label, columns = 24)
     return join(lines, '\n')
 end
 
+# Only nearby responses move off the centreline. Keep even large tie groups
+# inside the fixed band, preserving the selected closure order within a tie.
+function _cc_tie_offsets(values, tolerance, barheight)
+    offsets = zeros(length(values))
+    order = sortperm(values)
+    start = 1
+    while start <= length(order)
+        stop = start
+        while stop < length(order) && values[order[stop + 1]] - values[order[stop]] <= tolerance
+            stop += 1
+        end
+        n = stop - start + 1
+        if n > 1
+            step = min(2.2, (barheight - 1) / (n - 1))
+            for (j, k) in enumerate(sort(order[start:stop]))
+                offsets[k] = (j - (n + 1) / 2) * step
+            end
+        end
+        start = stop + 1
+    end
+    return offsets
+end
+
 function OpenCGE.plot_closure_comparison(ds::OpenCGE.MatrixDataset,
         sectors::AbstractVector, closures::AbstractVector;
         financing = OpenCGE.matrix_financing_order(), sector_labels = nothing,
@@ -29,72 +52,90 @@ function OpenCGE.plot_closure_comparison(ds::OpenCGE.MatrixDataset,
         financing, sector_labels, closure_labels)
     ns, _, nc = size(data.changes)
     labels = _cc_wrap.(data.labels)
-    clabels = _cc_wrap.(data.closure_labels, 26)
     width = round(Int, width_cm / 2.54 * 72)
-    # A separate lane for every closure keeps coincident responses readable.
-    barheight = max(9.0, nc * 3.0)
-    rowheight = max(54.0, 3 * (barheight + 4) + 10,
+    barheight = 9.0
+    rowheight = max(56.0,
         maximum(count(==('\n'), l) + 1 for l in labels) * fontsize * 1.2 + 6)
-    legend_columns = max(1, min(3, floor(Int, width / (fontsize * 15))))
-    legend_rows = cld(nc, legend_columns)
-    keyheight = max(12, nc * 3)
-    legend_height = legend_rows * (max(fontsize * 1.6, keyheight) + 3) + fontsize * 4.8 +
-        sum(count(==('\n'), l) for l in clabels) * fontsize * 1.2
-    height = ceil(Int, ns * rowheight + legend_height + fontsize * 5)
+    legend_columns = min(nc, maximum(length, data.closure_labels) > 16 ? 3 : 4)
+    wrap_columns = clamp(floor(Int,
+        ((width - 20 - 12 * (legend_columns - 1)) / legend_columns - 20) / (0.6 * fontsize)), 1, 26)
+    clabels = _cc_wrap.(data.closure_labels, wrap_columns)
+    height = ceil(Int, ns * rowheight + 100)
     fig = Figure(size = (width, height), fontsize = fontsize,
         figure_padding = (10, 10, 8, 8), backgroundcolor = :white)
     colors = Makie.wong_colors()[[2, 3, 4]]
-    Legend(fig[1, 1], [PolyElement(polycolor = c) for c in colors],
+    Legend(fig[1, 1], [PolyElement(color = (c, 0.28),
+            strokecolor = (c, 0.85), strokewidth = 1.0) for c in colors],
         ["Output", "Consumption (W_D)", "Price"];
         orientation = :horizontal, framevisible = false, labelsize = fontsize,
         patchsize = (14, 10), colgap = 12, padding = (0, 0, 0, 0), tellwidth = false)
-    # Lane location in each key matches the lane inside every coloured bar.
-    elements = [LineElement(color = :black, linewidth = 0.8,
-        linepoints = Point2f[(0.5, 1 - (k - 0.85) / nc),
-            (0.5, 1 - (k - 0.15) / nc)]) for k in 1:nc]
-    Legend(fig[2, 1], elements, clabels, "Closure ticks (top to bottom)";
+    shapes = [:circle, :rect, :utriangle, :diamond, :dtriangle,
+        :pentagon, :xcross, :star5, :hexagon]
+    markers = [shapes[mod1(k, length(shapes))] for k in 1:nc]
+    fills = [isodd(cld(k, length(shapes))) ? :gray20 : :white for k in 1:nc]
+    elements = [MarkerElement(marker = markers[k], color = fills[k],
+        strokecolor = :gray20, markersize = 7.5, strokewidth = 0.9) for k in 1:nc]
+    closure_legend = Legend(fig[2, 1], elements, clabels;
         orientation = :vertical, nbanks = legend_columns, tellheight = true,
         framevisible = false, labelsize = fontsize, titlesize = fontsize,
-        patchsize = (12, keyheight), colgap = 12, rowgap = 3,
+        patchsize = (14, 12), colgap = 12, rowgap = 2,
         padding = (0, 0, 0, 0), tellwidth = false)
+    # Use the measured legend width for unusually wide glyphs or large text.
+    while closure_legend.layoutobservables.computedbbox[].widths[1] > width - 20 &&
+            closure_legend.nbanks[] > 1
+        closure_legend.nbanks[] -= 1
+    end
     ax = Axis(fig[3, 1]; xlabel = "Change vs. baseline (%)",
+        height = ns * rowheight,
         yticks = (1:ns, labels), yreversed = true, ygridvisible = false,
         xticklabelsize = fontsize, yticklabelsize = fontsize,
         xlabelsize = fontsize, ylabelsize = fontsize,
         xgridcolor = (:black, 0.08), topspinevisible = false, rightspinevisible = false)
     vlines!(ax, [0.0]; color = :gray50, linewidth = 0.8, linestyle = :dash)
-    band = barheight / rowheight
-    spacing = (barheight + 4) / rowheight
-    for v in 1:3
-        positions = collect(1.0:ns) .+ (v - 2) * spacing
-        barplot!(ax, positions, data.maxima[:, v]; fillto = data.minima[:, v],
-            direction = :x, width = band, gap = 0, color = colors[v],
-            strokecolor = colors[v], strokewidth = 0.5)
-        for k in 1:nc
-            points = Point2f[]
-            for i in 1:ns
-                center = positions[i] - band / 2 + (k - 0.5) * band / nc
-                half = 0.35 * band / nc
-                x = data.changes[i, v, k]
-                push!(points, Point2f(x, center - half), Point2f(x, center + half))
-            end
-            # Keep ticks in front of the filled bars, including at tied extrema.
-            linesegments!(ax, points; color = :black, linewidth = 0.8,
-                depth_shift = -1f-3)
-        end
-    end
+    hlines!(ax, collect(1.5:(ns - 0.5)); color = (:black, 0.10), linewidth = 0.75)
     values = vcat(0.0, vec(data.minima), vec(data.maxima))
     lo, hi, _ = _mp_panel_span(values;
         min_span = all(iszero, values) ? 1.0 : 0.0, pad = 0.08)
+    band = barheight / rowheight
+    spacing = 14.0 / rowheight
+    for v in 1:3
+        positions = collect(1.0:ns) .+ (v - 2) * spacing
+        barplot!(ax, positions, data.maxima[:, v]; fillto = data.minima[:, v],
+            direction = :x, width = band, gap = 0, color = (colors[v], 0.28),
+            strokecolor = (colors[v], 0.85), strokewidth = 1.0)
+        caps = Point2f[]
+        offsets = zeros(ns, nc)
+        for i in 1:ns
+            for x in unique((data.minima[i, v], data.maxima[i, v]))
+                push!(caps, Point2f(x, positions[i] - band / 2),
+                    Point2f(x, positions[i] + band / 2))
+            end
+            offsets[i, :] = _cc_tie_offsets(view(data.changes, i, v, :),
+                0.015 * (hi - lo), barheight) ./ rowheight
+        end
+        # Explicit caps also keep zero-width ranges visible.
+        linesegments!(ax, caps; color = colors[v], linewidth = 1.0)
+        for k in 1:nc
+            scatter!(ax, data.changes[:, v, k], positions .+ offsets[:, k];
+                marker = markers[k], color = fills[k], strokecolor = :gray20,
+                markersize = 7.5, strokewidth = 0.9,
+                depth_shift = -1f-3)
+        end
+    end
     xlims!(ax, lo, hi)
     ylims!(ax, 0.5, ns + 0.5)
     ax.yreversed = true
     ax.xticks = Makie.WilkinsonTicks(5; k_min = 4, k_max = 6)
-    # Preserve tiny effects instead of rounding every tick to zero.
-    digits = clamp(ceil(Int, -log10((hi - lo) / 5)), 0, 8)
+    # Match the actual tick locations, including half-percent steps at wide
+    # spans, and preserve tiny effects with scientific notation.
+    ticks = Makie.get_tickvalues(ax.xticks[], lo, hi)
+    digits = 0
+    while digits < 8 && any(t -> abs(t - round(t; digits)) > (hi - lo) * 1e-8, ticks)
+        digits += 1
+    end
     ax.xtickformat = hi - lo < 1e-4 || hi - lo > 1e5 ? "{:.2e}%" : "{:.$(digits)f}%"
     rowgap!(fig.layout, 6)
-    Makie.update_state_before_display!(fig)
+    Makie.resize_to_layout!(fig)
     return fig
 end
 
