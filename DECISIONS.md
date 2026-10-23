@@ -243,6 +243,20 @@ Kernel-relevant decisions whose full record stays in the paper repository
   unique display names; pair selection, colors, weights and coordinates
   depend only on the underlying closure pair.
 
+- **ADR-0043 — Restore the fixed nominal wage in GAMMA/DELTA.** Supersedes
+  ADR-0036: `FixedWageClosure`, `:fixed`, `gamma_model` and `delta_model` fix
+  `w = 1` and `F = 0`, with endogenous employment and a moving CPI and real
+  wage. Remove the additional `w/Π(p) = 1` restriction and its overdetermined
+  least-squares solve: it prevents price-changing shocks from clearing all
+  markets. Restore the square system of N unit-cost and N goods-market
+  equations in `[p; y]` and the ordinary nonlinear root solver with residual
+  checks and bounded polishing. `equilibrium_residuals` again returns 2N
+  entries. Keep `NominalWageClosure()` / `:nominal` as compatibility spellings
+  for the same equations, retain the exported `FixedRealWageFeasibilityError`
+  type without raising it, and keep the shared CPI's geometric limit at
+  `σ = 1`. Synthetic regressions cover price-changing pricing and productivity
+  shocks, raw versus CPI-normalized wages, and zero household transfer.
+
 ## Dead ends and ideas
 
 - **DE-0001 — Unnormalized household demand shifter.** Multiplying CES weights

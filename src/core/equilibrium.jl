@@ -243,8 +243,8 @@ Model type for CES with geometric intersectoral labor reallocation and an explic
 struct MobileLaborCES <: ModelType
     elasticities::MobileLaborCESElasticities
     labor_bar::Float64
-    closure::Symbol   # :mobile = flexible wage (ALPHA); :fixed = fixed real wage (GAMMA);
-                      # :nominal = legacy fixed nominal wage;
+    closure::Symbol   # :mobile = flexible wage (ALPHA); :fixed = fixed nominal wage (GAMMA);
+                      # :nominal = compatibility spelling for the fixed-wage equations;
                       # :beta = flexible wage with elastic total labour supply (BETA)
     function MobileLaborCES(elasticities::MobileLaborCESElasticities, labor_bar::Float64, closure::Symbol)
         closure in (:mobile, :fixed, :nominal, :beta) || throw(ArgumentError("unsupported MobileLaborCES closure $closure; use :mobile, :fixed, :nominal, or :beta"))
@@ -815,11 +815,10 @@ end
 
 """Return the exact residual vector for either mobile-labor closure.
 
-For the `:fixed` and `:nominal` closures the canonical vector is FULL form
-(2N: p1..pN, y1..yN; nominal gauge w = 1, F ≡ 0); a mobile (p, y, w) vector (2N+1) or a
+For the `:fixed` and `:nominal` closures the canonical vector is FULL form (2N: p1..pN,
+y1..yN; w = 1 pinned, F ≡ 0); a mobile (p, y, w) vector (2N+1) or a
 (p, y, w, F) vector (2N+2) is also accepted and reduced internally (the wage
-and transfer components are dropped). `:fixed` returns 2N+1 residuals,
-including the real-wage restriction `w/CPI - 1`; `:nominal` returns 2N.
+and transfer components are dropped).
 For the mobile closures at η = 1 the canonical vector is (2N+2: p1..pN, y1..yN,
 w, F); a legacy (p, y, w) vector (2N+1) is accepted with F = 0 for backward
 compatibility with stored v1-v5 solutions/diagnostics.
@@ -842,7 +841,7 @@ function equilibrium_residuals(model::Model{MobileLaborCES}, X::AbstractVector)
         else
             throw(DimensionMismatch("fixed closure expects a $(2N)-element vector"))
         end
-        out = similar(xr, 2N + (labor_closure(model) isa FixedWageClosure))
+        out = similar(xr)
         problem_fixed(out, xr, model)
     elseif model.options.elasticities.η == 0.0 ||
            model.options.elasticities.eta_s_vec !== nothing
@@ -888,14 +887,12 @@ _equilibrium_residuals(model::Model{MobileLaborCES}, sol::Solution) =
 """
     problem_fixed(out, X, model)
 
-Equilibrium system for fixed real (`:fixed`) or nominal (`:nominal`) wages.
-The nominal gauge is w = 1; unknowns are p(1:N) and y(1:N) only (2N).
-Equations:
+Equilibrium system for the :fixed and :nominal fixed nominal-wage closures.
+w = 1.0 is hard-coded as the numeraire; unknowns are p(1:N) and y(1:N) only (2N).
+Equations (2N):
   1. N zero-profit conditions:  p_i = cost_i(p, w=1.0) for all i
   2. N market-clearing:         y_i = intermed_i + final_i for all i
-  3. For :fixed only:           w / CPI = 1
-The real-wage system has 2N+1 equations and 2N unknowns: incompatible shocks
-need not admit an equilibrium. The nominal-wage system has 2N equations.
+Total: 2N equations, 2N unknowns. There is no CPI pin: w = 1 is the numeraire.
 The fixed regime clears with F ≡ 0 (ADR-0019): there is no external-transfer
 unknown and the demand hook below runs at its F = 0 default.
 Employment `L_i` is computed post-solve and is not constrained to `labor_bar`.
@@ -910,8 +907,8 @@ function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     (; data) = model
     N = length(data.factor_share)
 
-    # FIXED-WAGE FORMULATION (2N unknowns: p1..pN, y1..yN; nominal gauge w = 1).
-    # ALL N zero-profit and ALL N clearing equations
+    # FIXED-WAGE FORMULATION (2N unknowns: p1..pN, y1..yN; w = 1 pinned as the
+    # sticky-wage numeraire). ALL N zero-profit and ALL N clearing equations
     # are enforced -- with the v3 homogeneous budget there is no Walras
     # redundancy at fixed w, and no sector's zero-profit may be dropped.
     # The demand block is evaluated by `_mobile_market_demand` (w = 1), the
@@ -924,12 +921,6 @@ function problem_fixed(out::Vector, X::Vector, model::Model{MobileLaborCES})
     blocks = _mobile_market_demand(model, p, y, 1.0)
     out[1:N] .= p .- blocks.cost
     out[N+1:2N] .= y .- blocks.intermediary_demand .- blocks.total_final_demand
-    if labor_closure(model) isa FixedWageClosure
-        σ = model.options.elasticities.σ
-        cpi = _consumption_price_index(data.consumption_share, p, σ)
-        out[2N+1] = labor_market_residual(FixedWageClosure(), model,
-            sum(blocks.L_i), 1.0, cpi)
-    end
 
     nothing
 end
@@ -968,16 +959,14 @@ end
 """
     _solve_fixed(model; init)
 
-Solve the fixed-wage system in the nominal gauge w=1.0. `:fixed` also enforces
-w/CPI=1 with F=0; a nonzero least-squares minimum is rejected with
-`FixedRealWageFeasibilityError`. Returns equilibrium
-prices, quantities, consumption, and Tornqvist real GDP computed
+Solve the fixed nominal-wage (w=1.0) system. Returns a `Solution` with
+equilibrium prices, quantities, `wages_raw` equal to one, CPI-deflated
+`wages`, consumption, and Tornqvist real GDP computed
 from consumption (B&F metric). Employment (`sum(L_i)`) is a post-solve outcome.
 """
 function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
     (; data, options, shocks) = model
     N = length(data.factor_share)
-    real_fixed = labor_closure(model) isa FixedWageClosure
 
     η = options.elasticities.η
     # Scale determinacy of the fixed-wage η ≈ 1 system is assessed on the
@@ -1069,10 +1058,8 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
         Float64.(init)
     else
         try
-            ProbN = _fixed_nonlinear_problem(model, init)
-            res = real_fixed ? NonlinearSolve.solve(ProbN,
-                NonlinearSolve.LevenbergMarquardt(); reltol=1e-12, abstol=1e-12, maxiters=20000) :
-                NonlinearSolve.solve(ProbN; reltol=1e-6, abstol=1e-6, maxiters=20000)
+            ProbN = NonlinearSolve.NonlinearProblem(problem_fixed, init, model)
+            res = NonlinearSolve.solve(ProbN, reltol=1e-6, abstol=1e-6, maxiters=20000)
             # Quality gate = the ACTUAL residual, never the retcode. Bounded LM polish.
             x = res.u
             rmax = maximum(abs, equilibrium_residuals(model, x))
@@ -1080,26 +1067,24 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
             # inside the 1e-6 acceptance gate. Cells that stop at the gate have
             # TOLERANCE-DEPENDENT metrics (GAMMA-F2 moved 8.3e-7 in real_gdp_rel
             # under a 1e-16 perturbation at resid 4.85e-7). The acceptance gate
-            # is 1e-8 for the real-wage system and 1e-6 for the nominal one.
-            # A step that does not improve the residual is discarded, so polishing can never turn
+            # below is unchanged, and the polish is monotone: a step that does
+            # not improve the residual is discarded, so polishing can never turn
             # a passing cell into a failing one.
             for _ in 1:4
                 rmax <= 1e-10 && break
                 res = NonlinearSolve.solve(
-                    _fixed_nonlinear_problem(model, x),
+                    NonlinearSolve.NonlinearProblem(problem_fixed, x, model),
                     NonlinearSolve.LevenbergMarquardt(); reltol=1e-12, abstol=1e-12, maxiters=20000)
                 x_new = res.u
                 r_new = maximum(abs, equilibrium_residuals(model, x_new))
                 r_new < rmax || break
                 x, rmax = x_new, r_new
             end
-            if !(isfinite(rmax) && rmax <= (real_fixed ? 1e-8 : 1e-6))
-                real_fixed && throw(_fixed_real_wage_failure(model, x))
+            if !(isfinite(rmax) && rmax <= 1e-6)
                 error("MobileLaborCES._solve_fixed did not converge: retcode = $(res.retcode), max|resid| = $rmax")
             end
             x
         catch e
-            e isa FixedRealWageFeasibilityError && rethrow()
             e isa ErrorException && occursin("did not converge", sprint(showerror, e)) && rethrow()
             e isa DimensionMismatch && rethrow()
             error("MobileLaborCES._solve_fixed did not converge: $(sprint(showerror, e))")
@@ -1113,14 +1098,14 @@ function _solve_fixed(model::Model{MobileLaborCES}; init=nothing)
 
     p = x[1:N]
     q = max.(x[N+1:2N], 0.0)
-    w = 1.0  # nominal gauge; :fixed additionally requires w/CPI = 1
+    w = 1.0  # sticky wage
 
     (; θ, ϵ, σ, η) = options.elasticities
 
     # Sectoral labor demand at equilibrium
     L_i = sectoral_labor_demand(p, q, w, model)
 
-    # Common nominal wage in the chosen gauge.
+    # Wages vector (all 1.0 — sticky)
     wages = fill(w, N)
 
     # Consumption (budget-consistent, financed — must match `problem_fixed`)
@@ -1172,8 +1157,8 @@ function solve(model::Model{MobileLaborCES};
     (; data, options, shocks) = model
     N = length(data.factor_share)
 
-    # ── Fixed-wage path (:fixed / :nominal) ──
-    # Nominal gauge w = 1; :fixed also imposes the real-wage restriction.
+    # ── Fixed nominal-wage path (:fixed / :nominal) ──
+    # w = 1.0 is hard-coded; solve a 2N system (prices + quantities only).
     # Employment is computed post-solve.
     if labor_closure(options) isa Union{FixedWageClosure,NominalWageClosure}
         return _solve_fixed(model; init=init)
@@ -1318,11 +1303,10 @@ end
     mobile_labor_model(data, shocks, θ, ϵ, σ, η; labor_bar=nothing, closure=:mobile, financing=nothing, eta_s=nothing)
 
 Convenience constructor for a MobileLaborCES model.
-`closure=:mobile` uses a flexible, market-clearing wage; `closure=:fixed` fixes
-the real wage `w/CPI = 1`, keeps household external transfer `F = 0`, and lets
-employment adjust. Incompatible shocks raise `FixedRealWageFeasibilityError`.
-`closure=:nominal` reproduces the legacy nominal-wage pin `w = 1` with a moving
-real wage. `closure=:beta` (or
+`closure=:mobile` uses a flexible, market-clearing wage; `closure=:fixed` uses a
+fixed nominal wage `w = 1`, zero household external transfer `F = 0`, and
+unconstrained employment demand. Prices and the real wage may change.
+`closure=:nominal` (or `NominalWageClosure()`) uses the same equations. `closure=:beta` (or
 `eta_s=<value>`, which forces `:beta`) uses the elastic-supply BETA closure.
 `financing` selects an F1/F2/F3 financing closure (default `NoFinancing()`);
 `pricing` selects a pricing closure (default `NoPricing()`, ADR-0029).

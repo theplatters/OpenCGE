@@ -58,23 +58,20 @@ real_final_demand_ces(sol, base; lambda = 1.0) # CES index of the c + λg bundle
 welfare_leisure(sol, base).welfare             # bundle index less w·ΔN / V₀
 ```
 
-`gamma_model(...)`, `delta_model(...)`, and `closure=:fixed` enforce a fixed
-real wage, `w / cpi(sol) = 1`, with endogenous employment and household external
-transfer `F = 0`. The solver retains every goods-market and unit-cost equation;
-if it cannot also satisfy the real-wage restriction it raises
-`FixedRealWageFeasibilityError`. Pricing and productivity shocks can make these
-conditions incompatible. Fixing the nominal wage as the gauge does not remove
-this economic restriction.
+`gamma_model(...)`, `delta_model(...)`, and `closure=:fixed` fix the nominal
+wage at `w = 1`, with endogenous employment and household external transfer
+`F = 0`. Prices and the real wage may change with pricing or productivity
+shocks. The solver retains all N unit-cost and N goods-market equations:
+`equilibrium_residuals` returns 2N residuals for the unknown vector `[p; y]`,
+with no additional CPI constraint. `delta_model` accepts a `pricing` keyword.
 
-For `:fixed`, `equilibrium_residuals` now appends the real-wage residual after
-the N cost and N goods residuals (2N+1 residuals; the unknown vector remains
-`[p; y]`). The solver accepts only a common root of all equations.
-
-To reproduce the earlier wage-normalized pricing formulation, explicitly use
-`closure=NominalWageClosure()` (or `:nominal`) in `mobile_labor_model`. It fixes
-`w = 1` and `F = 0` while allowing the real wage to move. Earlier GAMMA/DELTA
-pricing results need new runs under the fixed-real-wage formulation; some cells
-may have no compatible equilibrium. `delta_model` accepts a `pricing` keyword.
+`sol.wages_raw` reports the fixed nominal wage; `sol.wages` reports the real
+wage after division by `cpi(sol)`. Similarly, `sol.prices_raw` contains prices
+in wage units, while `sol.prices` is CPI-normalized. `NominalWageClosure()` /
+`:nominal` remains available with the same fixed-wage equations.
+`FixedRealWageFeasibilityError` remains exported for compatibility but is no
+longer raised by this closure. This restores the formulation used before
+commit `93d20ab`; the extra real-wage restriction from that commit is removed.
 
 `read_data("I-O_DE2019_formatiert.csv"; datadir = "...")` loads a real
 input–output table (e.g. the German 2019 use table) into the same `Data`

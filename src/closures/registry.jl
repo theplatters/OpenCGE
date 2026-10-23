@@ -70,11 +70,9 @@ beta_model(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η::Real;
 """
 	gamma_model(data, shocks, θ, ϵ, σ, η; kwargs...)
 
-GAMMA closure: fixed real wage `w / CPI = 1`, zero household external transfer,
-and endogenous, uncapped employment. The nominal gauge is `w = 1`; the real
-wage restriction additionally requires `CPI = 1`. Incompatible shocks raise
-`FixedRealWageFeasibilityError`. Extra kwargs pass through (`labor_bar` must
-not be supplied).
+GAMMA closure: fixed nominal wage `w = 1`, zero household external transfer,
+and endogenous, uncapped employment. Prices and the real wage may change.
+Extra kwargs pass through (`labor_bar` must not be supplied).
 """
 gamma_model(data::Data, shocks::Shocks, θ::Real, ϵ::Real, σ::Real, η::Real; kwargs...) =
     mobile_labor_model(data, shocks, θ, ϵ, σ, η; closure = :fixed, kwargs...)

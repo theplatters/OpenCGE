@@ -11,12 +11,12 @@ struct ExogenousLaborClosure <: AbstractLaborClosure
 end
 """Mobile labor with a flexible, market-clearing wage."""
 struct FlexibleWageClosure <: AbstractLaborClosure end
-"""Fixed real wage `w / CPI = 1`, zero household external transfer, and endogenous employment."""
+"""Fixed nominal wage `w = 1`, zero household external transfer, and endogenous employment."""
 struct FixedWageClosure <: AbstractLaborClosure end
-"""Fixed nominal wage `w = 1` and zero household external transfer (legacy pricing formulation)."""
+"""Compatibility spelling for the fixed nominal-wage equations of `FixedWageClosure`."""
 struct NominalWageClosure <: AbstractLaborClosure end
 
-"""No equilibrium satisfying the fixed real wage and all goods markets was found with `F = 0`."""
+"""Compatibility exception for the former fixed-real-wage system; fixed nominal-wage solves do not raise it."""
 struct FixedRealWageFeasibilityError <: Exception
 	msg::String
 end

@@ -440,7 +440,7 @@ end
 
 Exact money-metric of household consumption: the ratio of consumption
 expenditure `sum(p .* c_gross)` at the CPI-normalized prices `sol.prices`.
-These prices have `Pi(p) = 1`, including in the legacy nominal-wage closure.
+These prices have `Pi(p) = 1`, including in the fixed nominal-wage closures.
 Equals 1.0 at `base`.
 """
 function real_consumption_ev(sol::Solution, base::Solution)::Float64

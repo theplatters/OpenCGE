@@ -158,9 +158,7 @@ end
         sol3 = solve(delta_model(fx.data, shocks; ε = 1e-3, financing = fin))
         e3 = maximum(abs.(sol3.quantities .- ana.y))
         e4 = maximum(abs.(sol.quantities .- ana.y))
-        # The exact demand-only solution can already be at round-off for
-        # both ε values. Compare convergence only above the polish floor.
-        @test e4 <= max(e3, 1e-10)
+        @test e4 <= e3
         # Fixed-price multiplier structure: demand-only shocks pin p = 1.
         @test maximum(abs.(sol.prices_raw .- 1)) < 1e-6
     end
@@ -361,8 +359,8 @@ end
             closure = :fixed, financing = fin)
         sol = solve(mdl)
         r = equilibrium_residuals(mdl, [sol.prices_raw; sol.quantities])
-        # ... with all N market clearings and the real-wage restriction enforced.
-        @test length(r) == 2N + 1
+        # ... with all N market clearings enforced (length 2N residual).
+        @test length(r) == 2N
         @test maximum(abs, r) < 1e-6
     end
     # ... while unanchored demand still throws the legacy guard.
