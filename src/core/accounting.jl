@@ -60,9 +60,14 @@ end
 struct Data <: AbstractData
 	io::DataFrame
 	# Conditional intermediate-input shares in B&F orientation (DOMESTIC only):
-	# rows are using sectors and columns are supplying sectors. Each row sums to 1.
+	# rows are using sectors and columns are supplying sectors. Each row sums to
+	# one except for the users whose recorded imports exceed their intermediate
+	# use: those rows are zero by construction (three of them in the 2019 table).
+	# NOT the equilibrium technology; kept for domestic incidence and audit.
 	Ω::Matrix{Float64}
-	# Raw (domestic + imported) conditional input-share matrix, kept for audit.
+	# Raw (domestic + imported) conditional input-share matrix. THIS is the
+	# equilibrium technology: the CES price index, intermediate demand and the
+	# analytic Leontief block all read it.
 	Ω_raw::Matrix{Float64}
 	consumption_share::Vector{Float64}
 	factor_share::Vector{Float64}
@@ -169,6 +174,10 @@ end
 # taxes on its intermediate use. All three scaled to model units by 1/GDP_P.
 # Row 76 is their sum (the purchaser-price bill). Located by label so the
 # rebuilt retained-sector tables (shorter sector block) work identically.
+# The label lookup is also a guard, not a convenience: a one-column shift in the
+# import row is worth up to 62,539 EUR m, nine per cent of the 670,368 EUR m of
+# imported intermediates in the 2019 table, and indexing the Destatis block
+# positionally is the natural way to pick that error up.
 function _domestic_bills(io::DataFrames.DataFrame, n::Int, gdp::Real)
 	lbl = String.(io.Sektoren)
 	rA = findfirst(x -> occursin("inländischen Produktion", x), lbl)
@@ -516,11 +525,23 @@ function assemble_data(io::DataFrames.DataFrame, d::NamedTuple)
 end
 
 """
-	read_data(filename::String)
+	read_data(filename::String; datadir = pwd()) -> Data
 
-Given a filename of a IO table located in the /data directory this returns the CESData, where shocks are set to ones
- given a filename of a io table located in the /data directory this returns the cesdata, where shocks are set to ones
-and elasticities are set to the ones presente in the paper by b&f
+Read the Destatis input--output table and assemble the calibrated `Data`.
+
+The revision pins `I-O_DE2019_formatiert.csv` in `data/`: Germany 2019, 71
+product groups at basic prices. The parsing conventions are the table's own and
+nothing beyond them is recoded: semicolon-delimited, comma decimals, `-` and `x`
+read as missing and coalesced to zero, leading blanks stripped from the label
+column. Row 72 (households' own goods and services) lies outside the modelled
+block; rows 73--75 are the domestic intermediate bill, the imported
+intermediates and the product taxes on intermediate use, rows 77--84 carry value
+added and output; columns 2--72 are the 71 using sectors, followed by the seven
+final-demand categories. Rows and columns are located by LABEL throughout, never
+by position, so the same loader runs unchanged on the rebuilt retained-sector
+tables from `retained_dataset`.
+
+Shocks are set to one and elasticities to the B&F values.
 """
 function read_data(filename::String; datadir::AbstractString = pwd())::Data
 	filedir = joinpath(datadir, "data", filename)
